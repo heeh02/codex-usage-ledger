@@ -4,11 +4,11 @@ Status: **ACTIVE**
 Started: 2026-09-04
 Previous completed product goal: [`docs/archive/goals/2026-09-04-product-goal.md`](docs/archive/goals/2026-09-04-product-goal.md)
 
-Safety hold: the GitHub repository is temporarily **Private** because an
-independent review found real project/path evidence in reachable pre-governance
-commits and the old release. Restore Public visibility only after the remote is
-recreated from a sanitized root (preferred) or GitHub confirms cached-object
-purging after a full history rewrite.
+Safety hold resolution: the public target was recreated as a fresh **Private**
+repository from the sanitized source tree. Its first CI run passed the complete
+reachable-history privacy gate. The pre-governance remote remains a separate,
+read-only private archive and is not reachable from the public target. Public
+visibility still waits for the tagged release gate and artifact verification.
 
 ## Outcome
 
@@ -41,9 +41,9 @@ privacy, database compatibility, or the installed macOS application.
 - [x] Classify current contracts, architecture, release evidence, and history.
 - [x] Replace real project/account/path evidence in current public documentation
       with synthetic examples and add an automated privacy gate.
-- [ ] Remove sensitive blobs from every reachable Git ref and old release, then
-      prove the full-history privacy gate passes before restoring Public access.
-- [ ] Protect `main` with required pull requests and CI checks.
+- [x] Recreate the public target without legacy refs or releases and prove the
+      full-history privacy gate on the resulting one-root history.
+- [x] Protect `main` with required pull requests and strict CI checks.
 
 ### Phase B — Behavior-neutral Rust boundaries
 
@@ -82,15 +82,18 @@ privacy, database compatibility, or the installed macOS application.
 
 ### Phase E — Acceptance and delivery
 
-- [x] All existing 88 Rust tests pass with no accounting changes.
+- [x] All 93 Rust library tests, 3 binary tests, and the API-schema integration
+      test pass with the accounting invariants intact.
 - [x] Web typecheck/build and new unit/E2E gates pass in both locales.
 - [x] macOS app builds, deep-signature verification passes, and the installed app
       opens the existing ledger in daemon/live mode.
 - [x] A clean checkout can follow `CONTRIBUTING.md` without maintainer-only paths.
-- [ ] Independent review reports P0=0 and P1=0 for repository contribution,
+- [x] Independent review reports P0=0 and P1=0 for repository contribution,
       module boundaries, privacy, and release safety.
-- [ ] Install the verified app, push the public repository, and remove only
-      rebuildable caches and temporary release copies.
+- [x] Install the verified schema 24 app and reopen the existing ledger in live
+      mode without changing Token totals.
+- [ ] Publish and verify the tagged macOS/Linux/Windows release, restore Public
+      visibility, and remove only rebuildable caches and temporary copies.
 
 ## Change control
 
