@@ -823,7 +823,8 @@ export class MockLedgerApi implements LedgerApi {
     const facts = filterFacts(this.facts, filters, this.anchor);
     const usage = aggregateByQuality(facts);
     const period = periodWindow(this.anchor, filters.period);
-    const official = mockOfficial(buildTimeseries(facts), usage.confirmed.total);
+    const accountFacts = filterFacts(this.facts, { ...filters, project: ALL, model: ALL, session: ALL }, this.anchor);
+    const official = mockOfficial(buildTimeseries(accountFacts), aggregateByQuality(accountFacts).confirmed.total);
     const confirmedEvents = facts
       .filter((fact) => fact.quality === 'confirmed')
       .reduce((sum, fact) => sum + fact.events, 0);
@@ -927,6 +928,9 @@ export class MockLedgerApi implements LedgerApi {
     await delayed(signal);
     const facts = filterFacts(this.facts, filters, this.anchor);
     const points = buildTimeseries(facts);
+    const accountFacts = filterFacts(this.facts, { ...filters, project: ALL, model: ALL, session: ALL }, this.anchor);
+    const official = mockOfficial(buildTimeseries(accountFacts), aggregateByQuality(accountFacts).confirmed.total);
+    official.primaryScope = filters.project === ALL && filters.model === ALL && filters.session === ALL;
     return {
       generatedAt: new Date().toISOString(),
       period: periodWindow(this.anchor, filters.period),
@@ -942,7 +946,7 @@ export class MockLedgerApi implements LedgerApi {
           points: buildTimeseries(projectFacts).map((point) => ({ date: point.date, confirmed: point.confirmed, confirmedEvents: point.confirmedEvents })),
         };
       }).filter((series) => series.totalTokens > 0),
-      official: mockOfficial(points, points.reduce((sum, point) => sum + point.confirmed.total, 0)),
+      official,
       timeline: buildTimeline(this.anchor, filters),
     };
   }

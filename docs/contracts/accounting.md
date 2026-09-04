@@ -146,6 +146,14 @@ not erase or rescale the local session tree.
 
 ## Coverage and zero semantics
 
+Charts position civil bucket keys on a common calendar axis. A missing bucket
+breaks a series instead of being squeezed out or converted to zero. Comparisons
+align by calendar date offset from their declared windows, not row index;
+nonexistent month dates have no counterpart. The chart labels the grain of the
+actual displayed source: official daily buckets cannot be labeled hourly. A
+local overlay is unavailable when its grain differs from the official series.
+Container-sized drawing preserves readable axis text and keyboard inspection.
+
 The local historical start includes both confirmed Sampling and validated
 Reconstruction daily evidence. Unknown/quarantined rows cannot establish that
 start. Model choices include effective Reconstruction models even when those

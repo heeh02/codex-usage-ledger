@@ -96,8 +96,10 @@ project names, account identifiers, source files or usage snapshots.
 
 Execution on `feat/usage-visualization`. Historical-start/model-catalog repair,
 account/model navigation continuity and source-tagged CSV export are implemented.
-Scoped interval completeness still remains under A04. Next: A02/A03/A16 time
-coordinates and comparison semantics, then complete conversation navigation.
+Scoped interval completeness still remains under A04. Calendar chart coordinates,
+gap breaks, date-aligned comparison and source grain labels are implemented;
+full scoped coverage/comparison validation remains open. Next: quota interval
+boundaries, then complete conversation navigation.
 No live data migration, installed-app replacement or release has occurred.
 
 ## Evidence log
@@ -113,3 +115,8 @@ No live data migration, installed-app replacement or release has occurred.
 - CSV source/precision/scope cases plus existing Web tests: 13 unit tests pass;
   typecheck and production build pass. New CSV semantics documented in the
   HTTP/export contract. No official/local totals are added by the exporter.
+- Batch 3: timestamp-positioned chart series, sparse-date breaks, calendar
+  comparison alignment, separate source grains and container-sized readable
+  axes. Composition uses stacked buckets; project comparisons share one axis.
+  Web 18 unit and 7 browser tests pass, including narrow-window keyboard values.
+  Demo account scope now matches production project/model scope behavior.

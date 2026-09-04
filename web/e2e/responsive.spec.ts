@@ -59,3 +59,21 @@ test('account and model selection survive project and conversation navigation', 
   await expect(page.getByLabel('账号', { exact: true })).toHaveValue('acct-personal');
   await expect(page.getByLabel('模型', { exact: true })).toHaveValue('gpt-5.6-sol');
 });
+
+test('dated chart values stay accessible by keyboard in a narrow window', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto('/');
+  await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  const chart = page.locator('.usage-time-chart').first();
+  const svg = chart.locator('svg').first();
+  await svg.focus();
+  await svg.press('Home');
+  const first = await chart.locator('.usage-time-readout > span').first().textContent();
+  await svg.press('End');
+  await expect(chart.locator('.usage-time-readout > span').first()).not.toHaveText(first ?? '');
+  await page.setViewportSize({ width: 560, height: 820 });
+  await expect(chart.locator('.usage-time-readout')).toBeVisible();
+  await expect(svg).toHaveCSS('height', '260px');
+  await expect(svg.locator('.chart-axis-label').first()).toHaveCSS('font-size', '12px');
+  await expect(chart).toBeVisible();
+});

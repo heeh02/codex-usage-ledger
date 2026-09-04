@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "chart.keyboard_hint": "左右方向键查看数据，Home/End 跳到首尾",
+  "chart.gaps_unknown": "缺失日期不连线；— 表示无可用数据",
   "app.account_capture_summary": "用户确认 {known} 个账号；已捕获 {observed} 个身份、{official} 个官方档案{uncapturedSuffix}{provisionalSuffix}",
   "app.official_daily_coverage_tail": "官方日桶截至 {date}，当前尾部使用本机下限",
   "app.primary_kpi_explanation": "主 KPI = 已同步官方 Total + 官方尾部本机增量 {tail} + 已捕获但缺官方档案的账号下限 {missing}。未捕获账号合计残差估算 {residual} 在下方独立列示，不并入主 KPI。",

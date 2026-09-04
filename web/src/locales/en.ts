@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "chart.keyboard_hint": "Use arrow keys to inspect values; Home/End for first/last",
+  "chart.gaps_unknown": "Missing dates break the line; — means unavailable",
   "app.account_capture_summary": "{known} accounts confirmed; {observed} identities and {official} official archives captured{uncapturedSuffix}{provisionalSuffix}",
   "app.official_daily_coverage_tail": "Official daily buckets run through {date}; the local lower bound covers the current tail",
   "app.primary_kpi_explanation": "Primary KPI = synced official Total + local tail {tail} + captured accounts without archives {missing}. The combined residual estimate for uncaptured accounts, {residual}, is shown separately and excluded from the KPI.",
