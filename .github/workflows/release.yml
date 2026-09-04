@@ -1,0 +1,208 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: Release quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-targets --all-features
+      - run: npm --prefix web ci --no-audit --no-fund
+      - run: npm --prefix web run test:unit
+      - run: npm --prefix web run build
+      - run: npm --prefix web run test:e2e
+      - run: scripts/check-public-privacy.sh
+      - run: scripts/check-public-history.sh
+      - run: scripts/check-doc-links.sh
+      - run: scripts/check-version-consistency.sh
+      - run: scripts/check-release-tag.sh
+      - run: scripts/check-generated-files.sh
+      - run: scripts/check-module-boundaries.sh
+      - run: node scripts/check-workflow-security.mjs
+      - run: scripts/check-api-contract.sh
+      - run: scripts/generate-sbom.sh .ci-artifacts/sbom
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-sboms
+          path: |
+            .ci-artifacts/sbom/rust.cdx.json
+            .ci-artifacts/sbom/web.cdx.json
+            .ci-artifacts/sbom/THIRD_PARTY_LICENSES.txt
+          if-no-files-found: error
+
+  macos-artifact:
+    name: macOS release artifact
+    needs: quality-gate
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.97.1
+          targets: aarch64-apple-darwin
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-sboms
+          path: dist/sbom
+      - name: Build and verify
+        run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export CODEX_LEDGER_RELEASE_METADATA_DIR="$PWD/dist/sbom"
+          bash macos/build-app.sh
+          codesign --verify --deep --strict "dist/Codex Usage Ledger.app"
+      - name: Package checksummed development artifact
+        run: |
+          export COPYFILE_DISABLE=1
+          ditto -c -k --keepParent "dist/Codex Usage Ledger.app" "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip"
+          shasum -a 256 "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip" > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-SHA256SUMS.txt"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: macos-adhoc-${{ github.ref_name }}
+          path: |
+            dist/Codex-Usage-Ledger-*-adhoc-macos-arm64.zip
+            dist/Codex-Usage-Ledger-*-SHA256SUMS.txt
+            dist/sbom/*.json
+            dist/sbom/THIRD_PARTY_LICENSES.txt
+          if-no-files-found: error
+
+  linux-cli:
+    name: Linux x64 CLI artifact
+    needs: macos-artifact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.97.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-sboms
+          path: dist/package/sbom
+      - name: Build and package Linux CLI
+        run: |
+          cargo test --locked --all-targets --all-features
+          cargo build --release --locked
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build
+          mkdir -p dist/package
+          cp target/release/codex-usage-ledger dist/package/
+          cp README.md LICENSE SECURITY.md THIRD_PARTY_NOTICES.md dist/package/
+          cp -R web/dist dist/package/web
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" --owner=0 --group=0 --numeric-owner \
+            -C dist/package -czf "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" .
+          sha256sum "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" \
+            > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.sha256"
+          dist/package/codex-usage-ledger --help >/dev/null
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: linux-x86_64-${{ github.ref_name }}
+          path: |
+            dist/Codex-Usage-Ledger-*-linux-x86_64.tar.gz
+            dist/Codex-Usage-Ledger-*-linux-x86_64.sha256
+          if-no-files-found: error
+
+  windows-cli:
+    name: Windows x64 CLI artifact
+    needs: macos-artifact
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.97.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-sboms
+          path: dist/package/sbom
+      - name: Build and package Windows CLI
+        shell: pwsh
+        run: |
+          cargo test --locked --all-targets --all-features
+          cargo build --release --locked
+          npm --prefix web ci --no-audit --no-fund
+          npm --prefix web run build
+          New-Item -ItemType Directory -Force -Path dist/package | Out-Null
+          Copy-Item target/release/codex-usage-ledger.exe, README.md, LICENSE, SECURITY.md, THIRD_PARTY_NOTICES.md dist/package/
+          Copy-Item web/dist dist/package/web -Recurse
+          $archive = "dist/Codex-Usage-Ledger-$env:GITHUB_REF_NAME-windows-x86_64.zip"
+          Compress-Archive -Path dist/package/* -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding ascii "dist/Codex-Usage-Ledger-$env:GITHUB_REF_NAME-windows-x86_64.sha256"
+          & dist/package/codex-usage-ledger.exe --help | Out-Null
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: windows-x86_64-${{ github.ref_name }}
+          path: |
+            dist/Codex-Usage-Ledger-*-windows-x86_64.zip
+            dist/Codex-Usage-Ledger-*-windows-x86_64.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos-artifact, linux-cli, windows-cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: '*-${{ github.ref_name }}'
+          path: dist
+          merge-multiple: true
+      - name: Create draft and upload verified artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$GITHUB_REF_NAME" --notes "Ad-hoc signed Apple Silicon development build plus checksummed Linux and Windows CLI/local-service packages. The macOS build is not Developer ID signed or notarized; review docs/releases/process.md before installation."
+          fi
+          mapfile -d '' artifacts < <(find dist -type f -print0 | sort -z)
+          (( ${#artifacts[@]} > 0 ))
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${artifacts[@]}"

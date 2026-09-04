@@ -1,0 +1,9 @@
+{"type":"session_meta","timestamp":"2026-08-31T00:48:19.317Z","payload":{"id":"01a05549-db09-7e23-a8fa-4591323280d0","cwd":"/child/initial","source":{"subagent":{"thread_spawn":{"parent_thread_id":"019f9350-7caf-7362-8d71-de313b383325","depth":1,"agent_path":"/root/child"}}}}}
+{"type":"session_meta","timestamp":"2026-08-31T00:48:19.318Z","payload":{"id":"019f9350-7caf-7362-8d71-de313b383325","cwd":"/parent/project"}}
+{"type":"event_msg","timestamp":"2026-08-31T00:48:19.318Z","payload":{"type":"task_started","turn_id":"019f9351-602e-7082-ac16-0f511c32fe49","started_at":1784883011}}
+{"type":"turn_context","timestamp":"2026-08-31T00:48:19.318Z","payload":{"model":"gpt-parent","cwd":"/parent/project"}}
+{"type":"event_msg","timestamp":"2026-08-31T00:48:19.319Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":999,"cached_input_tokens":900,"output_tokens":1,"reasoning_output_tokens":1,"total_tokens":1000},"last_token_usage":{"input_tokens":999,"cached_input_tokens":900,"output_tokens":1,"reasoning_output_tokens":1,"total_tokens":1000}}}}
+{"type":"event_msg","timestamp":"2026-08-31T00:48:20.321Z","payload":{"type":"task_started","turn_id":"01a05549-161c-7472-8c60-4a72572869e6","started_at":1788137248}}
+{"type":"event_msg","timestamp":"2026-08-31T00:48:20.462Z","payload":{"type":"task_started","turn_id":"01a05549-e1e6-75c1-9a7b-73c62ebf6320","started_at":1788137300}}
+{"type":"turn_context","timestamp":"2026-08-31T00:48:22.763Z","payload":{"model":"gpt-5.6-sol","cwd":"/child/project"}}
+{"type":"event_msg","timestamp":"2026-08-31T00:48:31.253Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1100,"cached_input_tokens":917,"output_tokens":5,"reasoning_output_tokens":2,"total_tokens":1105},"last_token_usage":{"input_tokens":100,"cached_input_tokens":17,"output_tokens":5,"reasoning_output_tokens":2,"total_tokens":105}}}}

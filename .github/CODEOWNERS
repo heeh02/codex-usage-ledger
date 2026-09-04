@@ -1,0 +1,12 @@
+# Replace individual ownership with GitHub teams as the contributor base grows.
+* @heeh02
+
+/src/types.rs @heeh02
+/src/replay.rs @heeh02
+/src/reconstruction.rs @heeh02
+/src/store.rs @heeh02
+/src/identity.rs @heeh02
+/src/official_usage.rs @heeh02
+/macos/ @heeh02
+/.github/workflows/ @heeh02
+/SECURITY.md @heeh02

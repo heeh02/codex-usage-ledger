@@ -1,0 +1,80 @@
+[
+  {
+    "pattern": "^cargo:r-efi@6\\.0\\.0$",
+    "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+    "source": "https://github.com/r-efi/r-efi",
+    "reason": "The published crate archive declares SPDX terms but contains no standalone license file."
+  },
+  {
+    "pattern": "^cargo:rsqlite-vfs@0\\.1\\.1$",
+    "license": "MIT",
+    "source": "https://crates.io/crates/rsqlite-vfs/0.1.1",
+    "reason": "The published crate archive declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^cargo:valuable@0\\.1\\.1$",
+    "license": "MIT",
+    "source": "https://github.com/tokio-rs/valuable",
+    "reason": "The published crate archive declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^npm:@esbuild/darwin-arm64@0\\.28\\.2$",
+    "license": "MIT",
+    "source": "https://github.com/evanw/esbuild",
+    "reason": "The macOS ARM64 binary package inherits the reviewed esbuild 0.28.2 MIT terms."
+  },
+  {
+    "pattern": "^npm:@esbuild/linux-x64@0\\.28\\.2$",
+    "license": "MIT",
+    "source": "https://github.com/evanw/esbuild",
+    "reason": "The Linux x64 binary package inherits the reviewed esbuild 0.28.2 MIT terms."
+  },
+  {
+    "pattern": "^npm:@rollup/rollup-darwin-arm64@4\\.63\\.1$",
+    "license": "MIT",
+    "source": "https://github.com/rollup/rollup",
+    "reason": "The macOS ARM64 binary package inherits the reviewed Rollup 4.63.1 MIT terms."
+  },
+  {
+    "pattern": "^npm:@rollup/rollup-linux-x64-gnu@4\\.63\\.1$",
+    "license": "MIT",
+    "source": "https://github.com/rollup/rollup",
+    "reason": "The Linux x64 GNU binary package inherits the reviewed Rollup 4.63.1 MIT terms."
+  },
+  {
+    "pattern": "^npm:@napi-rs/lzma-linux-x64-gnu@1\\.5\\.1$",
+    "license": "MIT",
+    "source": "https://github.com/Brooooooklyn/lzma",
+    "reason": "The Linux x64 GNU binary package inherits the reviewed lzma 1.5.1 MIT terms."
+  },
+  {
+    "pattern": "^npm:json-schema-to-typescript@15\\.0\\.4$",
+    "license": "MIT",
+    "source": "https://github.com/bcherny/json-schema-to-typescript",
+    "reason": "The installed package declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^npm:stackback@0\\.0\\.2$",
+    "license": "MIT",
+    "source": "https://github.com/shtylman/node-stackback",
+    "reason": "The installed package declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^npm:std-env@3\\.10\\.0$",
+    "license": "MIT",
+    "source": "https://github.com/unjs/std-env",
+    "reason": "The installed package declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^npm:tinyrainbow@2\\.0\\.0$",
+    "license": "MIT",
+    "source": "https://github.com/tinylibs/tinyrainbow",
+    "reason": "The installed package declares MIT but contains no standalone license file."
+  },
+  {
+    "pattern": "^npm:tinyspy@4\\.0\\.4$",
+    "license": "MIT",
+    "source": "https://github.com/tinylibs/tinyspy",
+    "reason": "The installed package declares MIT but contains no standalone license file."
+  }
+]

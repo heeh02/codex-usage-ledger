@@ -1,0 +1,450 @@
+.trend-timeline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.65fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.trend-kpis {
+  display: flex;
+  gap: 26px;
+  margin-bottom: 9px;
+}
+
+.trend-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.trend-view-control {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.trend-view-control button,
+.project-series-picker button {
+  height: 23px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.trend-view-control button.is-active,
+.project-series-picker button.is-selected {
+  color: var(--ink);
+  background: var(--surface-strong);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-weight: 620;
+}
+
+.stack-area {
+  stroke: none;
+}
+
+.stack-cached { fill: color-mix(in srgb, var(--accent) 72%, transparent); }
+.stack-uncached { fill: color-mix(in srgb, var(--orange) 72%, transparent); }
+.stack-cache-write { fill: color-mix(in srgb, var(--purple) 72%, transparent); }
+.stack-output { fill: color-mix(in srgb, var(--blue) 72%, transparent); }
+
+.project-series-picker {
+  display: flex;
+  gap: 3px;
+  margin-bottom: 7px;
+  overflow: hidden;
+}
+
+.project-series-picker button {
+  flex: 0 1 auto;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-compare-line {
+  stroke-width: 2;
+}
+
+.trend-kpis > div {
+  display: grid;
+  gap: 2px;
+}
+
+.trend-kpis span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.trend-kpis strong {
+  font-size: 13px;
+  font-weight: 630;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-canvas {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--surface-strong);
+}
+
+.chart-coverage-gap {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 0;
+  display: grid;
+  place-items: center;
+  background: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--slate) 10%, transparent) 7px 10px);
+  border-left: 1px dashed var(--faint);
+  pointer-events: none;
+}
+
+.chart-coverage-gap span {
+  padding: 3px 5px;
+  border-radius: 5px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-strong) 88%, transparent);
+  font-size: 10px;
+  writing-mode: vertical-rl;
+}
+
+.chart-readout {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  min-width: 126px;
+  display: grid;
+  gap: 1px;
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+
+.chart-readout span,
+.chart-readout small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-readout strong {
+  font-size: 15px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-chart {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  touch-action: none;
+}
+
+.chart-gridline {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+}
+
+.chart-axis-label,
+.chart-date-label,
+.average-label {
+  fill: var(--muted);
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.average-label {
+  font-size: 10px;
+}
+
+.trend-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.confirmed-line {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
+.quarantined-line {
+  stroke: var(--orange);
+  stroke-width: 1.35;
+  stroke-dasharray: 5 4;
+}
+
+.comparison-line {
+  stroke: var(--slate);
+  stroke-width: 1.4;
+  stroke-dasharray: 7 5;
+}
+
+.unknown-line {
+  stroke: var(--slate);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 5;
+}
+
+.area-stop-primary {
+  stop-color: var(--accent);
+  stop-opacity: 0.18;
+}
+
+.area-stop-secondary {
+  stop-color: var(--accent);
+  stop-opacity: 0.015;
+}
+
+.average-line {
+  stroke: var(--faint);
+  stroke-width: 1;
+  stroke-dasharray: 4 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-crosshair {
+  stroke: var(--ink);
+  stroke-width: 1;
+  stroke-opacity: 0.22;
+  vector-effect: non-scaling-stroke;
+}
+
+.active-point-halo {
+  fill: var(--accent-soft);
+  stroke: none;
+}
+
+.active-point {
+  fill: var(--surface-strong);
+  stroke: var(--accent);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-footer {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chart-data-table {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-data-table summary {
+  width: fit-content;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chart-data-table > div {
+  max-height: 220px;
+  margin-top: 7px;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.chart-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-data-table th,
+.chart-data-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chart-data-table th:first-child,
+.chart-data-table td:first-child,
+.chart-data-table th:last-child,
+.chart-data-table td:last-child {
+  text-align: left;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 13px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.chart-legend .legend-quarantined { background: var(--orange); }
+.chart-legend .legend-comparison { background: var(--slate); }
+.chart-legend .legend-unknown { background: var(--slate); }
+
+.hover-hint {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.project-ranking-list {
+  display: grid;
+  gap: 2px;
+}
+
+.project-ranking-list > button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 58px;
+  gap: 8px;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-gap-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.project-gap-row > div > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-gap-row > div > div strong,
+.project-gap-row > div > div span {
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.project-gap-row small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.project-gap-row i span {
+  background: var(--slate);
+}
+
+.project-ranking-list svg {
+  width: 58px;
+  height: 20px;
+  overflow: visible;
+}
+
+.project-ranking-list svg polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.project-ranking-list > button:last-child {
+  border-bottom: 0;
+}
+
+.project-ranking-list > button:hover strong {
+  color: var(--accent);
+}
+
+.ranking-index {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-ranking-list > button > div,
+.project-ranking-list > button > div > div {
+  min-width: 0;
+}
+
+.project-ranking-list > button > div > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.project-ranking-list strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-ranking-list > button > div > div > span {
+  font-size: 11px;
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-ranking-list i {
+  height: 3px;
+  display: block;
+  overflow: hidden;
+  margin: 5px 0 4px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+}
+
+.project-ranking-list i span {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.project-ranking-list small {
+  color: var(--muted);
+  font-size: 10px;
+}

@@ -1,0 +1,3157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DashboardBundle",
+  "type": "object",
+  "properties": {
+    "breakdowns": {
+      "$ref": "#/$defs/BreakdownsResponse"
+    },
+    "collection": {
+      "$ref": "#/$defs/CollectionStatus"
+    },
+    "explorer": {
+      "$ref": "#/$defs/ExplorerResponse"
+    },
+    "quality": {
+      "$ref": "#/$defs/QualityResponse"
+    },
+    "summary": {
+      "$ref": "#/$defs/SummaryResponse"
+    },
+    "timeseries": {
+      "$ref": "#/$defs/TimeseriesResponse"
+    }
+  },
+  "required": [
+    "summary",
+    "timeseries",
+    "breakdowns",
+    "quality",
+    "explorer",
+    "collection"
+  ],
+  "$defs": {
+    "AttributionConfidence": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "inferred",
+        "unknown"
+      ]
+    },
+    "AttributionCoverage": {
+      "type": "object",
+      "properties": {
+        "accountTotalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "canAllocateGapToProjects": {
+          "type": "boolean"
+        },
+        "coverageRatio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "definitionId": {
+          "type": "string"
+        },
+        "gapBuckets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/AttributionGapBucket"
+          }
+        },
+        "localAttributedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localComplementTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localEvidenceDayCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "localOnOfficialDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "localWindowStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "localWindowThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "namedProjectTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "officialBaseTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "officialDayCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "officialWindowStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "officialWindowThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": "string"
+        },
+        "selectedLocalTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "standaloneConversationTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "standaloneConversations": {
+          "$ref": "#/$defs/StandaloneConversationCoverage"
+        },
+        "unassignedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "unattributedTokens": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "definitionId",
+        "accountTotalTokens",
+        "officialBaseTokens",
+        "localComplementTokens",
+        "localAttributedTokens",
+        "selectedLocalTokens",
+        "namedProjectTokens",
+        "unassignedTokens",
+        "standaloneConversationTokens",
+        "standaloneConversations",
+        "unattributedTokens",
+        "coverageRatio",
+        "officialWindowStart",
+        "officialWindowThrough",
+        "localWindowStart",
+        "localWindowThrough",
+        "officialDayCount",
+        "localEvidenceDayCount",
+        "localOnOfficialDays",
+        "gapBuckets",
+        "canAllocateGapToProjects",
+        "scope"
+      ]
+    },
+    "AttributionGapBucket": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "tokens",
+        "detail"
+      ]
+    },
+    "BreakdownRow": {
+      "type": "object",
+      "properties": {
+        "confirmedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "shareOfConfirmed": {
+          "type": "number",
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/QualityUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "usage",
+        "confirmedEvents",
+        "shareOfConfirmed"
+      ]
+    },
+    "BreakdownsResponse": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BreakdownRow"
+          }
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "model": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BreakdownRow"
+          }
+        },
+        "officialAccounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialAccountRow"
+          }
+        },
+        "period": {
+          "$ref": "#/$defs/PeriodWindow"
+        },
+        "project": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BreakdownRow"
+          }
+        }
+      },
+      "required": [
+        "generatedAt",
+        "period",
+        "account",
+        "project",
+        "model",
+        "officialAccounts"
+      ]
+    },
+    "CollectionPhase": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "optimizing",
+        "compacting",
+        "backfill",
+        "syncing",
+        "live"
+      ]
+    },
+    "CollectionStatus": {
+      "type": "object",
+      "properties": {
+        "bytesRead": {
+          "type": "number",
+          "format": "double"
+        },
+        "eventsInserted": {
+          "type": "number",
+          "format": "double"
+        },
+        "itemsCompleted": {
+          "type": "number",
+          "format": "double"
+        },
+        "itemsTotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/CollectionPhase"
+        },
+        "rawRetentionDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "rollupComplete": {
+          "type": "boolean"
+        },
+        "rollupItemsCompleted": {
+          "type": "number",
+          "format": "double"
+        },
+        "rollupItemsTotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "phase",
+        "itemsTotal",
+        "itemsCompleted",
+        "bytesRead",
+        "eventsInserted",
+        "updatedAt",
+        "rollupItemsTotal",
+        "rollupItemsCompleted",
+        "rollupComplete",
+        "rawRetentionDays"
+      ]
+    },
+    "DataMode": {
+      "type": "string",
+      "enum": [
+        "mock",
+        "http"
+      ]
+    },
+    "DataQuality": {
+      "type": "string",
+      "enum": [
+        "confirmed",
+        "quarantined",
+        "unknown"
+      ]
+    },
+    "DimensionOption": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "DisplayTotalKind": {
+      "type": "string",
+      "enum": [
+        "official",
+        "official_plus_local_tail_lower_bound",
+        "local_lower_bound",
+        "not_applicable"
+      ]
+    },
+    "ExplorerOfficialStats": {
+      "type": "object",
+      "properties": {
+        "accountCoverageComplete": {
+          "type": "boolean"
+        },
+        "backendIncludesToday": {
+          "type": "boolean"
+        },
+        "coverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "knownAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "lifetimeTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "missingOfficialAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "monthTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "observedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peakDailyTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "selectedPeriodTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "todayTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "totalIsLowerBound": {
+          "type": "boolean"
+        },
+        "verifiedAccountCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "weekTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "todayTokens",
+        "weekTokens",
+        "monthTokens",
+        "selectedPeriodTokens",
+        "lifetimeTokens",
+        "peakDailyTokens",
+        "coverageThrough",
+        "observedAt",
+        "backendIncludesToday",
+        "accountCoverageComplete",
+        "knownAccountCount",
+        "missingOfficialAccountCount",
+        "totalIsLowerBound"
+      ]
+    },
+    "ExplorerProject": {
+      "type": "object",
+      "properties": {
+        "activeSessionCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "historicalSessionCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "historicalSubagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExplorerProjectKind"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lastActiveAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lifetimeUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "monthPreviousUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "monthUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "orphanSubagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "periodEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "periodUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "previousPeriodEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "previousPeriodUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "recent15Events": {
+          "type": "number",
+          "format": "double"
+        },
+        "recent15Usage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "sessionCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "sparkline": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "subagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "todayUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "weekPreviousUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "weekUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "kind",
+        "sessionCount",
+        "subagentCount",
+        "orphanSubagentCount",
+        "historicalSessionCount",
+        "historicalSubagentCount",
+        "periodUsage",
+        "periodEvents",
+        "previousPeriodUsage",
+        "previousPeriodEvents",
+        "recent15Usage",
+        "recent15Events",
+        "activeSessionCount",
+        "sparkline",
+        "lifetimeUsage",
+        "weekUsage",
+        "weekPreviousUsage",
+        "monthUsage",
+        "monthPreviousUsage",
+        "todayUsage",
+        "lastActiveAt"
+      ]
+    },
+    "ExplorerProjectKind": {
+      "type": "string",
+      "enum": [
+        "project",
+        "standalone_conversations",
+        "unmatched_records"
+      ]
+    },
+    "ExplorerRankingWindows": {
+      "type": "object",
+      "properties": {
+        "lifetime": {
+          "$ref": "#/$defs/PeriodWindow"
+        },
+        "month": {
+          "$ref": "#/$defs/PeriodWindow"
+        },
+        "week": {
+          "$ref": "#/$defs/PeriodWindow"
+        }
+      },
+      "required": [
+        "week",
+        "month",
+        "lifetime"
+      ]
+    },
+    "ExplorerResponse": {
+      "type": "object",
+      "properties": {
+        "generatedAt": {
+          "type": "string"
+        },
+        "period": {
+          "$ref": "#/$defs/PeriodKey"
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExplorerProject"
+          }
+        },
+        "rankingWindows": {
+          "$ref": "#/$defs/ExplorerRankingWindows"
+        },
+        "selectedSession": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorerSessionDetail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExplorerSession"
+          }
+        },
+        "stats": {
+          "$ref": "#/$defs/ExplorerStats"
+        }
+      },
+      "required": [
+        "generatedAt",
+        "period",
+        "rankingWindows",
+        "stats",
+        "projects",
+        "sessions"
+      ]
+    },
+    "ExplorerSession": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "eventCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "hasUserEvent": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExplorerSessionKind"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "presentInCodex": {
+          "type": "boolean"
+        },
+        "subagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "title": {
+          "type": "string"
+        },
+        "treeUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "model",
+        "createdAt",
+        "updatedAt",
+        "archived",
+        "presentInCodex",
+        "hasUserEvent",
+        "subagentCount",
+        "ownUsage",
+        "treeUsage",
+        "eventCount",
+        "active",
+        "kind"
+      ]
+    },
+    "ExplorerSessionDetail": {
+      "type": "object",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExplorerSessionNode"
+          }
+        },
+        "officialThreadUsage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OfficialThreadUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ownSamplingTimeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SamplingTimelinePoint"
+          }
+        },
+        "ownUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "presentInCodex": {
+          "type": "boolean"
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "samplingGrain": {
+          "$ref": "#/$defs/TimeGrain"
+        },
+        "samplingTimeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SamplingTimelinePoint"
+          }
+        },
+        "subagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "title": {
+          "type": "string"
+        },
+        "treeUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "projectId",
+        "projectName",
+        "model",
+        "createdAt",
+        "updatedAt",
+        "presentInCodex",
+        "ownUsage",
+        "treeUsage",
+        "subagentCount",
+        "samplingTimeline",
+        "ownSamplingTimeline",
+        "samplingGrain",
+        "officialThreadUsage",
+        "nodes",
+        "truncated"
+      ]
+    },
+    "ExplorerSessionKind": {
+      "type": "string",
+      "enum": [
+        "session",
+        "orphan_subagent"
+      ]
+    },
+    "ExplorerSessionNode": {
+      "type": "object",
+      "properties": {
+        "agentNickname": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "agentRole": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "depth": {
+          "type": "number",
+          "format": "double"
+        },
+        "eventCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "presentInCodex": {
+          "type": "boolean"
+        },
+        "projectId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "relativeDepth": {
+          "type": "number",
+          "format": "double"
+        },
+        "sourceKind": {
+          "type": "string"
+        },
+        "subtreeEventCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "subtreeUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "parentId",
+        "projectId",
+        "projectName",
+        "title",
+        "model",
+        "agentNickname",
+        "agentRole",
+        "agentPath",
+        "depth",
+        "relativeDepth",
+        "createdAt",
+        "updatedAt",
+        "archived",
+        "sourceKind",
+        "presentInCodex",
+        "ownUsage",
+        "subtreeUsage",
+        "eventCount",
+        "subtreeEventCount"
+      ]
+    },
+    "ExplorerStandaloneStats": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "number",
+          "format": "double"
+        },
+        "historical": {
+          "type": "number",
+          "format": "double"
+        },
+        "indexed": {
+          "type": "number",
+          "format": "double"
+        },
+        "lifetimeUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "selectedPeriodUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "withLocalEvidence": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "current",
+        "historical",
+        "indexed",
+        "withLocalEvidence",
+        "lifetimeUsage",
+        "selectedPeriodUsage"
+      ]
+    },
+    "ExplorerStats": {
+      "type": "object",
+      "properties": {
+        "activeSessions": {
+          "type": "number",
+          "format": "double"
+        },
+        "historicalSessionCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "historicalSubagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "latestConfirmedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lifetime": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "localRecent15Events": {
+          "type": "number",
+          "format": "double"
+        },
+        "localRecent15Minutes": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "official": {
+          "$ref": "#/$defs/ExplorerOfficialStats"
+        },
+        "orphanSubagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "projectCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "selectedPeriod": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "sessionCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "standaloneConversations": {
+          "$ref": "#/$defs/ExplorerStandaloneStats"
+        },
+        "subagentCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "today": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "week": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "projectCount",
+        "sessionCount",
+        "subagentCount",
+        "orphanSubagentCount",
+        "historicalSessionCount",
+        "historicalSubagentCount",
+        "standaloneConversations",
+        "lifetime",
+        "week",
+        "today",
+        "selectedPeriod",
+        "localRecent15Minutes",
+        "localRecent15Events",
+        "official",
+        "activeSessions"
+      ]
+    },
+    "FilterCatalog": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DimensionOption"
+          }
+        },
+        "models": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DimensionOption"
+          }
+        },
+        "periods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PeriodOption"
+          }
+        },
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DimensionOption"
+          }
+        }
+      },
+      "required": [
+        "accounts",
+        "projects",
+        "models",
+        "periods"
+      ]
+    },
+    "MachineScope": {
+      "type": "string",
+      "enum": [
+        "all_devices",
+        "this_machine"
+      ]
+    },
+    "MetricCoverage": {
+      "type": "object",
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "knownAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "missingOfficialAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "ratio": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "complete",
+        "ratio",
+        "knownAccountCount",
+        "missingOfficialAccountCount"
+      ]
+    },
+    "MetricSource": {
+      "type": "string",
+      "enum": [
+        "official",
+        "local",
+        "reconciled"
+      ]
+    },
+    "MetricStatus": {
+      "type": "string",
+      "enum": [
+        "exact",
+        "lower_bound",
+        "local_sample",
+        "unknown"
+      ]
+    },
+    "MissingAccountEstimate": {
+      "type": "object",
+      "properties": {
+        "alignedAccountDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "allocationRoundingDelta": {
+          "type": "number",
+          "format": "double"
+        },
+        "applicable": {
+          "type": "boolean"
+        },
+        "byDay": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MissingAccountEstimateDay"
+          }
+        },
+        "byModel": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MissingAccountEstimateBreakdown"
+          }
+        },
+        "byProject": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MissingAccountEstimateBreakdown"
+          }
+        },
+        "canSplitByMissingAccount": {
+          "type": "boolean"
+        },
+        "capturedAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "combinedUnobservedAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "componentInvariantMismatchTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "coverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "definitionId": {
+          "type": "string"
+        },
+        "excessAccountDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "excludedAccountDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "isConservativeFloor": {
+          "type": "boolean"
+        },
+        "isEstimate": {
+          "type": "boolean"
+        },
+        "knownLocalCappedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localAssignedOnAlignedDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "method": {
+          "type": "string"
+        },
+        "officialOnAlignedDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "rawResidualTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "selectedUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "sourceAccountExcess": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MissingSourceAccountExcess"
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/MissingEstimateStatus"
+        },
+        "totalUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "definitionId",
+        "status",
+        "applicable",
+        "isEstimate",
+        "isConservativeFloor",
+        "canSplitByMissingAccount",
+        "combinedUnobservedAccountCount",
+        "capturedAccountCount",
+        "coverageStart",
+        "coverageThrough",
+        "alignedAccountDays",
+        "excessAccountDays",
+        "excludedAccountDays",
+        "rawResidualTokens",
+        "allocationRoundingDelta",
+        "componentInvariantMismatchTokens",
+        "localAssignedOnAlignedDays",
+        "officialOnAlignedDays",
+        "knownLocalCappedTokens",
+        "selectedUsage",
+        "totalUsage",
+        "byDay",
+        "byProject",
+        "byModel",
+        "sourceAccountExcess",
+        "method"
+      ]
+    },
+    "MissingAccountEstimateBreakdown": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "sourceEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "usage",
+        "sourceEvents"
+      ]
+    },
+    "MissingAccountEstimateDay": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "sourceEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "date",
+        "usage",
+        "sourceEvents"
+      ]
+    },
+    "MissingEstimateStatus": {
+      "type": "string",
+      "enum": [
+        "conservative_floor",
+        "insufficient_coverage",
+        "not_applicable_to_single_account"
+      ]
+    },
+    "MissingSourceAccountExcess": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "accountLabel": {
+          "type": "string"
+        },
+        "alignedDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "estimatedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "excessDays": {
+          "type": "number",
+          "format": "double"
+        },
+        "localTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "officialTokens": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "accountId",
+        "accountLabel",
+        "alignedDays",
+        "excessDays",
+        "localTokens",
+        "officialTokens",
+        "estimatedTokens"
+      ]
+    },
+    "OfficialAccountCoverage": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "coverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "officialAvailable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "accountId",
+        "coverageStart",
+        "coverageThrough",
+        "officialAvailable"
+      ]
+    },
+    "OfficialAccountRow": {
+      "type": "object",
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "authEpochCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "coverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firstSeenAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lastSeenAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lifetimeIsLowerBound": {
+          "type": "boolean"
+        },
+        "lifetimeTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "monthIsLowerBound": {
+          "type": "boolean"
+        },
+        "monthTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "observedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "officialAvailable": {
+          "type": "boolean"
+        },
+        "planType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "todayIsLowerBound": {
+          "type": "boolean"
+        },
+        "todayTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "weekIsLowerBound": {
+          "type": "boolean"
+        },
+        "weekTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "active",
+        "officialAvailable",
+        "planType",
+        "todayTokens",
+        "todayIsLowerBound",
+        "weekTokens",
+        "weekIsLowerBound",
+        "monthTokens",
+        "monthIsLowerBound",
+        "lifetimeTokens",
+        "lifetimeIsLowerBound",
+        "coverageStart",
+        "coverageThrough",
+        "observedAt",
+        "authEpochCount",
+        "firstSeenAt",
+        "lastSeenAt"
+      ]
+    },
+    "OfficialThreadUsage": {
+      "type": "object",
+      "properties": {
+        "estimatedUsageCreditsMicros": {
+          "type": "number",
+          "format": "double"
+        },
+        "estimatedUsageUsdMicros": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialThreadUsageGroup"
+          }
+        },
+        "observedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "observedAt",
+        "estimatedUsageCreditsMicros",
+        "estimatedUsageUsdMicros",
+        "groups"
+      ]
+    },
+    "OfficialThreadUsageGroup": {
+      "type": "object",
+      "properties": {
+        "cacheWriteInputTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "cachedInputTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "estimatedUsageCreditsMicros": {
+          "type": "number",
+          "format": "double"
+        },
+        "inputTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "netNewInputTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "outputTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "reasoningEffort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "speed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "model",
+        "reasoningEffort",
+        "speed",
+        "estimatedUsageCreditsMicros",
+        "netNewInputTokens",
+        "cachedInputTokens",
+        "cacheWriteInputTokens",
+        "inputTokens",
+        "outputTokens",
+        "totalTokens"
+      ]
+    },
+    "OfficialUsagePoint": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string"
+        },
+        "tokens": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "date",
+        "tokens"
+      ]
+    },
+    "OfficialUsageView": {
+      "type": "object",
+      "properties": {
+        "accountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "accountCoverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialAccountCoverage"
+          }
+        },
+        "accountCoverageComplete": {
+          "type": "boolean"
+        },
+        "authoritativeForAccountTotal": {
+          "type": "boolean"
+        },
+        "backendIncludesToday": {
+          "type": "boolean"
+        },
+        "bucketTotalTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "commonCoverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "commonCoverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "comparisonPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialUsagePoint"
+          }
+        },
+        "coverageComplete": {
+          "type": "boolean"
+        },
+        "coverageRatio": {
+          "type": "number",
+          "format": "double"
+        },
+        "coverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deltaPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "deltaTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "displayDeltaPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "displayDeltaTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "displayIsLowerBound": {
+          "type": "boolean"
+        },
+        "displayPreviousTotalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "displayTotalKind": {
+          "$ref": "#/$defs/DisplayTotalKind"
+        },
+        "displayTotalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "granularity": {
+          "$ref": "#/$defs/TimeGrain"
+        },
+        "identityScopeComplete": {
+          "type": "boolean"
+        },
+        "knownAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "lastError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latestCoverageThrough": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lifetimeTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "localComplementTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localTailStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "localTailTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "missingAccountLocalTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "missingOfficialAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "observedAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "observedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "peakDailyTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "periodExact": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OfficialUsagePoint"
+          }
+        },
+        "previousDisplayIsLowerBound": {
+          "type": "boolean"
+        },
+        "previousTotalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "primaryScope": {
+          "type": "boolean"
+        },
+        "provisionalIdentityCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "provisionalLocalTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "reconciledComparisonPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReconciledAccountDay"
+          }
+        },
+        "reconciledPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReconciledAccountDay"
+          }
+        },
+        "source": {
+          "type": "string"
+        },
+        "totalIsLowerBound": {
+          "type": "boolean"
+        },
+        "totalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "unobservedAccountCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "userConfirmedAccountCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "verifiedAccountCount": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "source",
+        "primaryScope",
+        "authoritativeForAccountTotal",
+        "accountCoverageComplete",
+        "identityScopeComplete",
+        "knownAccountCount",
+        "observedAccountCount",
+        "userConfirmedAccountCount",
+        "unobservedAccountCount",
+        "verifiedAccountCount",
+        "missingOfficialAccountCount",
+        "provisionalIdentityCount",
+        "provisionalLocalTokens",
+        "totalIsLowerBound",
+        "displayTotalTokens",
+        "displayTotalKind",
+        "displayIsLowerBound",
+        "localTailTokens",
+        "missingAccountLocalTokens",
+        "localComplementTokens",
+        "localTailStart",
+        "totalTokens",
+        "bucketTotalTokens",
+        "lifetimeTokens",
+        "peakDailyTokens",
+        "previousTotalTokens",
+        "deltaTokens",
+        "deltaPercent",
+        "displayPreviousTotalTokens",
+        "previousDisplayIsLowerBound",
+        "displayDeltaTokens",
+        "displayDeltaPercent",
+        "points",
+        "comparisonPoints",
+        "accountCount",
+        "observedAt",
+        "coverageStart",
+        "coverageThrough",
+        "commonCoverageStart",
+        "commonCoverageThrough",
+        "latestCoverageThrough",
+        "accountCoverage",
+        "reconciledPoints",
+        "reconciledComparisonPoints",
+        "coverageComplete",
+        "coverageRatio",
+        "periodExact",
+        "backendIncludesToday",
+        "granularity",
+        "lastError"
+      ]
+    },
+    "PeriodKey": {
+      "type": "string",
+      "enum": [
+        "today",
+        "week",
+        "rolling7",
+        "month",
+        "rolling30",
+        "weeks12",
+        "months12",
+        "lifetime"
+      ]
+    },
+    "PeriodOption": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/PeriodKey"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "PeriodWindow": {
+      "type": "object",
+      "properties": {
+        "comparisonAvailable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "comparisonEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "comparisonStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverageComplete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "coverageOffset": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "coverageRatio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "coverageStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "crossesMonth": {
+          "type": "boolean"
+        },
+        "crossesYear": {
+          "type": "boolean"
+        },
+        "defaultGrain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeGrain"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "definition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "end": {
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/PeriodKey"
+        },
+        "label": {
+          "type": "string"
+        },
+        "partial": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "start": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "windowKind": {
+          "$ref": "#/$defs/PeriodWindowKind"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "start",
+        "end",
+        "timezone",
+        "windowKind",
+        "crossesMonth",
+        "crossesYear"
+      ]
+    },
+    "PeriodWindowKind": {
+      "type": "string",
+      "enum": [
+        "calendar",
+        "rolling",
+        "lifetime"
+      ]
+    },
+    "ProjectSeries": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimeseriesComparisonPoint"
+          }
+        },
+        "totalTokens": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "totalTokens",
+        "points"
+      ]
+    },
+    "QualityIssue": {
+      "type": "object",
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "eventCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "firstSeen": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastSeen": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/QualitySeverity"
+        },
+        "state": {
+          "$ref": "#/$defs/DataQuality"
+        },
+        "title": {
+          "type": "string"
+        },
+        "tokenCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "severity",
+        "title",
+        "detail",
+        "eventCount",
+        "tokenCount",
+        "firstSeen",
+        "lastSeen"
+      ]
+    },
+    "QualityResponse": {
+      "type": "object",
+      "properties": {
+        "generatedAt": {
+          "type": "string"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QualityIssue"
+          }
+        },
+        "reconstruction": {
+          "$ref": "#/$defs/ReconstructionSummary"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SourceHealth"
+          }
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QualityStateSummary"
+          }
+        },
+        "trustedPolicy": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "generatedAt",
+        "trustedPolicy",
+        "states",
+        "issues",
+        "sources",
+        "reconstruction"
+      ]
+    },
+    "QualitySeverity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ]
+    },
+    "QualityStateSummary": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "eventCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "state": {
+          "$ref": "#/$defs/DataQuality"
+        },
+        "tokenCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "state",
+        "eventCount",
+        "tokenCount",
+        "usage",
+        "description"
+      ]
+    },
+    "QualityUsage": {
+      "type": "object",
+      "properties": {
+        "confirmed": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "quarantined": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "unknown": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "confirmed",
+        "quarantined",
+        "unknown"
+      ]
+    },
+    "QuotaCycle": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "accountLabel": {
+          "type": "string"
+        },
+        "cycleEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cycleStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "empiricalRatioIsConversion": {
+          "type": "boolean"
+        },
+        "empiricalTokensPerUsedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "firstObservedAt": {
+          "type": "string"
+        },
+        "firstUsedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "lastObservedAt": {
+          "type": "string"
+        },
+        "limitId": {
+          "type": "string"
+        },
+        "localCoverageRatio": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "localEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "localObservationStart": {
+          "type": "string"
+        },
+        "localUsage": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "role": {
+          "type": "string"
+        },
+        "sampleCount": {
+          "type": "number",
+          "format": "double"
+        },
+        "usedDeltaPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "usedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "windowKind": {
+          "$ref": "#/$defs/QuotaWindowKind"
+        },
+        "windowMinutes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "accountLabel",
+        "limitId",
+        "label",
+        "role",
+        "windowKind",
+        "windowMinutes",
+        "cycleStart",
+        "cycleEnd",
+        "firstObservedAt",
+        "lastObservedAt",
+        "firstUsedPercent",
+        "usedPercent",
+        "usedDeltaPercent",
+        "sampleCount",
+        "localObservationStart",
+        "localCoverageRatio",
+        "localUsage",
+        "localEvents",
+        "empiricalTokensPerUsedPercent",
+        "empiricalRatioIsConversion"
+      ]
+    },
+    "QuotaPool": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "accountLabel": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "limitId": {
+          "type": "string"
+        },
+        "observedAt": {
+          "type": "string"
+        },
+        "resetsAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "status": {
+          "$ref": "#/$defs/QuotaPoolStatus"
+        },
+        "usedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "windowMinutes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "accountLabel",
+        "limitId",
+        "label",
+        "usedPercent",
+        "windowMinutes",
+        "resetsAt",
+        "observedAt",
+        "status",
+        "stale"
+      ]
+    },
+    "QuotaPoolStatus": {
+      "type": "string",
+      "enum": [
+        "healthy",
+        "warning",
+        "critical",
+        "unknown"
+      ]
+    },
+    "QuotaWindowKind": {
+      "type": "string",
+      "enum": [
+        "weekly",
+        "short",
+        "custom",
+        "unknown"
+      ]
+    },
+    "ReconciledAccountDay": {
+      "type": "object",
+      "properties": {
+        "coveredAccounts": {
+          "type": "number",
+          "format": "double"
+        },
+        "date": {
+          "type": "string"
+        },
+        "knownAccounts": {
+          "type": "number",
+          "format": "double"
+        },
+        "localOnlyTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localTailTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "officialTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "status": {
+          "$ref": "#/$defs/ReconciledAccountDayStatus"
+        },
+        "value": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "date",
+        "value",
+        "officialTokens",
+        "localTailTokens",
+        "localOnlyTokens",
+        "status",
+        "coveredAccounts",
+        "knownAccounts"
+      ]
+    },
+    "ReconciledAccountDayStatus": {
+      "type": "string",
+      "enum": [
+        "exact_official",
+        "local_tail",
+        "local_only_account",
+        "unknown"
+      ]
+    },
+    "ReconstructionSummary": {
+      "type": "object",
+      "properties": {
+        "bytesProcessed": {
+          "type": "number",
+          "format": "double"
+        },
+        "bytesTotal": {
+          "type": "number",
+          "format": "double"
+        },
+        "pendingSources": {
+          "type": "number",
+          "format": "double"
+        },
+        "reconstructedSources": {
+          "type": "number",
+          "format": "double"
+        },
+        "reconstructingSources": {
+          "type": "number",
+          "format": "double"
+        },
+        "selectedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "unrecoverableSources": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "pendingSources",
+        "reconstructingSources",
+        "reconstructedSources",
+        "unrecoverableSources",
+        "bytesProcessed",
+        "bytesTotal",
+        "selectedTokens"
+      ]
+    },
+    "ResolvedMetric": {
+      "type": "object",
+      "properties": {
+        "accountScope": {
+          "type": "string"
+        },
+        "coverage": {
+          "$ref": "#/$defs/MetricCoverage"
+        },
+        "definitionId": {
+          "type": "string"
+        },
+        "machineScope": {
+          "$ref": "#/$defs/MachineScope"
+        },
+        "source": {
+          "$ref": "#/$defs/MetricSource"
+        },
+        "status": {
+          "$ref": "#/$defs/MetricStatus"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "windowEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "windowStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "value",
+        "source",
+        "status",
+        "windowStart",
+        "windowEnd",
+        "timezone",
+        "accountScope",
+        "machineScope",
+        "coverage",
+        "definitionId"
+      ]
+    },
+    "SamplingTimelinePoint": {
+      "type": "object",
+      "properties": {
+        "bucket": {
+          "type": "string"
+        },
+        "events": {
+          "type": "number",
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "bucket",
+        "events",
+        "usage"
+      ]
+    },
+    "SourceHealth": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "lagSeconds": {
+          "type": "number",
+          "format": "double"
+        },
+        "lastObservedAt": {
+          "type": "string"
+        },
+        "machineLabel": {
+          "type": "string"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SourceStatus"
+        }
+      },
+      "required": [
+        "sourceId",
+        "label",
+        "machineLabel",
+        "status",
+        "lastObservedAt",
+        "lagSeconds"
+      ]
+    },
+    "SourceStatus": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "delayed",
+        "offline"
+      ]
+    },
+    "StandaloneConversationCoverage": {
+      "type": "object",
+      "properties": {
+        "current": {
+          "type": "number",
+          "format": "double"
+        },
+        "historical": {
+          "type": "number",
+          "format": "double"
+        },
+        "indexed": {
+          "type": "number",
+          "format": "double"
+        },
+        "withLocalEvidence": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "current",
+        "historical",
+        "indexed",
+        "withLocalEvidence"
+      ]
+    },
+    "SummaryComparison": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "deltaPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "deltaTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "previousEvents": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "usage",
+        "deltaTokens",
+        "deltaPercent",
+        "available"
+      ]
+    },
+    "SummaryMetrics": {
+      "type": "object",
+      "properties": {
+        "accountTotal": {
+          "$ref": "#/$defs/ResolvedMetric"
+        },
+        "localAttributedTotal": {
+          "$ref": "#/$defs/ResolvedMetric"
+        }
+      },
+      "required": [
+        "accountTotal",
+        "localAttributedTotal"
+      ]
+    },
+    "SummaryReconciliation": {
+      "type": "object",
+      "properties": {
+        "attributionGapTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "comparable": {
+          "type": "boolean"
+        },
+        "localAttributedTokens": {
+          "type": "number",
+          "format": "double"
+        },
+        "localCoverageComplete": {
+          "type": "boolean"
+        },
+        "officialTotalTokens": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "comparable",
+        "officialTotalTokens",
+        "localAttributedTokens",
+        "attributionGapTokens",
+        "localCoverageComplete",
+        "reason"
+      ]
+    },
+    "SummaryResponse": {
+      "type": "object",
+      "properties": {
+        "attributionCoverage": {
+          "$ref": "#/$defs/AttributionCoverage"
+        },
+        "averagePerDay": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheRate": {
+          "type": "number",
+          "format": "double"
+        },
+        "comparison": {
+          "$ref": "#/$defs/SummaryComparison"
+        },
+        "confirmedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "filters": {
+          "$ref": "#/$defs/FilterCatalog"
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "latestConfirmedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matchRate": {
+          "type": "number",
+          "format": "double"
+        },
+        "metrics": {
+          "$ref": "#/$defs/SummaryMetrics"
+        },
+        "missingAccountEstimate": {
+          "$ref": "#/$defs/MissingAccountEstimate"
+        },
+        "mode": {
+          "$ref": "#/$defs/DataMode"
+        },
+        "official": {
+          "$ref": "#/$defs/OfficialUsageView"
+        },
+        "period": {
+          "$ref": "#/$defs/PeriodWindow"
+        },
+        "quotaCycles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaCycle"
+          }
+        },
+        "quotaPools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaPool"
+          }
+        },
+        "reconciliation": {
+          "$ref": "#/$defs/SummaryReconciliation"
+        },
+        "unmatchedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "usage": {
+          "$ref": "#/$defs/QualityUsage"
+        }
+      },
+      "required": [
+        "generatedAt",
+        "mode",
+        "period",
+        "filters",
+        "usage",
+        "official",
+        "attributionCoverage",
+        "missingAccountEstimate",
+        "metrics",
+        "confirmedEvents",
+        "cacheRate",
+        "latestConfirmedAt",
+        "quotaPools",
+        "quotaCycles",
+        "comparison",
+        "averagePerDay",
+        "matchRate",
+        "unmatchedEvents",
+        "reconciliation"
+      ]
+    },
+    "TimeGrain": {
+      "type": "string",
+      "enum": [
+        "hour",
+        "day",
+        "week",
+        "month"
+      ]
+    },
+    "TimelineEvent": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/AttributionConfidence"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/TimelineEventKind"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "kind",
+        "accountId",
+        "title",
+        "detail",
+        "confidence"
+      ]
+    },
+    "TimelineEventKind": {
+      "type": "string",
+      "enum": [
+        "account_switch",
+        "quota_reset",
+        "quota_reset_scheduled"
+      ]
+    },
+    "TimeseriesComparisonPoint": {
+      "type": "object",
+      "properties": {
+        "confirmed": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "confirmedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "date": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "date",
+        "confirmed",
+        "confirmedEvents"
+      ]
+    },
+    "TimeseriesPoint": {
+      "type": "object",
+      "properties": {
+        "confirmed": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "confirmedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "date": {
+          "type": "string"
+        },
+        "quarantined": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "quarantinedEvents": {
+          "type": "number",
+          "format": "double"
+        },
+        "unknown": {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        "unknownEvents": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "date",
+        "confirmed",
+        "quarantined",
+        "unknown",
+        "confirmedEvents",
+        "quarantinedEvents",
+        "unknownEvents"
+      ]
+    },
+    "TimeseriesResponse": {
+      "type": "object",
+      "properties": {
+        "comparisonPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimeseriesComparisonPoint"
+          }
+        },
+        "generatedAt": {
+          "type": "string"
+        },
+        "grain": {
+          "$ref": "#/$defs/TimeGrain"
+        },
+        "official": {
+          "$ref": "#/$defs/OfficialUsageView"
+        },
+        "period": {
+          "$ref": "#/$defs/PeriodWindow"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimeseriesPoint"
+          }
+        },
+        "projectSeries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProjectSeries"
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimelineEvent"
+          }
+        }
+      },
+      "required": [
+        "generatedAt",
+        "period",
+        "grain",
+        "points",
+        "comparisonPoints",
+        "projectSeries",
+        "official",
+        "timeline"
+      ]
+    },
+    "TokenUsage": {
+      "type": "object",
+      "properties": {
+        "cacheWrite": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteCoverage": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteObservedInput": {
+          "type": "number",
+          "format": "double"
+        },
+        "cached": {
+          "type": "number",
+          "format": "double"
+        },
+        "input": {
+          "type": "number",
+          "format": "double"
+        },
+        "output": {
+          "type": "number",
+          "format": "double"
+        },
+        "reasoning": {
+          "type": "number",
+          "format": "double"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        },
+        "uncached": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "input",
+        "cached",
+        "cacheWrite",
+        "cacheWriteObservedInput",
+        "cacheWriteCoverage",
+        "uncached",
+        "output",
+        "reasoning",
+        "total"
+      ]
+    }
+  }
+}

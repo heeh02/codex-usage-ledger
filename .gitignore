@@ -1,0 +1,15 @@
+/target/
+/dist/
+/.ci-artifacts/
+/web/node_modules/
+/web/dist/
+/web/test-results/
+/web/playwright-report/
+/macos/Assets/AppIcon.iconset/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.DS_Store
+.env
+.env.*
+!.env.example

@@ -1,0 +1,116 @@
+/* One deliberate application type scale: 11.5px microcopy, 12px supporting,
+   12px labels/body, 17px section titles, and bounded metric numerals. */
+.sidebar-brand span,
+.sidebar-item small,
+.sidebar-section-heading small,
+.sidebar-live,
+.sidebar-live strong,
+.sidebar-counters,
+.workspace-breadcrumb,
+.workspace-breadcrumb button,
+.workspace-breadcrumb strong,
+.topbar-status span:not(.service-indicator),
+.topbar-status strong,
+.filter-field > span,
+.overview-period,
+.definition-chip,
+.trusted-policy,
+.panel-meta,
+.composition-heading span,
+.composition-heading > span,
+.composition-legend span,
+.composition-legend strong,
+.reasoning-meter > div:first-child,
+.reasoning-meter > div:first-child strong,
+.reasoning-meter small,
+.metric-label-row,
+.metric-card > small,
+.trust-strip span,
+.trust-strip p,
+.trust-strip strong,
+.quota-account,
+.quota-freshness,
+.quota-ring span,
+.quota-reset span,
+.quota-reset small,
+.quota-foot,
+.trend-kpis span,
+.chart-readout span,
+.chart-readout small,
+.chart-legend,
+.hover-hint,
+.timeline-title-row span,
+.timeline-row p,
+.timeline-row small,
+.breakdown-rank,
+.breakdown-name small,
+.breakdown-quality,
+.quality-policy,
+.quality-state-heading,
+.quality-state-card > small,
+.quality-state-card > p,
+.issue-title-row span,
+.issue-row small,
+.issue-row p,
+.source-row small,
+.method-note p,
+.footer {
+  font-size: 11.5px;
+}
+
+.eyebrow,
+.filter-field > span,
+.session-browser-summary span,
+.session-main > small,
+.agent-identity small,
+.agent-column-labels,
+.agent-cache span,
+.agent-own span,
+.agent-tree-total span,
+.empty-state {
+  font-size: 12px;
+}
+
+.eyebrow {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.total-stat > span,
+.metric-label-row,
+.quota-card h3,
+.timeline-title-row strong,
+.breakdown-name strong,
+.issue-title-row strong,
+.source-row strong,
+.method-note strong {
+  font-size: 12px;
+}
+
+.pulse-metric small,
+.scope-metric > small,
+.session-title-row span,
+.session-agents span,
+.session-usage span,
+.session-usage small,
+.explorer-footnote,
+.session-detail-title > div > span,
+.session-detail-total span,
+.session-detail-total small,
+.agent-identity > div span,
+.tree-truncated,
+.accounting-note {
+  font-size: 11.5px;
+}
+
+.total-stat > strong {
+  font-size: clamp(36px, 3.5vw, 48px);
+}
+
+.scope-metric > strong {
+  font-size: clamp(24px, 2.6vw, 34px);
+}
+
+.pulse-metric strong {
+  font-size: clamp(18px, 1.7vw, 24px);
+}

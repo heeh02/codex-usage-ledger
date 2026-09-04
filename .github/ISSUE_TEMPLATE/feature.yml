@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose one focused product or contributor improvement.
+title: "[Feature]: "
+labels: ["type/feature", "status/triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Accounting, Accounts and quota, Projects and sessions, Data quality, Web dashboard, macOS app, Developer experience, Documentation]
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or contributor problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe behavior, not an implementation mandate.
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Accounting, privacy, and compatibility considerations

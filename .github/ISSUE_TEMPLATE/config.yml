@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability or private-data exposure
+    url: https://github.com/heeh02/codex-usage-ledger/security/advisories/new
+    about: Report vulnerabilities and accidental private-data exposure privately.

@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.icns binary
+*.zip binary
+
+*.sh text eol=lf
+*.rs text eol=lf
+*.swift text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
