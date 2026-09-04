@@ -29,3 +29,33 @@ read-only; only the source-free tagged-release publisher can receive
 This receipt proves repository-history isolation and build gates. It does not
 claim Developer ID signing, notarization, Windows Authenticode, or Linux package
 signing; those boundaries remain explicit in the release process.
+
+## Release publication
+
+The source-free tagged release workflow completed on macOS, Linux, and Windows,
+and the downloaded assets were verified before the repository became Public.
+
+- Release: <https://github.com/heeh02/codex-usage-ledger/releases/tag/v0.1.0>
+- Release workflow: <https://github.com/heeh02/codex-usage-ledger/actions/runs/33872751104>
+- Annotated tag target: `4e142c1885d94a976ce3f046d5d4795385c0af91`.
+- macOS Apple Silicon archive SHA-256:
+  `23d593a4bbf7ac1dd80150a56bf6b1765dde3c56f05dc6eb3bcd5bafe4fa9c39`.
+- Linux x86-64 archive SHA-256:
+  `2d6bd32295e4c6797e58455d9a5447dc0e8e1736ca5e98dfcaae36da2150fc0d`.
+- Windows x86-64 archive SHA-256:
+  `60e7ec376d0fc3bf1cd997711189dd4b1e1f8894580d245116f31860a730952a`.
+
+The macOS application passed deep strict code-signature verification and is
+explicitly ad-hoc signed. Archive inspection confirmed the expected native
+binary format for each platform, the bundled dashboard, project notices,
+CycloneDX Rust and Web SBOMs, and the generated third-party license receipt.
+The repository and release were then verified through the unauthenticated
+public GitHub API.
+
+## Independent acceptance
+
+Independent release review found no P0 or P1 defects. One accepted P2 boundary
+remains: platform-only packages present only in lockfiles and not installed on
+the current runner do not enter that runner's generated license-text receipt.
+The boundary is documented accurately; license-policy exceptions remain pinned
+to exact package versions and unknown dependencies fail closed.

@@ -1,14 +1,14 @@
 # Open-Source Collaboration Goal
 
-Status: **ACTIVE**
+Status: **COMPLETE**
 Started: 2026-09-04
 Previous completed product goal: [`docs/archive/goals/2026-09-04-product-goal.md`](docs/archive/goals/2026-09-04-product-goal.md)
 
-Safety hold resolution: the public target was recreated as a fresh **Private**
-repository from the sanitized source tree. Its first CI run passed the complete
-reachable-history privacy gate. The pre-governance remote remains a separate,
-read-only private archive and is not reachable from the public target. Public
-visibility still waits for the tagged release gate and artifact verification.
+Safety hold resolution: the public target was recreated from the sanitized
+source tree with one root commit. Its complete reachable-history privacy gate,
+required CI, tagged release gate, and downloaded-artifact verification passed
+before Public visibility was enabled. The pre-governance remote remains a
+separate, read-only private archive and is not reachable from the public target.
 
 ## Outcome
 
@@ -92,7 +92,7 @@ privacy, database compatibility, or the installed macOS application.
       module boundaries, privacy, and release safety.
 - [x] Install the verified schema 24 app and reopen the existing ledger in live
       mode without changing Token totals.
-- [ ] Publish and verify the tagged macOS/Linux/Windows release, restore Public
+- [x] Publish and verify the tagged macOS/Linux/Windows release, restore Public
       visibility, and remove only rebuildable caches and temporary copies.
 
 ## Change control
