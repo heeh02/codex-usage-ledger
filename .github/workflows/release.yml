@@ -43,7 +43,7 @@ jobs:
       - run: node scripts/check-workflow-security.mjs
       - run: scripts/check-api-contract.sh
       - run: scripts/generate-sbom.sh .ci-artifacts/sbom
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-sboms
           path: |
@@ -86,7 +86,7 @@ jobs:
           export COPYFILE_DISABLE=1
           ditto -c -k --keepParent "dist/Codex Usage Ledger.app" "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip"
           shasum -a 256 "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip" > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-SHA256SUMS.txt"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-adhoc-${{ github.ref_name }}
           path: |
@@ -132,7 +132,7 @@ jobs:
           sha256sum "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" \
             > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.sha256"
           dist/package/codex-usage-ledger --help >/dev/null
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-x86_64-${{ github.ref_name }}
           path: |
@@ -175,7 +175,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding ascii "dist/Codex-Usage-Ledger-$env:GITHUB_REF_NAME-windows-x86_64.sha256"
           & dist/package/codex-usage-ledger.exe --help | Out-Null
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-x86_64-${{ github.ref_name }}
           path: |
