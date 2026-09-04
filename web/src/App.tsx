@@ -15,6 +15,7 @@ import { compactNumber, formatDateTime, formatPeriodRange } from './lib';
 import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
+import { exportUsageCsv } from './export';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -156,7 +157,7 @@ function App() {
   };
   const openOverview = () => {
     setPrimaryPage('overview');
-    setFilters((value) => ({ ...value, project: 'all', model: 'all', session: 'all' }));
+    setFilters((value) => ({ ...value, project: 'all', session: 'all' }));
   };
   const openAccounts = () => {
     setPrimaryPage('accounts');
@@ -169,7 +170,7 @@ function App() {
   const openProject = (project: string) => {
     setPrimaryPage('overview');
     setProjectDetailTab('overview');
-    setFilters((value) => ({ ...value, account: 'all', project, session: 'all' }));
+    setFilters((value) => ({ ...value, project, session: 'all' }));
   };
   const openSession = (session: string) => {
     setFilters((value) => ({ ...value, session }));
@@ -208,13 +209,7 @@ function App() {
       return;
     }
     if (format === 'csv') {
-      const local = new Map(bundle.timeseries.points.map((point) => [point.date, point]));
-      const rows: Array<Array<string | number>> = [['bucket', 'official_total', 'local_total', 'input', 'cached_input', 'uncached_input', 'output', 'reasoning', 'sampling_requests']];
-      for (const point of bundle.summary.official.points) {
-        const sample = local.get(point.date);
-        rows.push([point.date, point.tokens, sample?.confirmed.total ?? '', sample?.confirmed.input ?? '', sample?.confirmed.cached ?? '', sample?.confirmed.uncached ?? '', sample?.confirmed.output ?? '', sample?.confirmed.reasoning ?? '', sample?.confirmedEvents ?? '']);
-      }
-      download(`codex-usage-${stamp}.csv`, 'text/csv;charset=utf-8', rows.map((row) => row.join(',')).join('\n'));
+      download(`codex-usage-${stamp}.csv`, 'text/csv;charset=utf-8', exportUsageCsv(bundle, appliedFilters, sessionView.scope));
       return;
     }
     requestNativePngExport({ privacyMode, suggestedName: `codex-usage-${stamp}.png` });
@@ -348,7 +343,7 @@ function App() {
           )}
 
           {bundle && (
-            <FilterBar catalog={bundle.summary.filters} value={appliedFilters} page={currentPage} contextLabel={pageTitle} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
+            <FilterBar catalog={bundle.summary.filters} value={appliedFilters} page={currentPage} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
           )}
 
           {bundle && loading && <div className="view-updating" role="status">{JSON.stringify(filters) === JSON.stringify(appliedFilters) ? t('app.updating_the_current_snapshot_the_previous_trusted') : t('app.applying_the_new_page_scope_and_time')}</div>}

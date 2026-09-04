@@ -4,7 +4,7 @@ import type { CollectionStatus, DashboardFilters, FilterCatalog, SummaryResponse
 import { exactNumber, formatDateTime, formatPercent, formatPeriodRange } from '../lib';
 import { periodLabel } from '../lib';
 import { useI18n } from '../i18n';
-import type { AppPage } from '../page';
+import { isWorkDetailPage, type AppPage } from '../page';
 
 export function Panel({
   title,
@@ -63,7 +63,6 @@ export function FilterBar({
   catalog,
   value,
   page,
-  contextLabel,
   refreshing,
   onChange,
   onRefresh,
@@ -71,14 +70,13 @@ export function FilterBar({
   catalog: FilterCatalog;
   value: DashboardFilters;
   page: AppPage;
-  contextLabel?: string;
   refreshing: boolean;
   onChange: (value: DashboardFilters) => void;
   onRefresh: () => void;
 }) {
   const { language, t } = useI18n();
-  const showAccount = page === 'overview' || page === 'accounts' || page === 'quality';
-  const showModel = page === 'project' || page === 'conversation' || page === 'unmatched';
+  const localScope = isWorkDetailPage(page);
+  const showModel = page !== 'accounts' && page !== 'quality';
   const showMetric = page !== 'accounts';
   const showGrain = page !== 'accounts' && page !== 'quality';
   const accountOptions = catalog.accounts.map((option) => {
@@ -91,18 +89,17 @@ export function FilterBar({
     <section className={`filter-bar filter-bar-${page}`} aria-label={t('components.ui.current_page_filters')}>
       <div className="filter-scope filter-account-scope">
         <div className="filter-scope-label">
-          <strong>{showAccount ? t('components.ui.account_scope') : t('components.ui.current_object')}</strong>
-          <span>{showAccount ? t('components.ui.official_total_all_devices') : contextLabel ?? t('app.local_attribution')}</span>
+          <strong>{t('components.ui.account_scope')}</strong>
+          <span>{localScope ? t('app.local_attribution') : t('components.ui.official_total_all_devices')}</span>
         </div>
-        {showAccount && <div className="account-filter-control">
+        <div className="account-filter-control">
           <FilterSelect
             label={t('components.ui.account')}
             value={value.account}
             options={accountOptions}
             onChange={(account) => onChange({ ...value, account })}
           />
-        </div>}
-        {!showAccount && <div className="context-filter-label"><strong>{contextLabel ?? t('app.local_attribution')}</strong><span>{t('components.ui.page_scope_is_fixed')}</span></div>}
+        </div>
         <div className="period-control" role="group" aria-label={t('components.ui.reporting_period')}>
           {catalog.periods.map((period) => (
             <button

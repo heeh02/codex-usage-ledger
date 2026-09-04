@@ -36,11 +36,11 @@ project names, account identifiers, source files or usage snapshots.
       distinguish absent buckets, zero and unsupported granularity.
 - [ ] A04: coverage includes effective historical evidence, is scoped, and never
       equates first/last observations with uninterrupted collection.
-- [ ] A05: account/model/date filters survive project and conversation navigation.
+- [x] A05: account/model/date filters survive project and conversation navigation.
 - [x] A11: all effective historical models are selectable.
 - [ ] A12: validate request ranges; support natural year and custom dates with
       honest available precision and explicit errors.
-- [ ] A13: export local-only and official-only dates with scope, missing states
+- [x] A13: export local-only and official-only dates with scope, missing states
       and all token dimensions.
 - [ ] A19: end quota samples at the cycle boundary; avoid claiming all-account
       activity belongs to each pool; distinguish temporal span from coverage.
@@ -94,10 +94,11 @@ project names, account identifiers, source files or usage snapshots.
 
 ## Current checkpoint
 
-Execution on `feat/usage-visualization`. First batch fixes the global historical
-start and reconstructed-only model choices. Scoped interval completeness still
-remains under A04. Next: preserve account/model scope through navigation and
-repair scoped CSV export. No live data migration or release has occurred.
+Execution on `feat/usage-visualization`. Historical-start/model-catalog repair,
+account/model navigation continuity and source-tagged CSV export are implemented.
+Scoped interval completeness still remains under A04. Next: A02/A03/A16 time
+coordinates and comparison semantics, then complete conversation navigation.
+No live data migration, installed-app replacement or release has occurred.
 
 ## Evidence log
 
@@ -106,3 +107,9 @@ repair scoped CSV export. No live data migration or release has occurred.
 - Batch 1: reproduced two failing historical-coverage fixtures and a missing
   reconstructed-model assertion, then fixed them. Rust 95 library + 3 binary +
   1 schema tests pass; Clippy and repository policy checks pass.
+- Batch 2: browser regression first failed because the account selector
+  disappeared on project navigation. After repair, account/model selection
+  survives project and conversation navigation. All 6 browser checks pass.
+- CSV source/precision/scope cases plus existing Web tests: 13 unit tests pass;
+  typecheck and production build pass. New CSV semantics documented in the
+  HTTP/export contract. No official/local totals are added by the exporter.

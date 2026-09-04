@@ -33,3 +33,17 @@ Request filters and imperative refresh methods remain hand-written client types
 because they are inputs rather than bundle response data. A new response field
 must be added to the Rust DTO first; an incompatible removal or enum change
 requires an ADR and release boundary.
+
+## CSV export
+
+The dashboard CSV is a source-tagged table, not a join driven by official dates.
+Each local bucket is exported even if official daily activity is unavailable.
+Official buckets have their own source and grain, with absent token components
+left blank. Project/model/session exports contain only their local scope; a
+conversation export follows the selected own/descendant timeline.
+
+Stable machine-readable columns include the applied account, project, session,
+model, period boundaries and timezone. Cache-write observations and coverage
+are separate columns; no coverage yields a blank observation, not zero.
+Consumers of the original two-total-column CSV must use `source` and `total`
+instead. Official and local rows must never be added to each other.
