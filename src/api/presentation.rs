@@ -225,10 +225,17 @@ pub(super) fn filter_catalog(store: &LedgerStore) -> Result<serde_json::Value, S
             serde_json::json!({"id": id, "label": format!("{prefix} · {}", account_label(&id))})
         })
         .collect::<Vec<_>>();
+    let effective = AggregateFilter {
+        quality: Some(DataQuality::Confirmed),
+        ..Default::default()
+    };
     let models = store
         .aggregate_rollup_by(AggregateDimension::Model, &all)?
         .into_iter()
+        .chain(store.aggregate_rollup_by(AggregateDimension::Model, &effective)?)
         .filter_map(|bucket| bucket.key)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .map(|id| serde_json::json!({"id": id, "label": id}))
         .collect::<Vec<_>>();
     let mut projects = store

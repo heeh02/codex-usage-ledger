@@ -82,6 +82,86 @@ fn cached_input_is_not_added_twice() {
     assert_eq!(totals.total_tokens, 115);
 }
 
+fn add_reconstructed_fixture(store: &mut LedgerStore, event: crate::UsageEvent) {
+    let source = crate::store::ReconstructionSourceStatus {
+        machine_id: event.provenance.machine_id.clone(),
+        source_id: event.provenance.source_id.clone(),
+        thread_id: event.thread_id.clone().unwrap(),
+        file_identity: event.provenance.file_identity.clone(),
+        status: crate::store::ReconstructionStatus::Reconstructed,
+        bytes_total: 1,
+        bytes_processed: 1,
+        prefix_events: 0,
+        unchanged_events: 0,
+        counter_resets: 0,
+        last_error: None,
+        updated_at: event.observed_at,
+    };
+    let cursor = crate::store::FileCursor {
+        machine_id: source.machine_id.clone(),
+        source_id: source.source_id.clone(),
+        file_identity: source.file_identity.clone(),
+        byte_offset: 1,
+        line_number: 1,
+        parser_state_json: None,
+        updated_at: source.updated_at,
+    };
+    store
+        .upsert_reconstruction_events_and_cursor(
+            &[crate::store::ReconstructionEvent {
+                event,
+                counter_epoch: 0,
+            }],
+            &source,
+            &cursor,
+        )
+        .unwrap();
+}
+
+#[test]
+fn history_coverage_and_model_choices_include_reconstructed_only_evidence() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut recent = explorer_event("recent", "recent-thread", None);
+    recent.source_timestamp = Some(Utc.with_ymd_and_hms(2026, 6, 15, 2, 0, 0).unwrap());
+    store.upsert_event(&recent).unwrap();
+    let mut historical = explorer_event("historical", "historical-thread", None);
+    historical.source_timestamp = Some(Utc.with_ymd_and_hms(2026, 1, 15, 2, 0, 0).unwrap());
+    historical.model = Some("historical-model".to_owned());
+    add_reconstructed_fixture(&mut store, historical);
+
+    let query = UsageQuery {
+        period: Some("lifetime".to_owned()),
+        ..Default::default()
+    };
+    let summary = http_summary(&store, &query).unwrap();
+    assert_eq!(summary["usage"]["confirmed"]["total"], 240);
+    assert_eq!(summary["period"]["start"], "2026-01-14T16:00:00+00:00");
+    let catalog = filter_catalog(&store).unwrap();
+    assert!(
+        catalog["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|model| model["id"] == "historical-model")
+    );
+}
+
+#[test]
+fn history_coverage_does_not_begin_at_unconfirmed_evidence() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut confirmed = explorer_event("confirmed", "confirmed-thread", None);
+    confirmed.source_timestamp = Some(Utc.with_ymd_and_hms(2026, 6, 15, 2, 0, 0).unwrap());
+    store.upsert_event(&confirmed).unwrap();
+    let mut unknown = explorer_event("unknown", "unknown-thread", None);
+    unknown.source_timestamp = Some(Utc.with_ymd_and_hms(2026, 1, 15, 2, 0, 0).unwrap());
+    unknown.quality = DataQuality::Unknown;
+    store.upsert_event(&unknown).unwrap();
+    assert_eq!(
+        earliest_event_at(&store).unwrap(),
+        Some(Utc.with_ymd_and_hms(2026, 6, 14, 16, 0, 0).unwrap())
+    );
+}
+
 #[test]
 fn calendar_and_rolling_periods_have_distinct_shanghai_boundaries() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 8, 0, 0).unwrap();

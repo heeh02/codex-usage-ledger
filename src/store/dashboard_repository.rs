@@ -101,7 +101,12 @@ impl LedgerStore {
     pub fn earliest_rollup_day(&self) -> StoreResult<Option<String>> {
         self.connection
             .query_row(
-                "SELECT MIN(local_day) FROM daily_usage_rollups",
+                "SELECT MIN(local_day) FROM (
+                    SELECT MIN(local_day) AS local_day FROM daily_usage_rollups
+                    WHERE quality = 'confirmed'
+                    UNION ALL
+                    SELECT MIN(local_day) AS local_day FROM reconstruction_daily_rollups
+                 )",
                 [],
                 |row| row.get(0),
             )

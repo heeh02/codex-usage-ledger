@@ -146,6 +146,14 @@ not erase or rescale the local session tree.
 
 ## Coverage and zero semantics
 
+The local historical start includes both confirmed Sampling and validated
+Reconstruction daily evidence. Unknown/quarantined rows cannot establish that
+start. Model choices include effective Reconstruction models even when those
+models have no retained Sampling rows. This corrects v1 metadata/catalog
+behavior without changing persisted token facts or the wire schema. A first
+evidence date alone is not proof of uninterrupted collection; scoped interval
+coverage remains an explicit follow-up in the active product goal.
+
 - Missing dates between the official profile's first and last covered day are
   materialized as covered zeroes.
 - Time before `coverageStart` and after `coverageThrough` is unavailable, not
