@@ -296,29 +296,26 @@ pub(super) fn quota_cycle_views(
         let local_start = cycle_start
             .map(|start| start.max(first.observed_at))
             .unwrap_or(first.observed_at);
-        // Quota cards are contextual telemetry, not an exact billing ledger.
-        // Hour buckets keep the card responsive even with years of retained
-        // request evidence; the UI already reports the observation coverage.
-        let local_usage = store.aggregate_hourly_usage(&AggregateFilter {
-            start_inclusive: Some(local_start),
-            end_exclusive: Some(now + ChronoDuration::seconds(1)),
-            account_fingerprint: Some(account.clone()),
-            project_id: None,
-            model: None,
-            quality: Some(DataQuality::Confirmed),
-        })?;
+        // Account activity is contextual, not pool attribution. Clip the
+        // interval at reset and use request evidence at partial-hour edges.
+        // Compacted edges can be incomplete; elapsed time cannot prove coverage.
+        let local_end = latest.resets_at.map_or(now, |reset| reset.min(now));
+        let local_usage = super::queries::aggregate_exact_hour_window(
+            store,
+            &AggregateFilter {
+                start_inclusive: Some(local_start),
+                end_exclusive: Some(local_end),
+                account_fingerprint: Some(account.clone()),
+                project_id: None,
+                model: None,
+                quality: Some(DataQuality::Confirmed),
+            },
+        )?;
         let first_used = first.used_percent;
         let latest_used = latest.used_percent;
         let used_delta = first_used
             .zip(latest_used)
             .map(|(first, latest)| latest - first);
-        let elapsed_cycle_seconds =
-            cycle_start.map(|start| now.signed_duration_since(start).num_seconds().max(1) as f64);
-        let observed_seconds = now.signed_duration_since(local_start).num_seconds().max(0) as f64;
-        let local_coverage_ratio =
-            elapsed_cycle_seconds.map(|elapsed| (observed_seconds / elapsed).clamp(0.0, 1.0));
-        let empirical_tokens_per_percent = used_delta
-            .and_then(|delta| (delta > 0.0).then(|| local_usage.usage.total_tokens as f64 / delta));
         cycles.push(serde_json::json!({
             "id": format!("{}:{}:{}", account, window_key, current_reset.map(|value| value.timestamp()).unwrap_or_default()),
             "accountId": account,
@@ -337,11 +334,11 @@ pub(super) fn quota_cycle_views(
             "usedDeltaPercent": used_delta,
             "sampleCount": current.len(),
             "localObservationStart": local_start,
-            "localCoverageRatio": local_coverage_ratio,
+            "localCoverageRatio": null,
             "localUsage": token_value(local_usage.usage),
             "localEvents": local_usage.event_count,
             "localUsageResolution": "hour",
-            "empiricalTokensPerUsedPercent": empirical_tokens_per_percent,
+            "empiricalTokensPerUsedPercent": null,
             "empiricalRatioIsConversion": false,
         }));
     }

@@ -1047,6 +1047,45 @@ fn quota_cycle_reports_account_local_tokens_as_sample_not_conversion() {
 }
 
 #[test]
+fn expired_quota_cycle_excludes_same_hour_events_after_reset() {
+    use crate::quota::normalize_rate_limit_event;
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let reset =
+        Utc::now().with_minute(30).unwrap().with_second(0).unwrap() - ChronoDuration::hours(2);
+    let first = reset - ChronoDuration::hours(2);
+    let snapshot = normalize_rate_limit_event(&serde_json::json!({
+        "limit_id": "short-pool",
+        "primary": { "used_percent": 40.0, "window_minutes": 300, "resets_at": reset.timestamp() }
+    }))
+    .unwrap();
+    store
+        .append_quota_snapshot("account", "epoch", first, &snapshot)
+        .unwrap();
+    for (id, at) in [
+        ("before-observation", first - ChronoDuration::minutes(1)),
+        ("inside", reset - ChronoDuration::minutes(1)),
+        ("after-reset", reset + ChronoDuration::minutes(1)),
+    ] {
+        let mut event = explorer_event(id, "quota-thread", None);
+        event.source_timestamp = Some(at);
+        event.observed_at = at;
+        event.account_fingerprint = Some("account".to_owned());
+        store.upsert_event(&event).unwrap();
+    }
+    let cycles = quota_cycle_views(
+        &store,
+        &UsageQuery {
+            account: Some("account".to_owned()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(cycles[0]["localUsage"]["total"], 120);
+    assert!(cycles[0]["localCoverageRatio"].is_null());
+    assert!(cycles[0]["empiricalTokensPerUsedPercent"].is_null());
+}
+
+#[test]
 fn quota_labels_hide_internal_dynamic_pool_keys() {
     assert_eq!(
         quota_display_label(None, Some("codex"), "dynamic:id:codex"),

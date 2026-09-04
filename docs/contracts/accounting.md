@@ -212,10 +212,16 @@ replace them.
 The current cycle is keyed by account, stable server window identity and the
 server-provided reset boundary. A roughly 10,080-minute window is labeled
 weekly, but no model name is assumed to identify a quota pool. The UI reports
-local confirmed Token dimensions observed since the first trustworthy snapshot
-inside that cycle, together with sampling coverage. A Token-per-percentage-point
-ratio is an empirical correlation over that bounded local sample only; it is
-never a billing or quota conversion rate.
+local account activity observed since the first trustworthy snapshot inside that
+cycle, ending at the earlier of now or the cycle reset. Complete hours use
+durable rollups and partial hours use retained request evidence. Missing compacted
+boundary evidence can leave the sample incomplete. This activity is not pool
+usage: the source does not associate individual requests with a pool.
+
+The nullable v1 fields `localCoverageRatio` and `empiricalTokensPerUsedPercent`
+remain present but return null. Elapsed time alone does not establish collection
+coverage, and all-account activity cannot establish a pool-specific correlation.
+This semantic correction changes no persisted Token fact or quota observation.
 
 A material decrease in server-reported `usedPercent` is recorded as an observed
 reset. If it occurs at the previous scheduled boundary it is a scheduled

@@ -97,7 +97,7 @@ fn aggregate_exact_hour_window_series(
         .collect())
 }
 
-fn aggregate_exact_hour_window(
+pub(super) fn aggregate_exact_hour_window(
     store: &LedgerStore,
     filter: &AggregateFilter,
 ) -> Result<UsageAggregate, StoreError> {

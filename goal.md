@@ -42,7 +42,7 @@ project names, account identifiers, source files or usage snapshots.
       honest available precision and explicit errors.
 - [x] A13: export local-only and official-only dates with scope, missing states
       and all token dimensions.
-- [ ] A19: end quota samples at the cycle boundary; avoid claiming all-account
+- [x] A19: end quota samples at the cycle boundary; avoid claiming all-account
       activity belongs to each pool; distinguish temporal span from coverage.
 - [ ] Record versioned contract changes and synthetic regression evidence.
 
@@ -98,8 +98,11 @@ Execution on `feat/usage-visualization`. Historical-start/model-catalog repair,
 account/model navigation continuity and source-tagged CSV export are implemented.
 Scoped interval completeness still remains under A04. Calendar chart coordinates,
 gap breaks, date-aligned comparison and source grain labels are implemented;
-full scoped coverage/comparison validation remains open. Next: quota interval
-boundaries, then complete conversation navigation.
+full scoped coverage/comparison validation remains open. Quota sample boundaries
+are fixed. Next: complete conversation pagination/search and actual child
+navigation, followed by the trend-first page layout. Current screenshots still
+show excessive page chrome and cramped auxiliary titles; overall GUI acceptance
+is not complete.
 No live data migration, installed-app replacement or release has occurred.
 
 ## Evidence log
@@ -120,3 +123,11 @@ No live data migration, installed-app replacement or release has occurred.
   axes. Composition uses stacked buckets; project comparisons share one axis.
   Web 18 unit and 7 browser tests pass, including narrow-window keyboard values.
   Demo account scope now matches production project/model scope behavior.
+- Batch 4: a reset-edge fixture first returned 360 instead of 120; exact partial
+  hour handling now excludes pre-observation and post-reset requests. Account
+  activity is not labeled pool usage; unsupported coverage/correlation returns
+  null. Rust 96 library + 3 binary + 1 schema tests and Clippy pass.
+- Additional unknown-only chart bucket regression: Web 19 unit tests pass;
+  build and 7 browser tests pass. A synthetic-data browser visual inspection
+  verified readable plot axes, local source legend and persistent values. Its
+  temporary browser and dev server were closed. No installed app was replaced.

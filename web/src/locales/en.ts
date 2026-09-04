@@ -1,6 +1,7 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "components.quota-panel.pool_attribution_unavailable": "The source does not link requests to this pool; account activity is not pool usage",
   "chart.keyboard_hint": "Use arrow keys to inspect values; Home/End for first/last",
   "chart.gaps_unknown": "Missing dates break the line; — means unavailable",
   "app.account_capture_summary": "{known} accounts confirmed; {observed} identities and {official} official archives captured{uncapturedSuffix}{provisionalSuffix}",
@@ -370,12 +371,12 @@ export const enMessages = {
   "components.quota-panel.live": "Live",
   "components.quota-panel.live_quota": "Live quota",
   "components.quota-panel.local_observation_coverage": "Local observation coverage",
-  "components.quota-panel.local_token_sample": "Local token sample",
+  "components.quota-panel.local_token_sample": "Account activity in this interval",
   "components.quota-panel.next_reset": "Next reset",
   "components.quota-panel.no_comparable_starting_point": "No comparable starting point",
   "components.quota-panel.not_enough_quota_cycle_snapshots_yet_they": "Not enough quota-cycle snapshots yet. They are created automatically when you switch accounts and keep the app running.",
   "components.quota-panel.observed": "Observed",
-  "components.quota-panel.observed_correlation": "Observed correlation",
+  "components.quota-panel.observed_correlation": "Request attribution to pool",
   "components.quota-panel.official_custom_window": "Official custom window",
   "components.quota-panel.official_short_window": "Official short window",
   "components.quota-panel.official_weekly_quota_cycle": "Official weekly quota cycle",
