@@ -71,6 +71,7 @@ export function comparisonKey(key: string, period: PeriodWindow, grain: TimeGrai
   const currentStart = civilTime(civilKey(period.start, period.timezone));
   const previousStart = civilTime(civilKey(period.comparisonStart, period.timezone));
   const date = new Date(civilTime(key));
+  if (!Number.isFinite(date.getTime())) return null;
   if (period.key === 'month' || grain === 'month') {
     const a = new Date(currentStart), b = new Date(previousStart);
     const monthOffset = (a.getUTCFullYear() - b.getUTCFullYear()) * 12 + a.getUTCMonth() - b.getUTCMonth();
@@ -94,6 +95,9 @@ export interface TrendPoint {
 }
 
 export function trendSeries(data: TimeseriesResponse, metric: MetricKey) {
+  const localValue = (point: TimeseriesResponse['points'][number]) => point.confirmedEvents === 0
+    && (point.unknownEvents > 0 || point.quarantinedEvents > 0)
+    ? null : metricValue(point.confirmed, metric, point.confirmedEvents);
   const account = metric === 'total' && data.official.primaryScope
     && (data.official.reconciledPoints.length > 0 || data.official.points.length > 0);
   const grain = account ? data.official.granularity : data.grain;
@@ -101,7 +105,7 @@ export function trendSeries(data: TimeseriesResponse, metric: MetricKey) {
     ? data.official.reconciledPoints.length
       ? data.official.reconciledPoints.map(p => ({ date: p.date, value: p.status === 'unknown' ? null : p.value }))
       : data.official.points.map(p => ({ date: p.date, value: p.tokens }))
-    : data.points.map(p => ({ date: p.date, value: metricValue(p.confirmed, metric, p.confirmedEvents) }));
+    : data.points.map(p => ({ date: p.date, value: localValue(p) }));
   const comparison = account
     ? data.official.reconciledComparisonPoints.length
       ? data.official.reconciledComparisonPoints.map(p => ({ date: p.date, value: p.status === 'unknown' ? null : p.value }))
@@ -111,7 +115,7 @@ export function trendSeries(data: TimeseriesResponse, metric: MetricKey) {
     const key = comparisonKey(p.date, data.period, grain);
     return key ? [[key, p.value] as const] : [];
   }));
-  const local = new Map(data.points.map(p => [p.date, metricValue(p.confirmed, metric, p.confirmedEvents)]));
+  const local = new Map(data.points.map(p => [p.date, localValue(p)]));
   const points: TrendPoint[] = rows.filter(p => Number.isFinite(civilTime(p.date)))
     .sort((a, b) => civilTime(a.date) - civilTime(b.date))
     .map(p => ({ ...p, previous: previous.get(p.date) ?? null,

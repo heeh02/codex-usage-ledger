@@ -51,4 +51,13 @@ describe('calendar chart projection', () => {
     expect(chart.points.every(p => p.previous === null)).toBe(true);
     expect(chart.points.map(p => p.value)).toEqual(sample.points.map(p => p.confirmed.total));
   });
+
+  it('does not turn an unknown-only bucket into confirmed zero', () => {
+    const sample = structuredClone(data);
+    sample.official.primaryScope = false;
+    sample.points = [sample.points[0]];
+    sample.points[0].confirmedEvents = 0;
+    sample.points[0].unknownEvents = 1;
+    expect(trendSeries(sample, 'total').points[0].value).toBeNull();
+  });
 });
