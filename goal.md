@@ -596,3 +596,9 @@ No live data migration, installed-app replacement or release has occurred.
   This is ad-hoc signing, not notarization or publication. The bundle was NOT
   launched or installed because default data paths still target the live ledger;
   real migration, lifecycle and device acceptance remain open.
+- Batch 85: native packaging explicitly forces same-origin HTTP data mode,
+  overriding inherited demo/external API environment values. A rebuild with
+  deliberately conflicting synthetic values produced the identical complete
+  bundle manifest hash recorded in batch 84. Final signature and checksums
+  verified again. This protects build configuration; no application was
+  launched/installed and no live ledger was touched.

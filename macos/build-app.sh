@@ -106,7 +106,9 @@ log "building Rust release binary for $RUST_TARGET"
 log "installing locked web dependencies"
 (cd "$WEB_DIR" && npm ci --no-audit --no-fund)
 log "building React dashboard"
-(cd "$WEB_DIR" && npm run build)
+# Native navigation and CSP target the bundled same-origin loopback service.
+# Never ship a demo/external endpoint inherited from a developer's environment.
+(cd "$WEB_DIR" && VITE_LEDGER_DATA_MODE=http VITE_LEDGER_API_BASE= npm run build)
 [[ -f "$WEB_DIST_SOURCE/index.html" ]] || fail "web build did not produce dist/index.html"
 
 /bin/mkdir -p "$DIST_DIR"
