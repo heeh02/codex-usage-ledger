@@ -259,3 +259,12 @@ No live data migration, installed-app replacement or release has occurred.
   than falling back to now. A 23-hour day and a skipped-date timezone fixture
   pass alongside all 107 library, 3 binary and 1 schema tests; Clippy passes.
   This does not close broader DST chart-bucket or coverage acceptance.
+- Batch 32: synthetic conversation fixtures no longer display a project's full
+  timeline under a fractional conversation KPI. Integer-conserving fixture
+  partitions align project/root/own/node/tree/timeline token dimensions and
+  request totals; nested child subtotals include descendants, and child curves
+  retain multiple dates. These allocations exist only in demo data, never real
+  accounting. Eight token dimensions are checked across all fixture projects
+  and roots. Web 23 unit tests and production build pass. Four requested browser
+  regressions fail before assertions because Chrome launch exits with SIGABRT;
+  interaction and installed-app acceptance remain unverified.

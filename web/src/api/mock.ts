@@ -616,6 +616,31 @@ function paginateMockNodes(result: ExplorerResponse, filters: DashboardFilters):
   return result;
 }
 
+// Synthetic fixture allocation only. Never used for real account attribution.
+function splitIntegers(total: number, weights: number[]): number[] {
+  const denominator = weights.reduce((sum, value) => sum + value, 0);
+  let prefix = 0, previous = 0;
+  return weights.map(weight => {
+    prefix += weight;
+    const cumulative = denominator ? Math.round(total * prefix / denominator) : 0;
+    const value = cumulative - previous;
+    previous = cumulative;
+    return value;
+  });
+}
+
+function splitFixtureUsage(usage: TokenUsage, weights: number[]): TokenUsage[] {
+  const cached = splitIntegers(usage.cached, weights);
+  const write = splitIntegers(usage.cacheWrite, weights);
+  const uncached = splitIntegers(usage.uncached, weights);
+  const reasoning = splitIntegers(usage.reasoning, weights);
+  const otherOutput = splitIntegers(usage.output - usage.reasoning, weights);
+  const input = weights.map((_, i) => cached[i] + write[i] + uncached[i]);
+  const observed = splitIntegers(usage.cacheWriteObservedInput, input);
+  return weights.map((_, i) => makeUsage(input[i], cached[i],
+    reasoning[i] + otherOutput[i], reasoning[i], write[i], observed[i]));
+}
+
 function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date): ExplorerResponse {
   const aggregate = (next: DashboardFilters) => aggregateByQuality(filterFacts(facts, next, anchor)).confirmed;
   const lifetime = aggregate({ ...filters, period: 'lifetime', project: filters.project });
@@ -663,8 +688,10 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
 
   const sessions = allSessions.map((session, index) => {
     const projectUsage = projects.find((project) => project.id === session.projectId)?.periodUsage ?? emptyUsage();
-    const treeUsage = scaledUsage(projectUsage, index % 2 === 0 ? 0.58 : 0.37);
-    const ownUsage = scaledUsage(treeUsage, session.agents.length ? 0.44 : 1);
+    const siblings = MOCK_SESSIONS.filter(item => item.projectId === session.projectId);
+    const treeUsage = splitFixtureUsage(projectUsage, siblings.map(() => 1))[siblings.findIndex(item => item.id === session.id)];
+    const ownUsage = splitFixtureUsage(treeUsage, session.agents.length
+      ? [44, ...session.agents.map(() => 56 / session.agents.length)] : [1])[0];
     const updatedAt = new Date(now.getTime() - index * 37 * 60_000).toISOString();
     return {
       id: session.id,
@@ -687,8 +714,8 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
   const selected = filters.session === ALL ? undefined : MOCK_SESSIONS.find((session) => session.id === filters.session);
   const selectedRow = sessions.find((session) => session.id === filters.session);
   const selectedSession = selected && selectedRow ? (() => {
-    const agentRatio = selected.agents.length ? 0.56 / selected.agents.length : 0;
-    const agentUsage = selected.agents.map((agent) => scaledUsage(selectedRow.treeUsage, agentRatio));
+    const agentUsage = splitFixtureUsage(selectedRow.treeUsage, selected.agents.length
+      ? [44, ...selected.agents.map(() => 56 / selected.agents.length)] : [1]).slice(1);
     const nodes = [
       {
         id: selected.id,
@@ -735,6 +762,21 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
         subtreeEventCount: 8 + index * 4,
       })),
     ];
+    for (const node of [...nodes].reverse()) {
+      if (!node.parentId) continue;
+      const parent = nodes.find(item => item.id === node.parentId);
+      if (parent && parent.id !== selected.id) {
+        parent.subtreeUsage = { ...parent.subtreeUsage };
+        addUsage(parent.subtreeUsage, node.subtreeUsage);
+        parent.subtreeEventCount += node.subtreeEventCount;
+      }
+    }
+    const series = buildTimeseries(filterFacts(facts, { ...filters, project: selected.projectId }, anchor));
+    const weights = series.map(point => point.confirmed.total);
+    const treeBuckets = splitFixtureUsage(selectedRow.treeUsage, weights);
+    const ownBuckets = splitFixtureUsage(selectedRow.ownUsage, weights);
+    const treeEvents = splitIntegers(nodes[0].subtreeEventCount, weights);
+    const ownEvents = splitIntegers(selectedRow.eventCount, weights);
     return {
       id: selected.id,
       title: selected.title,
@@ -747,15 +789,15 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
       ownUsage: selectedRow.ownUsage,
       treeUsage: selectedRow.treeUsage,
       subagentCount: selected.agents.length,
-      samplingTimeline: buildTimeseries(filterFacts(facts, filters, anchor)).map((point) => ({
+      samplingTimeline: series.map((point, index) => ({
         bucket: point.date,
-        events: point.confirmedEvents,
-        usage: point.confirmed,
+        events: treeEvents[index],
+        usage: treeBuckets[index],
       })),
-      ownSamplingTimeline: buildTimeseries(filterFacts(facts, filters, anchor)).map((point) => ({
+      ownSamplingTimeline: series.map((point, index) => ({
         bucket: point.date,
-        events: Math.max(1, Math.round(point.confirmedEvents * (selectedRow.ownUsage.total / Math.max(selectedRow.treeUsage.total, 1)))),
-        usage: scaledUsage(point.confirmed, selectedRow.ownUsage.total / Math.max(selectedRow.treeUsage.total, 1)),
+        events: ownEvents[index],
+        usage: ownBuckets[index],
       })),
       samplingGrain: 'day' as const,
       officialThreadUsage: null,
@@ -1129,12 +1171,17 @@ export class MockLedgerApi implements LedgerApi {
       const events = nodes.reduce((sum, node) => sum + node.eventCount, 0);
       nodes[0].subtreeUsage = total;
       nodes[0].subtreeEventCount = events;
-      // Synthetic fixtures use one explicit bucket, not fabricated real history.
-      const bucket = root.samplingTimeline[0]?.bucket ?? new Date().toISOString().slice(0, 10);
+      const weights = root.samplingTimeline.map(point => point.usage.total);
+      const treeUsage = splitFixtureUsage(total, weights);
+      const ownUsage = splitFixtureUsage(selected.ownUsage, weights);
+      const treeEvents = splitIntegers(events, weights);
+      const ownEvents = splitIntegers(selected.eventCount, weights);
       result.selectedSession = { ...root, id: selected.id, title: selected.title, model: selected.model,
         ownUsage: selected.ownUsage, treeUsage: total, nodes, subagentCount: nodes.length - 1,
-        samplingTimeline: [{ bucket, usage: total, events }],
-        ownSamplingTimeline: [{ bucket, usage: selected.ownUsage, events: selected.eventCount }] };
+        samplingTimeline: root.samplingTimeline.map((point, index) => ({
+          bucket: point.bucket, usage: treeUsage[index], events: treeEvents[index] })),
+        ownSamplingTimeline: root.samplingTimeline.map((point, index) => ({
+          bucket: point.bucket, usage: ownUsage[index], events: ownEvents[index] })) };
       return paginateMockNodes(result, filters);
     }
     return paginateMockNodes(explorerFor(this.facts, filters, this.anchor), filters);
