@@ -16,7 +16,8 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --port 47128',
     url: 'http://127.0.0.1:47128',
-    reuseExistingServer: !process.env.CI,
+    // Never reuse a developer's HTTP-mode page for synthetic acceptance.
+    reuseExistingServer: false,
     env: {
       ...process.env,
       VITE_LEDGER_DATA_MODE: 'mock',

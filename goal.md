@@ -392,3 +392,10 @@ No live data migration, installed-app replacement or release has occurred.
   missing-turn label. It does not infer a turn from the current page or bucket.
   Web 33 tests and build pass; complete turn aggregation and browser layout
   acceptance remain open.
+- Batch 52: synthetic browser tests may no longer reuse an existing developer
+  server. Dev ports are strict, mock mode has no live API proxy, and static
+  production preview never inherits the live-ledger proxy. Isolation tests
+  verify both mock and HTTP configurations. All 35 Web tests passed; a config
+  typing failure exposed by importing Vite config into tests was corrected,
+  then targeted isolation tests and production build pass. This prepares safe
+  acceptance but does not itself validate the request-table UI.
