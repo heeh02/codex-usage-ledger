@@ -376,3 +376,8 @@ No live data migration, installed-app replacement or release has occurred.
   rather than displaying unfiltered observations under filtered labels.
   Web 32 tests and build pass. Real table interaction, filtered attribution,
   turn grouping and responsive visual acceptance remain incomplete.
+- Batch 49: request-table cursor history supports previous/next/first navigation
+  without guessing offsets. Equal-time distinct IDs remain separate, and a
+  failed page cannot advance using the previous page's stale next cursor.
+  Pagination-state regression and all 33 Web tests/build pass. Browser table
+  interaction and snapshot consistency across late arrivals remain open.

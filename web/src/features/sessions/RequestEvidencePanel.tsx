@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchRequestEvidence } from '../../api/requestEvidence';
-import type { RequestEvidenceCursor, RequestEvidenceResponse } from '../../api/request-evidence.generated';
+import type { RequestEvidenceResponse } from '../../api/request-evidence.generated';
+import { advanceRequestPage, firstRequestPage, previousRequestPage } from './requestPaging';
 import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
 import './request-evidence.css';
@@ -10,7 +11,8 @@ export function RequestEvidencePanel({ threadId, start, end, enabled }: {
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [cursor, setCursor] = useState<RequestEvidenceCursor | null>(null);
+  const [paging, setPaging] = useState(firstRequestPage);
+  const cursor = paging.cursor;
   const [page, setPage] = useState<RequestEvidenceResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -45,8 +47,9 @@ export function RequestEvidencePanel({ threadId, start, end, enabled }: {
           </tr>)}</tbody>
         </table></div>
         {!page.rows.length && <p>{t('requests.empty')}</p>}
-        <button type="button" disabled={busy || !cursor} onClick={() => setCursor(null)}>{t('requests.first')}</button>
-        <button type="button" disabled={busy || !page.next} onClick={() => setCursor(page.next)}>{t('requests.next')}</button></>}
+        <button type="button" disabled={busy || !cursor} onClick={() => setPaging(firstRequestPage())}>{t('requests.first')}</button>
+        <button type="button" disabled={busy || !paging.previous.length} onClick={() => setPaging(previousRequestPage)}>{t('requests.previous')}</button>
+        <button type="button" disabled={busy || Boolean(error) || !page.next} onClick={() => setPaging(value => advanceRequestPage(value, page.next))}>{t('requests.next')}</button></>}
       </>}
     </>}
   </section>;
