@@ -75,6 +75,13 @@ Ambiguous matches have no link. Existing history receives no invented links.
 Before any shadow dedup decision, compare effective time and token dimensions:
 in-place source rewrites can reuse physical positions and identities.
 
+The read-only single-request candidate audit reports unavailable request,
+unlinked, unavailable target, unverifiable time, differing evidence, or consistent
+candidate. Consistency requires same thread/model, confirmed sampling quality,
+all token components equal, and timestamps within 250 milliseconds using integer
+duration comparison. It does not prove one-to-one mapping, complete coverage,
+or independent request equality, and never changes effective source selection.
+
 Post-sampling timestamp matching must have a unique nearest unused candidate
 within its tolerance. Equally near candidates are unknown with an explicit
 ambiguity reason, not arbitrarily confirmed. This guards new ingestion only;

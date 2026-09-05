@@ -482,3 +482,9 @@ No live data migration, installed-app replacement or release has occurred.
   tests and Clippy pass. Links are not equality proof: in-place rewrites can
   reuse positions, so shadow overlap still needs time/component verification.
   No historical source reprocessing or live database upgrade occurred.
+- Batch 66: read-only candidate audit distinguishes missing links/targets,
+  invalid time, conflicting fields and consistent candidates. It compares
+  thread/model/quality, every token component and integer timestamp tolerance.
+  Regression checks matching boundary, component/time mismatches and zero DB
+  writes; targeted test and Clippy pass. It does not establish one-to-one
+  identity or change source selection; aggregate shadow reporting remains open.

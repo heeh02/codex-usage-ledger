@@ -954,6 +954,63 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn candidate_overlap_checks_time_and_components_without_writes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("absent").unwrap(),
+        CandidateOverlapStatus::RequestUnavailable
+    );
+    let mut sample = event("sample-link", DataQuality::Confirmed, 10);
+    store.upsert_event(&sample).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::NotLinked
+    );
+    sample.provenance.candidate_rollout_event_id = Some("rebuilt-link".into());
+    store.upsert_event(&sample).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::TargetUnavailable
+    );
+    let mut rebuilt = sample.clone();
+    rebuilt.event_id = "rebuilt-link".into();
+    rebuilt.source_timestamp = Some(sample.observed_at + ChronoDuration::milliseconds(250));
+    {
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: rebuilt,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let changes = store.connection.total_changes();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::ConsistentCandidate
+    );
+    assert_eq!(store.connection.total_changes(), changes);
+    store.connection.execute_batch(
+        "UPDATE reconstruction_usage_events SET input_tokens=101,total_tokens=121 WHERE event_id='rebuilt-link';"
+    ).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::DifferentEvidence
+    );
+    store.connection.execute_batch(
+        "UPDATE reconstruction_usage_events SET input_tokens=100,total_tokens=120,source_timestamp='2026-09-01T01:00:00.000000000Z'
+         WHERE event_id='rebuilt-link';"
+    ).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::DifferentEvidence
+    );
+}
+
+#[test]
 fn deep_request_page_seeks_by_compound_index() {
     let store = LedgerStore::open_in_memory().unwrap();
     let pages_before: i64 = store

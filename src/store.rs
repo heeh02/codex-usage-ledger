@@ -51,6 +51,17 @@ pub struct RetainedRequestPage {
     pub observations: Vec<RetainedRequestObservation>,
     pub next: Option<RetainedRequestCursor>,
 }
+
+/// Diagnostic only: a consistent candidate is not proven request equality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CandidateOverlapStatus {
+    RequestUnavailable,
+    NotLinked,
+    TargetUnavailable,
+    UnverifiableTime,
+    DifferentEvidence,
+    ConsistentCandidate,
+}
 #[cfg(test)]
 use migrations::{
     CURRENT_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5,
