@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "accounts.compare_local": "Compare accounts · local activity",
+  "accounts.compare_scope": "Local records within the same time window, not each account's usage across other devices.",
   "comparison.title": "Usage comparison",
   "comparison.choose": "Choose 1–5 series to compare",
   "comparison.limit": "Up to 5 series on one time axis",

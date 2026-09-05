@@ -196,3 +196,6 @@ No live data migration, installed-app replacement or release has occurred.
   custom-window conservation checked. Model page exposes multi-series comparison
   on the shared calendar axis; demo fixtures include both dimensions. Browser
   acceptance and account comparison presentation remain open.
+- Batch 19: all-account view includes a shared-axis local account comparison,
+  explicitly distinguished from official multi-device totals. Single-account
+  view avoids the redundant comparison. Visual acceptance remains open.

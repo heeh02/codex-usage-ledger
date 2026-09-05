@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "accounts.compare_local": "账号对比 · 本机活动",
+  "accounts.compare_scope": "同一时间范围内的本机记录；不代表各账号在其他设备上的全部用量。",
   "comparison.title": "用量对比",
   "comparison.choose": "选择 1–5 条曲线进行对比",
   "comparison.limit": "同一时间轴最多显示 5 条曲线",
