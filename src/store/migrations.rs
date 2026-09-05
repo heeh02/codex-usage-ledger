@@ -138,6 +138,16 @@ END;
 "#;
 
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
+    migrate_through(connection, CURRENT_SCHEMA_VERSION)
+}
+
+#[cfg(test)]
+pub(super) fn create_legacy_schema(connection: &mut Connection, version: i64) -> StoreResult<()> {
+    assert!((1..=CURRENT_SCHEMA_VERSION).contains(&version));
+    migrate_through(connection, version)
+}
+
+fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreResult<()> {
     let mut version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version > CURRENT_SCHEMA_VERSION {
         return Err(StoreError::SchemaTooNew {
@@ -146,7 +156,7 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
         });
     }
 
-    while version < CURRENT_SCHEMA_VERSION {
+    while version < target_version {
         let next = version + 1;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         match next {

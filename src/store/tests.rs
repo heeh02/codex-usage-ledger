@@ -72,6 +72,68 @@ fn opens_wal_database_and_runs_migrations() {
 }
 
 #[test]
+fn genuine_schema_24_upgrade_preserves_raw_and_rollup_dimensions() {
+    let directory = tempdir().unwrap();
+    let seed_path = directory.path().join("synthetic-seed.sqlite");
+    {
+        let mut seed = LedgerStore::open(&seed_path).unwrap();
+        seed.upsert_event(&event("legacy-seed", DataQuality::Confirmed, 10))
+            .unwrap();
+        seed.checkpoint_wal().unwrap();
+    }
+    let path = directory.path().join("genuine-schema24.sqlite");
+    {
+        let mut legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        migrations::create_legacy_schema(&mut legacy, 24).unwrap();
+        let new_tables: i64 = legacy
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'retained_request_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(new_tables, 0);
+        legacy
+            .execute(
+                "ATTACH DATABASE ?1 AS seed",
+                params![seed_path.to_string_lossy()],
+            )
+            .unwrap();
+        legacy
+            .execute_batch(
+                "INSERT INTO usage_events SELECT * FROM seed.usage_events; DETACH DATABASE seed;",
+            )
+            .unwrap();
+        let version: i64 = legacy
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 24);
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    let expected = event("unused", DataQuality::Confirmed, 0).usage;
+    let raw = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    let rollup = store
+        .aggregate_rollup_usage(&AggregateFilter::default())
+        .unwrap();
+    assert_eq!(raw.usage, expected);
+    assert_eq!(raw, rollup);
+    let invented: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_evidence",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        invented, 0,
+        "migration must not invent missing request history"
+    );
+}
+
+#[test]
 fn effective_projection_updates_only_dirty_keys_and_survives_restart() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("incremental.sqlite");

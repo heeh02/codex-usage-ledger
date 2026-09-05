@@ -572,3 +572,8 @@ No live data migration, installed-app replacement or release has occurred.
   snapshot or live migration is claimed. Upgrade acceptance requires verified
   writer state, consistent backup, free-space headroom and isolated migration
   comparison. The installed application remains unchanged.
+- Batch 81: genuine schema-24 synthetic database is built by executing only
+  migrations 1–24, then seeded with a synthetic raw event and upgraded normally.
+  All raw/rollup token dimensions and counts remain equal; no request detail is
+  invented by migration. Test and Clippy pass. This validates the schema chain,
+  not the real database, backup consistency or installed application.
