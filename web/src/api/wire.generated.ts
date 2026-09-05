@@ -440,7 +440,7 @@ export interface MetricCoverage {
   complete: boolean;
   knownAccountCount: number;
   missingOfficialAccountCount: number;
-  ratio: number;
+  ratio: number | null;
 }
 export interface MissingAccountEstimate {
   alignedAccountDays: number;

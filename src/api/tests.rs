@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn local_period_coverage_is_unknown_and_first_record_is_scope_specific() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let query = UsageQuery {
+        period: Some("lifetime".into()),
+        project: Some("project-b".into()),
+        ..Default::default()
+    };
+    let now = Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap();
+    let period = resolve_period_at(&query, now).2;
+    let empty = period_value(&store, &period, &query);
+    assert_eq!(empty["coverageComplete"], serde_json::Value::Null);
+    assert_eq!(empty["coverageRatio"], serde_json::Value::Null);
+    for (id, project, month) in [("earlier", "project-a", 1), ("later", "project-b", 2)] {
+        let mut fact = explorer_event(id, id, None);
+        fact.project.project_id = Some(project.into());
+        fact.source_timestamp = Some(Utc.with_ymd_and_hms(2026, month, 1, 12, 0, 0).unwrap());
+        store.upsert_event(&fact).unwrap();
+    }
+    let scoped = period_value(&store, &period, &query);
+    assert_eq!(
+        parse_timestamp(scoped["coverageStart"].as_str().unwrap()),
+        Some(Utc.with_ymd_and_hms(2026, 1, 31, 16, 0, 0).unwrap())
+    );
+    assert_eq!(scoped["coverageComplete"], serde_json::Value::Null);
+    assert_eq!(scoped["coverageRatio"], serde_json::Value::Null);
+    assert_eq!(scoped["comparisonAvailable"], serde_json::Value::Null);
+}
+
+#[test]
 fn exact_window_usage_must_survive_raw_compaction() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let start = Utc.with_ymd_and_hms(2026, 8, 1, 1, 10, 0).unwrap();

@@ -424,8 +424,7 @@ pub(super) fn resolved_account_total_metric(
             complete: coverage_complete && account_coverage_complete,
             ratio: official
                 .get("coverageRatio")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0),
+                .and_then(serde_json::Value::as_f64),
             known_account_count: official
                 .get("knownAccountCount")
                 .and_then(serde_json::Value::as_u64)

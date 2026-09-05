@@ -617,3 +617,11 @@ No live data migration, installed-app replacement or release has occurred.
   selection normalization. Encoding and returned-scope checks now agree with
   the backend for blank/all/padded inputs. Web 41-test suite/build, final
   typecheck and targeted client/fixture regressions pass.
+- Batch 90: removed the invalid inference that a first observation implies
+  complete local coverage (including empty ledgers). Local period coverage
+  ratios/completeness are unknown; local metric ratio is nullable, and its
+  completeness is not claimed. Earliest retained day is scoped to active
+  account/project/model. Official coverage remains separate. New scoped/empty
+  tests, full Rust 132 tests, Clippy, three contracts, Web 41 tests/build pass.
+  Continuous interval coverage remains an open requirement, not solved by this
+  correction. Initial date-prefix assertion was fixed to compare actual UTC time.

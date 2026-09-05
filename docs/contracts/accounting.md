@@ -53,6 +53,14 @@ There are three non-interchangeable Token views:
 
 ## Incremental source projection
 
+The earliest retained date is not a continuous-collection guarantee. Period
+metadata now derives that date from the active account/project/model scope,
+and leaves local completeness, coverage ratio/offset and comparison coverage
+unknown. Local resolved metrics use complete=false (not proven) and ratio=null,
+not fabricated 100% or measured 0%. Official coverage remains independently
+evaluated from official observations. Actual continuity still requires a
+source-interval ledger; this change does not establish one.
+
 Exact boundary queries prefer raw evidence. Once raw events are absent, they
 may use retained request evidence joined to current assignments. Event-ID
 exclusion prevents summing raw and retained copies; effective queries still

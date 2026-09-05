@@ -55,7 +55,7 @@ pub(super) fn http_explorer(
         let mut period_query = query.clone();
         period_query.period = Some(period_key.to_owned());
         let (_, descriptor) = filter_and_period(&period_query, DataQuality::Confirmed);
-        period_value(store, &descriptor)
+        period_value(store, &descriptor, &period_query)
     };
 
     Ok(serde_json::json!({

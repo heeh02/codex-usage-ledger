@@ -299,7 +299,7 @@ pub(super) fn http_timeseries(
     )?;
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
-        "period": period_value(store, &period),
+        "period": period_value(store, &period, query),
         "grain": grain,
         "points": points,
         "comparisonPoints": comparison_points,
@@ -450,7 +450,7 @@ pub(super) fn http_breakdowns(
     let (_, period) = filter_and_period(query, DataQuality::Confirmed);
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
-        "period": period_value(store, &period),
+        "period": period_value(store, &period, query),
         "account": breakdown_rows(store, query, AggregateDimension::Account)?,
         "project": breakdown_rows(store, query, AggregateDimension::Project)?,
         "model": breakdown_rows(store, query, AggregateDimension::Model)?,

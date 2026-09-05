@@ -1206,7 +1206,10 @@
           "format": "double"
         },
         "ratio": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         }
       },

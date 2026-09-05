@@ -536,7 +536,7 @@ pub struct QuotaCycle {
 #[serde(rename_all = "camelCase")]
 pub struct MetricCoverage {
     pub complete: bool,
-    pub ratio: f64,
+    pub ratio: Nullable<f64>,
     pub known_account_count: f64,
     pub missing_official_account_count: f64,
 }

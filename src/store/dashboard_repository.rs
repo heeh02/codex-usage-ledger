@@ -116,6 +116,21 @@ impl LedgerStore {
             .map_err(StoreError::from)
     }
 
+    pub fn earliest_scoped_rollup_day(
+        &self,
+        filter: &AggregateFilter,
+    ) -> StoreResult<Option<String>> {
+        self.refresh_effective_source_selection()?;
+        let mut scope = filter.clone();
+        scope.start_inclusive = None;
+        scope.end_exclusive = None;
+        let (where_sql, values) = build_rollup_filter(&scope);
+        Ok(self.connection.query_row(
+            &format!("SELECT MIN(local_day) FROM effective_daily_usage_rollups AS daily_usage_rollups {where_sql}"),
+            params_from_iter(values),|row|row.get(0)
+        )?)
+    }
+
     pub fn latest_confirmed_evidence_at(&self) -> StoreResult<Option<String>> {
         let raw: Option<String> = self.connection.query_row(
             "SELECT MAX(COALESCE(source_timestamp, observed_at))

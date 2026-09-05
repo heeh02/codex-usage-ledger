@@ -65,10 +65,8 @@ pub(super) fn http_summary(
         .get("coverageComplete")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let local_coverage_complete = period
-        .start
-        .zip(earliest_event_at(store)?)
-        .is_none_or(|(requested, earliest)| requested >= earliest);
+    // First/last observations do not establish uninterrupted collection.
+    let local_coverage_complete = false;
     let reconciliation_comparable = official_coverage_complete
         && local_coverage_complete
         && official
@@ -92,7 +90,7 @@ pub(super) fn http_summary(
         machine_scope: "this_machine".to_owned(),
         coverage: MetricCoverage {
             complete: local_coverage_complete,
-            ratio: if local_coverage_complete { 1.0 } else { 0.0 },
+            ratio: None,
             known_account_count: official
                 .get("knownAccountCount")
                 .and_then(serde_json::Value::as_u64)
@@ -107,7 +105,7 @@ pub(super) fn http_summary(
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
         "mode": "http",
-        "period": period_value(store, &period),
+        "period": period_value(store, &period, query),
         "filters": filter_catalog(store)?,
         "usage": quality_usage_value(confirmed.usage, quarantined.usage, unknown.usage),
         "official": official,
