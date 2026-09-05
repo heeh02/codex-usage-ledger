@@ -406,11 +406,11 @@ function mockOfficial(points: TimeseriesPoint[], total: number): OfficialUsageVi
 
 function mockMissingAccountEstimate(): MissingAccountEstimate {
   return {
-    definitionId: 'missing_accounts_residual_v1',
+    definitionId: 'unexplained_account_difference_v2',
     status: 'insufficient_coverage',
     applicable: false,
     isEstimate: true,
-    isConservativeFloor: true,
+    isConservativeFloor: false,
     canSplitByMissingAccount: false,
     combinedUnobservedAccountCount: 0,
     capturedAccountCount: 1,

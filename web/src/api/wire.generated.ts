@@ -18,7 +18,8 @@ export type SourceStatus = "fresh" | "delayed" | "offline";
 export type MachineScope = "all_devices" | "this_machine";
 export type MetricSource = "official" | "local" | "reconciled";
 export type MetricStatus = "exact" | "lower_bound" | "local_sample" | "unknown";
-export type MissingEstimateStatus = "conservative_floor" | "insufficient_coverage" | "not_applicable_to_single_account";
+export type MissingEstimateStatus =
+  "conservative_floor" | "unexplained_difference" | "insufficient_coverage" | "not_applicable_to_single_account";
 export type DataMode = "mock" | "http";
 export type DisplayTotalKind =
   "official" | "official_plus_local_tail_lower_bound" | "local_lower_bound" | "not_applicable";

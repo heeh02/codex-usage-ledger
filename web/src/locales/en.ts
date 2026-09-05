@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "diagnostics.account_difference": "Unexplained account difference",
+  "diagnostics.difference_explanation": "Positive local differences across comparable dates and all projects are diagnostic only. They do not identify missing-account usage or allocate usage to projects.",
   "chats.title": "All conversations",
   "overview.composition_details": "Input, cache and output details",
   "overview.evidence_details": "Data coverage and reconciliation details",
@@ -16,7 +18,7 @@ export const enMessages = {
   "chart.gaps_unknown": "Missing dates break the line; — means unavailable",
   "app.account_capture_summary": "{known} accounts confirmed; {observed} identities and {official} official archives captured{uncapturedSuffix}{provisionalSuffix}",
   "app.official_daily_coverage_tail": "Official daily buckets run through {date}; the local lower bound covers the current tail",
-  "app.primary_kpi_explanation": "Primary KPI = synced official Total + local tail {tail} + captured accounts without archives {missing}. The combined residual estimate for uncaptured accounts, {residual}, is shown separately and excluded from the KPI.",
+  "app.primary_kpi_explanation": "Primary KPI = synced official Total + local tail {tail} + captured accounts without archives {missing}. The difference {residual} is diagnostic, not uncaptured-account usage.",
   "app.provisional_identities_need_calibration": "; {count} historical identities need calibration",
   "app.switch_to_capture_more_accounts": "; switch to capture {count} more",
   "app.unknown": "unknown",
@@ -109,7 +111,7 @@ export const enMessages = {
   "components.account-panel.saving": "Saving",
   "components.account-panel.switches_resets": "Switches & resets",
   "components.account-panel.syncs_automatically_next_time_this_account_is": "Syncs automatically next time this account is active",
-  "components.account-panel.they_are_not_mixed_into_the_official": "They are not mixed into the official ledger as separate identities. Overview shows only their combined residual floor. Switching to them records identity, plan, and quota cycles automatically.",
+  "components.account-panel.they_are_not_mixed_into_the_official": "Their usage is not yet verifiable; a difference cannot identify it. Switching to these accounts records identity, plan and quota cycles.",
   "components.account-panel.this_month": "This month",
   "components.account-panel.this_week": "This week",
   "components.account-panel.today": "Today",

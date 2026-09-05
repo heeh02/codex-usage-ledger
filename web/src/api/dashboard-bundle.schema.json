@@ -1398,6 +1398,7 @@
       "type": "string",
       "enum": [
         "conservative_floor",
+        "unexplained_difference",
         "insufficient_coverage",
         "not_applicable_to_single_account"
       ]

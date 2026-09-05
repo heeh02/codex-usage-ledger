@@ -156,6 +156,7 @@ pub enum DisplayTotalKind {
 #[serde(rename_all = "snake_case")]
 pub enum MissingEstimateStatus {
     ConservativeFloor,
+    UnexplainedDifference,
     InsufficientCoverage,
     NotApplicableToSingleAccount,
 }

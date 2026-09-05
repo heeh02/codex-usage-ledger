@@ -1402,7 +1402,7 @@ fn account_registry_keeps_provisional_history_as_observed_lower_bound() {
 }
 
 #[test]
-fn missing_account_residual_is_conservative_and_dimensionally_conserved() {
+fn account_difference_is_diagnostic_and_dimensionally_conserved() {
     use crate::official_usage::{
         OfficialAccountUsage, OfficialDailyUsageBucket, OfficialUsageSummary,
     };
@@ -1510,7 +1510,8 @@ fn missing_account_residual_is_conservative_and_dimensionally_conserved() {
         ..PeriodDescriptor::default()
     };
     let all = missing_account_estimate(&store, &UsageQuery::default(), &period).unwrap();
-    assert_eq!(all["status"], "conservative_floor");
+    assert_eq!(all["status"], "unexplained_difference");
+    assert_eq!(all["isConservativeFloor"], false);
     assert_eq!(all["combinedUnobservedAccountCount"], 2);
     assert_eq!(all["alignedAccountDays"], 2);
     assert_eq!(all["excessAccountDays"], 1);

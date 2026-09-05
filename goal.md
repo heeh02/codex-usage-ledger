@@ -173,3 +173,7 @@ No live data migration, installed-app replacement or release has occurred.
   and compact navigation picker, with the shared search/order/pagination controls.
   Account/model/time scope is preserved. Web build passes; interaction and
   complete workflow acceptance remain open.
+- Batch 13: residual output is versioned as an unexplained difference, with
+  isConservativeFloor=false. UI no longer displays inferred missing-account
+  project allocation/composition; bilingual explanatory text rejects that
+  interpretation. This changes diagnostic semantics, not stored usage facts.

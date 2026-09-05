@@ -8,9 +8,8 @@ There are three non-interchangeable Token views:
    separate facts. `effective(thread, local_day)` chooses the more complete
    whole source row; it never sums both. A thread cumulative total is context,
    not a new event.
-3. The missing-account residual estimate: a derived, conservative floor built
-   only from captured account-days where both official and local evidence
-   exist. It is neither an official total nor a confirmed local identity.
+3. The unexplained account difference: a diagnostic over comparable account-days.
+   It does not establish any missing account's usage or a lower bound.
 
 ## Accounting invariants
 
@@ -100,7 +99,7 @@ samples and display their sample scope. They are never scaled to make their sum
 look like the official account Total.
 
 The residual estimate has a separately versioned definition,
-`missing_accounts_residual_v1`. For each captured account and local day with an
+`unexplained_account_difference_v2`. For each captured account and local day with an
 official bucket:
 
 ```text
@@ -116,13 +115,17 @@ dimension sums exactly, `total = input + output`, cached remains a subset of
 input, and reasoning remains a subset of output. A missing official day is
 excluded rather than converted to official zero.
 
-This result is a conservative floor for all still-unobserved accounts combined.
+This result is not a conservative floor for unobserved accounts. Source replay,
+timing, scope and attribution errors can also create a positive difference.
 It cannot distinguish one missing account from another, cannot be added to the
 official account KPI, and cannot relabel the underlying confirmed local facts.
 The API therefore exposes `canSplitByMissingAccount=false`, aligned and excluded
 account-day counts, exact coverage dates, allocation delta, and separate
 project/model/day breakdowns. Project or model filters select a slice of the
-estimate while leaving its all-project total available for conservation checks.
+diagnostic allocation while leaving its all-project total available for
+conservation checks. Legacy allocation fields are compatibility diagnostics,
+not project/account usage evidence; the UI must not present them as an inferred
+missing-account composition. `isConservativeFloor` is false.
 
 In an all-accounts view, official totals are authoritative only after every
 locally observed account has a successful official profile snapshot. Until
