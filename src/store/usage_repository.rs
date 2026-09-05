@@ -249,7 +249,7 @@ impl LedgerStore {
             .map_err(StoreError::from)
     }
 
-    /// Groups retained raw events inside the exact timestamp filter. This is
+    /// Groups raw and nonduplicated retained events inside the exact timestamp filter. This is
     /// used for rolling windows whose first and last buckets are partial; day
     /// and hour rollups intentionally cannot represent those boundaries.
     pub fn aggregate_exact_time_series(
@@ -282,12 +282,39 @@ impl LedgerStore {
             "usage_events"
         };
         let sql = format!(
-            "SELECT COALESCE(source_timestamp, observed_at), {dimension_expression},
+            "WITH precise_events AS (
+                 SELECT event_id, observed_at, source_timestamp, thread_id, model,
+                        account_fingerprint, project_id, quality, input_tokens,
+                        cached_input_tokens, cache_write_input_tokens,
+                        cache_write_observed_input_tokens, output_tokens,
+                        reasoning_output_tokens, total_tokens FROM {table}
+                 UNION ALL
+                 SELECT kept.event_id, kept.effective_at, kept.effective_at,
+                        kept.thread_id, kept.model, assigned.account_fingerprint,
+                        assigned.project_id, kept.quality, kept.input_tokens,
+                        kept.cached_input_tokens, kept.cache_write_input_tokens,
+                        kept.cache_write_observed_input_tokens, kept.output_tokens,
+                        kept.reasoning_output_tokens, kept.total_tokens
+                 FROM retained_request_evidence kept
+                 JOIN retained_request_assignments assigned ON assigned.event_id=kept.event_id
+                 WHERE NOT EXISTS(SELECT 1 FROM usage_events raw WHERE raw.event_id=kept.event_id)
+                 {retained_source}
+             )
+             SELECT COALESCE(source_timestamp, observed_at), {dimension_expression},
                     input_tokens, cached_input_tokens, cache_write_input_tokens,
                     cache_write_observed_input_tokens, output_tokens,
                     reasoning_output_tokens, total_tokens
-             FROM {table} AS usage_events {where_sql}
-             ORDER BY COALESCE(source_timestamp, observed_at), event_id"
+             FROM precise_events AS usage_events {where_sql}
+             ORDER BY COALESCE(source_timestamp, observed_at), event_id",
+            retained_source = if uses_effective_source(filter) {
+                "AND kept.quality='confirmed' AND EXISTS(
+                     SELECT 1 FROM effective_thread_day_source choice
+                     WHERE choice.local_day=date(kept.effective_at,'+8 hours')
+                       AND choice.thread_key=COALESCE(kept.thread_id,'')
+                       AND choice.evidence_source='sampling')"
+            } else {
+                ""
+            }
         );
         let mut statement = self.connection.prepare(&sql)?;
         let mut rows = statement.query(params_from_iter(values))?;

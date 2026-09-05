@@ -96,12 +96,11 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
-Blocking correctness regression (not a goal-status blocker): explicit run of
-`exact_window_usage_must_survive_raw_compaction` returns 0 after compaction
-instead of 120, despite retained request evidence containing 120. The test is
-marked ignored only to label a known unresolved regression, not a pass.
-Next accounting integration must restore boundary evidence while respecting
-effective source choice and revised attribution; do not simply add both tables.
+Resolved in batch 72: `exact_window_usage_must_survive_raw_compaction` now
+passes (120 before/after) and is no longer ignored. Exact boundary queries
+prefer raw events, supplement only raw-absent retained events with current
+assignments, and respect effective sampling/reconstruction source choice.
+This does not recover missing old detail or validate the source-choice policy.
 
 Current integrated state after batch 59: schema 26 retains local request facts,
 preserves explicit sampling turns without changing dedup hashes, and exposes
@@ -522,3 +521,10 @@ No live data migration, installed-app replacement or release has occurred.
   preserving the existing unresolved switch-boundary policy. Compacted remap/
   reproject and historical-epoch regressions pass. Exact query integration is
   still the next step; no claim that the failing boundary test is fixed.
+- Batch 72: exact boundary queries consume raw-absent retained evidence using
+  current assignments and effective source selection. The formerly failing
+  ten-minute compaction regression passes and is unignored. Additional tests
+  check revised account/project filtering and reconstruction selection without
+  adding the retained sampling copy. Full Rust 121 library, 3 binary, 2 schema
+  tests and Clippy pass. No persisted historical token values were rewritten;
+  missing pre-retention detail and source-policy correctness remain open.

@@ -1185,6 +1185,22 @@ fn compacted_request_assignments_follow_account_and_project_changes() {
         [], |row| Ok((row.get(0)?, row.get(1)?))
     ).unwrap();
     assert_eq!(assignment, ("new-account".into(), "new-project".into()));
+    let filtered = AggregateFilter {
+        account_fingerprint: Some("new-account".into()),
+        project_id: Some("new-project".into()),
+        ..AggregateFilter::default()
+    };
+    let precise = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            Some(AggregateDimension::Account),
+            &filtered,
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(precise.len(), 1);
+    assert_eq!(precise[0].usage.total_tokens, 120);
+    assert_eq!(precise[0].dimension_key.as_deref(), Some("new-account"));
     let observed: (String,String,i64) = store.connection.query_row(
         "SELECT account_fingerprint,project_id,total_tokens FROM retained_request_evidence WHERE event_id='assigned-request'",
         [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))
@@ -1281,6 +1297,51 @@ fn deep_request_page_seeks_by_compound_index() {
         !plan.contains("SCAN") && !plan.contains("TEMP B-TREE"),
         "{plan}"
     );
+}
+
+#[test]
+fn exact_retained_evidence_respects_reconstruction_source_selection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let sample = event("selected-sampling", DataQuality::Confirmed, 10);
+    store.upsert_event(&sample).unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let mut rebuilt = sample.clone();
+    rebuilt.event_id = "selected-reconstruction".into();
+    rebuilt.source_timestamp = Some(sample.observed_at);
+    rebuilt.usage.input_tokens = 200;
+    rebuilt.usage.total_tokens = 220;
+    {
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: rebuilt,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let precise = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            None,
+            &AggregateFilter::default(),
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(
+        precise
+            .iter()
+            .map(|row| row.usage.total_tokens)
+            .sum::<u64>(),
+        220
+    );
+    assert_eq!(precise.iter().map(|row| row.event_count).sum::<u64>(), 1);
 }
 
 #[test]

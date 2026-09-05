@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[ignore = "known gap: exact boundary queries do not yet use retained request evidence"]
 fn exact_window_usage_must_survive_raw_compaction() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let start = Utc.with_ymd_and_hms(2026, 8, 1, 1, 10, 0).unwrap();

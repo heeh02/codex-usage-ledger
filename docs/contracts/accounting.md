@@ -53,6 +53,16 @@ There are three non-interchangeable Token views:
 
 ## Incremental source projection
 
+Exact boundary queries prefer raw evidence. Once raw events are absent, they
+may use retained request evidence joined to current assignments. Event-ID
+exclusion prevents summing raw and retained copies; effective queries still
+use the thread/day selected source and do not add retained sampling when
+reconstruction is selected. Rows without a retained assignment are not guessed.
+Synthetic acceptance: a ten-minute window remains 120 before and after raw
+compaction; account/project remapping is honored; selected reconstruction yields
+220 rather than 220 + 120. This query change rewrites no persisted token facts
+and does not prove complete historical detail or source-policy accuracy.
+
 Schema 25 changes only the maintenance of the effective source projection.
 Rollup inserts, updates (both old and new keys), and deletes persist a unique
 date/thread dirty key in the same write transaction. Refresh recomputes those
