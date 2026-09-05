@@ -20,8 +20,87 @@ pub struct UsageQuery {
     pub session_limit: Option<usize>,
 }
 
+impl UsageQuery {
+    pub(super) fn validate(&self) -> Result<(), ApiError> {
+        for (name, value, allowed) in [
+            (
+                "period",
+                self.period.as_deref(),
+                &[
+                    "today",
+                    "week",
+                    "rolling7",
+                    "month",
+                    "rolling30",
+                    "weeks12",
+                    "months12",
+                    "year",
+                    "lifetime",
+                ][..],
+            ),
+            (
+                "grain",
+                self.grain.as_deref(),
+                &["hour", "day", "week", "month"][..],
+            ),
+            (
+                "metric",
+                self.metric.as_deref(),
+                &[
+                    "total",
+                    "input",
+                    "cached",
+                    "cacheWrite",
+                    "uncached",
+                    "output",
+                    "reasoning",
+                    "requests",
+                ][..],
+            ),
+            (
+                "sessionSort",
+                self.session_sort.as_deref(),
+                &["tokens", "output", "requests", "recent"][..],
+            ),
+        ] {
+            if value.is_some_and(|value| !allowed.contains(&value)) {
+                return Err(ApiError::InvalidQuery(format!("unsupported {name}")));
+            }
+        }
+        if self
+            .session_limit
+            .is_some_and(|limit| !(1..=100).contains(&limit))
+        {
+            return Err(ApiError::InvalidQuery(
+                "sessionLimit must be between 1 and 100".to_owned(),
+            ));
+        }
+        if self
+            .session_search
+            .as_ref()
+            .is_some_and(|search| search.chars().count() > 256)
+        {
+            return Err(ApiError::InvalidQuery(
+                "sessionSearch exceeds 256 characters".to_owned(),
+            ));
+        }
+        if self
+            .timezone
+            .as_deref()
+            .is_some_and(|timezone| Tz::from_str(timezone).is_err())
+        {
+            return Err(ApiError::InvalidQuery(
+                "timezone must be a valid IANA name".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("invalid query: {0}")]
+    InvalidQuery(String),
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error("ledger database lock was poisoned")]
@@ -43,7 +122,7 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
-            Self::InvalidAccountCount(_) => StatusCode::BAD_REQUEST,
+            Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(serde_json::json!({"error": self.to_string()}))).into_response()

@@ -162,3 +162,7 @@ No live data migration, installed-app replacement or release has occurred.
   selector and display labels. Targeted January boundary and leap-year
   comparison tests pass; Web typecheck/build pass. Custom dates and full
   annual interaction acceptance are still open.
+- Batch 10: query validation rejects unsupported periods/grains/metrics/sorts,
+  invalid timezone and oversized pagination/search parameters before storage.
+  Targeted asynchronous regression verifies HTTP 400 and that storage is never
+  called for invalid inputs; Clippy passes. Custom-range implementation remains.

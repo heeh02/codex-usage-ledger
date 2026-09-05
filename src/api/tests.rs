@@ -396,6 +396,47 @@ fn rejects_non_local_origin() {
     assert!(!accepts_local_origin(&headers));
 }
 
+#[tokio::test]
+async fn invalid_query_is_rejected_before_query_execution() {
+    let state = ApiState::with_store(LedgerStore::open_in_memory().unwrap());
+    for query in [
+        UsageQuery {
+            period: Some("unsupported-period".to_owned()),
+            ..Default::default()
+        },
+        UsageQuery {
+            grain: Some("second".to_owned()),
+            ..Default::default()
+        },
+        UsageQuery {
+            session_limit: Some(0),
+            ..Default::default()
+        },
+        UsageQuery {
+            session_limit: Some(101),
+            ..Default::default()
+        },
+        UsageQuery {
+            timezone: Some("unknown-zone".to_owned()),
+            ..Default::default()
+        },
+    ] {
+        let result = state
+            .query_value(query, |_, _| panic!("invalid query reached storage"))
+            .await;
+        let error = result.unwrap_err();
+        assert_eq!(error.into_response().status(), StatusCode::BAD_REQUEST);
+    }
+    assert!(
+        UsageQuery {
+            period: Some("year".to_owned()),
+            ..Default::default()
+        }
+        .validate()
+        .is_ok()
+    );
+}
+
 #[test]
 fn explorer_keeps_session_own_usage_separate_from_subtree_usage() {
     let mut store = LedgerStore::open_in_memory().unwrap();

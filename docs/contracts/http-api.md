@@ -36,6 +36,11 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+Unsupported period, grain, metric or session-sort values return HTTP 400 before
+storage access. Invalid IANA timezones, page sizes outside 1–100 and searches
+longer than 256 characters are also rejected. Invalid input must not silently
+fall back to lifetime or surface as a server error.
+
 The additive `year` period selects January 1 at local midnight through now,
 with monthly default grain. Its comparison uses the same calendar date/time
 in the preceding year; February 29 maps to February 28 when necessary. This

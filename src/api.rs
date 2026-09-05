@@ -171,6 +171,7 @@ impl ApiState {
             + Send
             + 'static,
     {
+        query.validate()?;
         let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
         let query_path = self.query_path.clone();
         tokio::task::spawn_blocking(move || {
