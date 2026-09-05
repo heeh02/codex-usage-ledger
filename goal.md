@@ -288,3 +288,8 @@ No live data migration, installed-app replacement or release has occurred.
   are ignored without clearing current data. Two parser tests cover malformed
   JSON, null/array/object/boolean values and unsafe numbers. Web 30 tests and
   production build pass; real stream reconnection acceptance remains open.
+- Batch 36: local refresh/retry no longer waits for official account sync.
+  Accounts has a separate bilingual official-sync action with its own busy
+  and failure states. Official-sync feedback stays on Accounts, and error
+  styling no longer depends on the language of the message. Web 30 tests and
+  build pass; button interaction and narrow-layout acceptance remain open.

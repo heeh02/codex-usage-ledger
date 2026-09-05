@@ -59,6 +59,8 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshFeedback, setRefreshFeedback] = useState('');
+  const [officialSyncing, setOfficialSyncing] = useState(false);
+  const [officialSyncFailed, setOfficialSyncFailed] = useState(false);
   const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => restoredSessionValue('ledger.overviewTab', { value: 'projects' as const }).value);
   const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => restoredSessionValue('ledger.projectTab', { value: 'overview' as const }).value);
   const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
@@ -136,15 +138,23 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [privacyMode]);
 
-  const retry = async () => {
+  const retry = () => {
     setManualRefreshing(true);
+    setRefreshKey((value) => value + 1);
+  };
+  const syncOfficial = async () => {
+    if (officialSyncing) return;
+    setOfficialSyncing(true);
+    setOfficialSyncFailed(false);
     setRefreshFeedback(t('app.syncing_official_usage_for_the_current_account'));
     try {
       await api.refreshOfficial();
       setRefreshFeedback(`${t('app.sync_complete')} · ${new Date().toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (reason) {
+      setOfficialSyncFailed(true);
       setRefreshFeedback(reason instanceof Error ? `${t('app.sync_failed')} · ${reason.message}` : t('app.official_usage_sync_failed'));
     } finally {
+      setOfficialSyncing(false);
       setRefreshKey((value) => value + 1);
     }
   };
@@ -347,6 +357,7 @@ function App() {
             <p>{pageCaption}</p>
           </div>
           <div className="topbar-actions">
+            {currentPage === 'accounts' && <button type="button" onClick={syncOfficial} disabled={officialSyncing}>{t('app.sync_official')}</button>}
             <select className="mobile-page-select" aria-label={t('app.page_navigation')} value={mobilePageValue} onChange={(event) => navigateMobile(event.target.value)}>
               <option value="overview">{t('app.overview')}</option>
               <option value="chats">{t('chats.title')}</option>
@@ -381,7 +392,7 @@ function App() {
 
           {bundle && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
 
-          {refreshFeedback && <div className={refreshFeedback.startsWith('同步失败') || refreshFeedback.startsWith('Sync failed') ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
+          {refreshFeedback && currentPage === 'accounts' && <div className={officialSyncFailed ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
 
           {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && (
             <aside className="account-coverage-alert">

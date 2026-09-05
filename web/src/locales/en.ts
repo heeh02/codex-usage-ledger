@@ -19,6 +19,7 @@ export const enMessages = {
   "models.title": "Models",
   "models.trend": "Model usage over time",
   "dates.custom": "Custom dates",
+  "app.sync_official": "Sync official usage",
   "dates.start": "Start date",
   "dates.end": "End date (inclusive)",
   "dates.apply": "Apply dates",

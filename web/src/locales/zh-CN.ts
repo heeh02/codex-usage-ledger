@@ -17,6 +17,7 @@ export const zhCNMessages = {
   "models.title": "模型分析",
   "models.trend": "模型用量趋势",
   "dates.custom": "自定义日期",
+  "app.sync_official": "同步官方用量",
   "dates.start": "开始日期",
   "dates.end": "结束日期（含当天）",
   "dates.apply": "应用日期",
