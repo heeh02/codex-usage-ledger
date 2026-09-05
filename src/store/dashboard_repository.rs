@@ -53,7 +53,10 @@ fn dashboard_catalog_counts_from_row(
 
 impl LedgerStore {
     pub(crate) fn database_path(&self) -> Option<PathBuf> {
-        self.connection.path().map(PathBuf::from)
+        self.connection
+            .path()
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
     }
 
     pub fn dashboard_revision(&self) -> StoreResult<String> {

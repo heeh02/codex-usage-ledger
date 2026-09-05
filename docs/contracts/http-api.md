@@ -96,8 +96,6 @@ are separate columns; no coverage yields a blank observation, not zero.
 Consumers of the original two-total-column CSV must use `source` and `total`
 instead. Official and local rows must never be added to each other.
 
-## JSON export format
-
 ## Retained request evidence
 
 `GET /v1/request-evidence` accepts required `threadId`, RFC3339 `start`

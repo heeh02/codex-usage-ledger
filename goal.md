@@ -352,3 +352,7 @@ No live data migration, installed-app replacement or release has occurred.
   query scopes are rejected. Handler regression checks token totals, null turns
   and invalid-cursor HTTP 400. Targeted test and Clippy pass. Frontend client,
   typed browser DTO and visible request-table integration remain open.
+  Correction/evidence sequence: the first handler run failed because an empty
+  in-memory SQLite path was reopened as a disk database requiring WAL. Filtering
+  empty paths keeps the existing in-memory connection; the handler regression
+  then passes. Initial success wording was premature, not a separate pass.
