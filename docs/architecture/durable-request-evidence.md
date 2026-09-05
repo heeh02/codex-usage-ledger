@@ -2,6 +2,22 @@
 
 Status: implementation design, not a deployed schema.
 
+## Implementation checkpoint
+
+Schema 26 adds a retained-request evidence table for ordinary local events.
+New raw and directly compacted events retain effective timestamp, thread/model,
+ingest-observed attribution/confidence, quality and token components atomically.
+Compaction also captures older retained raw events and verifies identity/time,
+model, quality and all token values before deletion. Explicit turn IDs remain
+null until the parser contract is implemented. These rows are not used as an
+additional source of aggregate totals.
+
+This is not complete durable-turn support: source-kind/reconstruction handling,
+observed-time detail, bounded raw backfill, attribution revision handling,
+coverage receipts, paged queries, size benchmarks and UI remain outstanding.
+Previously compacted key-only history is not reconstructed. No installed
+database has been upgraded or claimed accepted.
+
 ## Verified gap
 
 The current maintenance compactor copies only event ID/hash and compaction time

@@ -166,7 +166,7 @@ fn schema_25_upgrade_seeds_existing_keys_without_changing_facts() {
             .unwrap();
     }
     let store = LedgerStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 25);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     let queued: i64 = store
         .connection
         .query_row(
@@ -676,7 +676,30 @@ fn verified_rollup_survives_compaction_and_old_event_replay() {
     store.verify_rollup_before_compaction().unwrap();
     let before_compaction = store.aggregate_rollup_usage(&all).unwrap();
     let cutoff = Utc.with_ymd_and_hms(2026, 8, 20, 0, 0, 0).unwrap();
+    store
+        .connection
+        .execute_batch(
+            "UPDATE retained_request_evidence SET total_tokens=121 WHERE event_id='old-1';",
+        )
+        .unwrap();
+    assert!(store.compact_raw_events_chunk(cutoff, 100).is_err());
+    assert_eq!(store.aggregate_usage(&all).unwrap().event_count, 2);
+    store
+        .connection
+        .execute_batch(
+            "UPDATE retained_request_evidence SET total_tokens=120 WHERE event_id='old-1';",
+        )
+        .unwrap();
     assert_eq!(store.compact_raw_events_chunk(cutoff, 100).unwrap(), 2);
+    let kept: (i64, i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*), SUM(total_tokens), COUNT(turn_id) FROM retained_request_evidence",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(kept, (2, 240, 0));
     assert_eq!(store.aggregate_usage(&all).unwrap().event_count, 0);
     assert_eq!(
         store.aggregate_rollup_usage(&all).unwrap(),
@@ -707,6 +730,87 @@ fn verified_rollup_survives_compaction_and_old_event_replay() {
             .byte_offset,
         30
     );
+}
+
+#[test]
+fn retained_request_evidence_covers_direct_old_ingest_and_atomic_failure() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut old = event("historic-request", DataQuality::Confirmed, 10);
+    old.source_timestamp = Some(Utc::now() - ChronoDuration::days(365));
+    store
+        .upsert_events_and_cursor(&[old.clone()], &cursor(10))
+        .unwrap();
+    let kept: (i64, i64) = store.connection.query_row(
+        "SELECT input_tokens, output_tokens FROM retained_request_evidence WHERE event_id='historic-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(kept, (100, 20));
+    store.upsert_events_and_cursor(&[old], &cursor(20)).unwrap();
+    store
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_retained BEFORE INSERT ON retained_request_evidence
+         BEGIN SELECT RAISE(ABORT, 'synthetic retained write failure'); END;",
+        )
+        .unwrap();
+    let mut next = event("failed-request", DataQuality::Confirmed, 30);
+    next.source_timestamp = Some(Utc::now() - ChronoDuration::days(365));
+    assert!(
+        store
+            .upsert_events_and_cursor(&[next], &cursor(30))
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .get_cursor("machine", "rollout-path")
+            .unwrap()
+            .unwrap()
+            .byte_offset,
+        20
+    );
+    let count: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM compacted_event_keys", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema25.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("legacy-raw", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_evidence;
+             DELETE FROM schema_migrations WHERE version=26;
+             PRAGMA user_version=25;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let total: i64 = store
+        .connection
+        .query_row(
+            "SELECT total_tokens FROM retained_request_evidence WHERE event_id='legacy-raw'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(total, 120);
 }
 
 #[test]

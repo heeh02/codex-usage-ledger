@@ -314,3 +314,14 @@ No live data migration, installed-app replacement or release has occurred.
   request-versus-turn semantics, historical detail gaps, attribution alignment,
   migration receipts and size/performance gates. Implementation remains open;
   no retention or live data changed.
+- Batch 40: schema 26 retains compact request observations on raw and direct
+  old-event ingestion. Chunk compaction preserves pre-upgrade raw observations
+  before deletion and rejects mismatching retained dimensions. Writes share
+  the source-cursor transaction; a synthetic evidence-write failure rolls back
+  compact keys and cursor. Upgrade, replay and retained totals have regression
+  coverage. This table is not an additional aggregate source. Turn IDs remain
+  null and reconstruction/coverage/query/UI support is not complete. No live
+  ledger was upgraded.
+  Rust 109 library, 3 binary and 1 schema tests plus Clippy pass; an additional
+  corrupted-retained-total assertion confirms compaction preserves raw records
+  on mismatch. Documentation, module and privacy checks pass.

@@ -374,6 +374,47 @@ impl LedgerStore {
              JOIN compaction_candidates candidate ON candidate.event_id = usage.event_id",
             params![timestamp(Utc::now())],
         )?;
+        transaction.execute_batch(
+            "INSERT INTO retained_request_evidence(
+                event_id, event_hash, effective_at, thread_id, model,
+                account_fingerprint, project_id, quality, input_tokens,
+                cached_input_tokens, cache_write_input_tokens,
+                cache_write_observed_input_tokens, output_tokens,
+                reasoning_output_tokens, total_tokens, account_confidence, project_confidence)
+             SELECT usage.event_id, usage.event_hash,
+                COALESCE(usage.source_timestamp, usage.observed_at),
+                usage.thread_id, usage.model, usage.account_fingerprint,
+                usage.project_id, usage.quality, usage.input_tokens,
+                usage.cached_input_tokens, usage.cache_write_input_tokens,
+                usage.cache_write_observed_input_tokens, usage.output_tokens,
+                usage.reasoning_output_tokens, usage.total_tokens,
+                usage.account_confidence, usage.project_confidence
+             FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id = usage.event_id
+             WHERE true ON CONFLICT(event_id) DO NOTHING;",
+        )?;
+        let mismatch: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM usage_events usage
+                JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+                JOIN retained_request_evidence kept ON kept.event_id=usage.event_id
+                WHERE kept.event_hash != usage.event_hash
+                  OR kept.effective_at != COALESCE(usage.source_timestamp, usage.observed_at)
+                  OR kept.thread_id IS NOT usage.thread_id
+                  OR kept.model IS NOT usage.model
+                  OR kept.quality != usage.quality
+                  OR kept.input_tokens != usage.input_tokens
+                  OR kept.cached_input_tokens != usage.cached_input_tokens
+                  OR kept.cache_write_input_tokens != usage.cache_write_input_tokens
+                  OR kept.cache_write_observed_input_tokens != usage.cache_write_observed_input_tokens
+                  OR kept.output_tokens != usage.output_tokens
+                  OR kept.reasoning_output_tokens != usage.reasoning_output_tokens
+                  OR kept.total_tokens != usage.total_tokens
+            )", [], |row| row.get(0),
+        )?;
+        if mismatch {
+            return Err(StoreError::RollupNotVerified);
+        }
         let deleted = transaction.execute(
             "DELETE FROM usage_events
              WHERE event_id IN (SELECT event_id FROM compaction_candidates)",

@@ -3,7 +3,32 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 25;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 26;
+
+const MIGRATION_26: &str = r#"
+CREATE TABLE IF NOT EXISTS retained_request_evidence (
+    event_id TEXT PRIMARY KEY,
+    event_hash TEXT NOT NULL,
+    effective_at TEXT NOT NULL,
+    thread_id TEXT,
+    model TEXT,
+    account_fingerprint TEXT,
+    project_id TEXT,
+    quality TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_input_tokens INTEGER NOT NULL,
+    cache_write_input_tokens INTEGER NOT NULL,
+    cache_write_observed_input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    reasoning_output_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    turn_id TEXT,
+    account_confidence TEXT NOT NULL,
+    project_confidence TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS retained_request_thread_time_idx
+    ON retained_request_evidence(thread_id, effective_at, event_id);
+"#;
 
 // Queue inserts use an existence predicate: an outer rollup UPSERT can override
 // INSERT OR IGNORE inside a trigger. SQLite serializes writers, so the predicate
@@ -126,6 +151,7 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
                 transaction.execute_batch(MIGRATION_24)?;
             }
             25 => transaction.execute_batch(MIGRATION_25)?,
+            26 => transaction.execute_batch(MIGRATION_26)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

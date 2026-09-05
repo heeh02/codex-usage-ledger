@@ -731,6 +731,7 @@ fn upsert_event_in(
             sql_u64(event.provenance.line_number, "line_number")?,
         ],
     )?;
+    retain_request_evidence_in(transaction, event)?;
     Ok(if old_hash.is_some() {
         UpsertOutcome::Updated
     } else {
@@ -814,7 +815,67 @@ fn upsert_compact_event_in(
         params![event.event_id, new_hash, timestamp(Utc::now())],
     )?;
     upsert_rollup_delta_in(transaction, event)?;
+    retain_request_evidence_in(transaction, event)?;
     Ok(UpsertOutcome::Inserted)
+}
+
+// Retained observations are not an additional accounting source. Attribution
+// here describes the ingest observation; reassigned totals remain rollup-owned.
+fn retain_request_evidence_in(
+    transaction: &rusqlite::Transaction<'_>,
+    event: &UsageEvent,
+) -> StoreResult<()> {
+    transaction.execute(
+        "INSERT INTO retained_request_evidence(
+           event_id, event_hash, effective_at, thread_id, model,
+           account_fingerprint, project_id, quality, input_tokens,
+           cached_input_tokens, cache_write_input_tokens,
+           cache_write_observed_input_tokens, output_tokens,
+           reasoning_output_tokens, total_tokens, account_confidence, project_confidence
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+         ON CONFLICT(event_id) DO UPDATE SET
+           event_hash=excluded.event_hash, effective_at=excluded.effective_at,
+           thread_id=excluded.thread_id, model=excluded.model,
+           account_fingerprint=excluded.account_fingerprint, project_id=excluded.project_id,
+           quality=excluded.quality, input_tokens=excluded.input_tokens,
+           cached_input_tokens=excluded.cached_input_tokens,
+           cache_write_input_tokens=excluded.cache_write_input_tokens,
+           cache_write_observed_input_tokens=excluded.cache_write_observed_input_tokens,
+           output_tokens=excluded.output_tokens,
+           reasoning_output_tokens=excluded.reasoning_output_tokens,
+           total_tokens=excluded.total_tokens,
+           account_confidence=excluded.account_confidence,
+           project_confidence=excluded.project_confidence",
+        params![
+            event.event_id,
+            event_hash(event)?,
+            timestamp(event.source_timestamp.unwrap_or(event.observed_at)),
+            event.thread_id,
+            event.model,
+            event.account_fingerprint,
+            event.project.project_id,
+            quality_name(event.quality),
+            sql_u64(event.usage.input_tokens, "input_tokens")?,
+            sql_u64(event.usage.cached_input_tokens, "cached_input_tokens")?,
+            sql_u64(
+                event.usage.cache_write_input_tokens,
+                "cache_write_input_tokens"
+            )?,
+            sql_u64(
+                event.usage.cache_write_observed_input_tokens,
+                "cache_write_observed_input_tokens"
+            )?,
+            sql_u64(event.usage.output_tokens, "output_tokens")?,
+            sql_u64(
+                event.usage.reasoning_output_tokens,
+                "reasoning_output_tokens"
+            )?,
+            sql_u64(event.usage.total_tokens, "total_tokens")?,
+            confidence_name(event.account_confidence),
+            confidence_name(event.project.confidence),
+        ],
+    )?;
+    Ok(())
 }
 
 fn upsert_rollup_delta_in(
