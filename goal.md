@@ -457,3 +457,7 @@ No live data migration, installed-app replacement or release has occurred.
   unknown with an ambiguity reason; a two-candidate regression preserves the
   previous confirmed total. Targeted ingest test and Clippy pass. No historical
   counters were reset/reprocessed; identity-based overlap remains outstanding.
+- Batch 61: unknown request usage renders as unavailable, not numeric zero
+  from the storage placeholder. Observed zero remains zero and unavailable
+  cache-write detail remains a dash. Display regression and all 38 Web tests
+  plus production build pass; no stored amounts are changed.

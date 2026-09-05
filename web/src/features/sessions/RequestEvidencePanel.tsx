@@ -6,6 +6,7 @@ import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
 import './request-evidence.css';
 import { mockRequestEvidence } from '../../api/requestEvidenceMock';
+import { requestTokenDisplay } from './requestValue';
 
 export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
   threadId: string; start: string; end: string; enabled: boolean; demo: boolean;
@@ -47,9 +48,9 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
           <tbody>{page.rows.map(row => <tr key={row.id}>
             <td><time dateTime={row.at}>{row.at}</time></td>
             <td title={row.turnId ?? undefined}>{row.turnId ?? t('requests.unknown_turn')}</td><td>{row.model ?? '—'}</td>
-            <td>{row.usage.uncached.toLocaleString()}</td><td>{row.usage.cached.toLocaleString()}</td>
-            <td>{row.usage.cacheWriteCoverage > 0 ? row.usage.cacheWrite.toLocaleString() : '—'}</td>
-            <td>{row.usage.output.toLocaleString()}</td><td>{t(`requests.${row.quality}`)}</td>
+            <td>{requestTokenDisplay(row, 'uncached')}</td><td>{requestTokenDisplay(row, 'cached')}</td>
+            <td>{requestTokenDisplay(row, 'cacheWrite')}</td>
+            <td>{requestTokenDisplay(row, 'output')}</td><td>{t(`requests.${row.quality}`)}</td>
           </tr>)}</tbody>
         </table></div>
         {!page.rows.length && <p>{t('requests.empty')}</p>}
