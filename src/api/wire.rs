@@ -125,6 +125,7 @@ string_enum!(CollectionPhase {
     Compacting,
     Backfill,
     Syncing,
+    Degraded,
     Live
 });
 string_enum!(ExplorerProjectKind {

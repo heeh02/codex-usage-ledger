@@ -685,3 +685,23 @@ No live data migration, installed-app replacement or release has occurred.
   mutation, installed-ledger upgrade or application installation occurred.
   Legacy unanchored cursors, rewrites that preserve the anchor, source failure
   lifecycle, shadow accounting and complete GUI/native acceptance remain open.
+- Batch 99: the previous turn was progress (same-file continuity regression and
+  fix). Daemon sampling/quota errors no longer propagate directly out of the
+  collection loop. Each sampling/quota/reconstruction step is attempted;
+  failures and per-pass partial issues publish `degraded` with stable source
+  codes. Subsequent successful idle collection clears the state, and identical
+  status avoids repeated writes. Tests cover unavailable-source retry, retained
+  counters/facts, no raw error exposure and actual empty-source recovery.
+  Rust 145 tests, Clippy, Web 42 tests/build and contract/governance checks pass.
+  A running isolated empty-ledger daemon remained accessible over multiple
+  retry ticks; in-app browser AX and screenshot confirmed the failure notice.
+  Initial screenshot exposed clipped 10px copy; final rebuilt 14px wrapping
+  notice was visually read back. Test browser and daemon were closed cleanly.
+  This is source/debug-daemon evidence, not installed-app or full responsive
+  acceptance. Closed-enum compatibility requires a paired backend/Web release
+  (ADR 0001). No real ledger/source or installed bundle was modified.
+  Follow-up findings: empty-ledger request match still shows 100%, and absent
+  collection displays zero-valued metric cards; these need explicit empty versus
+  recorded-zero semantics. Initial auth/catalog failures, HTTP task supervision,
+  repeated warning-log volume, full viewport/bilingual interaction matrix and
+  shadow/live migration acceptance remain open.

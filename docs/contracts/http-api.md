@@ -36,6 +36,13 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+Collection phase `degraded` indicates that at least one local sampling, quota
+or reconstruction step failed and will retry. Existing ledger facts remain
+available; missing updates are not zero usage. `message` contains stable source
+codes, not raw source errors. The UI supplies localized failure copy. This
+closed-enum addition requires paired backend/Web deployment as recorded in
+[the collector lifecycle decision](../adr/0001-collector-degraded-state.md).
+
 `timeseries.dailyPoints` retains daily local aggregates even when the main
 plot uses week/month grain. Missing days are absent, not implicitly zero.
 

@@ -432,33 +432,14 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
             updated_at: chrono::Utc::now(),
         })?;
     }
-    let initial = ingest_post_sampling(&mut writer, &paths.codex_home, &machine_id)?;
-    let initial_quota = ingest_quota_tails(&mut writer, &paths.codex_home, &machine_id)?;
+    let initial_status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
     writer.reproject_usage_from_catalog()?;
-    if let Err(error) = ingest_reconstruction_batch(&mut writer, &paths.codex_home, &machine_id, 8)
-    {
-        warn!(%error, "initial rollout reconstruction slice failed");
-    }
     prepare_fast_ledger(&mut writer, "daemon")?;
     let compacted = compact_expired_raw_events(&mut writer, "daemon")?;
-    writer.set_collector_status(&CollectorStatus {
-        mode: "daemon".to_owned(),
-        phase: "live".to_owned(),
-        items_total: initial.observations,
-        items_completed: initial.matched.saturating_add(initial.unmatched),
-        bytes_read: initial.bytes_read,
-        events_inserted: initial.inserted_events,
-        message: None,
-        updated_at: chrono::Utc::now(),
-    })?;
+    writer.set_collector_status(&initial_status)?;
     info!(
-        observations = initial.observations,
-        matched = initial.matched,
-        unmatched = initial.unmatched,
-        compacted,
-        quota_snapshots = initial_quota.quota_snapshots,
-        quota_bytes_read = initial_quota.bytes_read,
-        "post-sampling synchronization complete"
+        phase = initial_status.phase,
+        compacted, "initial source collection finished"
     );
     let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds.max(5)));
     reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -505,44 +486,8 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                         warn!(%error, "historical account boundary refresh failed");
                     }
                 }
-                let report = ingest_post_sampling(&mut writer, &paths.codex_home, &machine_id)?;
-                let quota_report = ingest_quota_tails(&mut writer, &paths.codex_home, &machine_id)?;
-                match ingest_reconstruction_batch(
-                    &mut writer,
-                    &paths.codex_home,
-                    &machine_id,
-                    8,
-                ) {
-                    Ok(reconstruction) if reconstruction.files_advanced > 0 => info!(
-                        files = reconstruction.files_advanced,
-                        bytes = reconstruction.bytes_read,
-                        events = reconstruction.inserted_events,
-                        pending = reconstruction.pending_sources,
-                        "rollout reconstruction slice synchronized"
-                    ),
-                    Ok(_) => {}
-                    Err(error) => warn!(%error, "rollout reconstruction slice failed"),
-                }
-                if report.observations > 0 {
-                    writer.set_collector_status(&CollectorStatus {
-                        mode: "daemon".to_owned(),
-                        phase: "live".to_owned(),
-                        items_total: report.observations,
-                        items_completed: report.matched.saturating_add(report.unmatched),
-                        bytes_read: report.bytes_read,
-                        events_inserted: report.inserted_events,
-                        message: None,
-                        updated_at: chrono::Utc::now(),
-                    })?;
-                }
-                if quota_report.quota_snapshots > 0 {
-                    info!(
-                        snapshots = quota_report.quota_snapshots,
-                        files = quota_report.files_advanced,
-                        bytes_read = quota_report.bytes_read,
-                        "official quota snapshots synchronized"
-                    );
-                }
+                let status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
+                publish_daemon_status(&mut writer, &status)?;
             }
             _ = official_refresh.tick() => {
                 if let Some(binding) = account_binding.as_ref() {
@@ -557,6 +502,101 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     }
     http.abort();
     writer.checkpoint_wal()?;
+    Ok(())
+}
+
+// Source failures are retryable operational state, not a reason to discard
+// the HTTP service. Reading/publishing collector state can still fail fatally;
+// an ingest failure never authorizes discarding evidence or resetting cursors.
+fn collection_step<T>(
+    source: &'static str,
+    result: Result<T>,
+    failures: &mut Vec<&'static str>,
+) -> Option<T> {
+    match result {
+        Ok(report) => Some(report),
+        Err(error) => {
+            warn!(source, %error, "source collection deferred until next tick");
+            failures.push(source);
+            None
+        }
+    }
+}
+
+fn collect_daemon_sources(
+    store: &mut LedgerStore,
+    home: &Path,
+    machine: &str,
+) -> Result<CollectorStatus> {
+    let mut status = store.collector_status()?;
+    let mut failures = Vec::new();
+    let sampling = collection_step(
+        "sampling",
+        ingest_post_sampling(store, home, machine),
+        &mut failures,
+    );
+    if let Some(report) = sampling {
+        status.items_total = report.observations;
+        status.items_completed = report.matched.saturating_add(report.unmatched);
+        status.bytes_read = report.bytes_read;
+        status.events_inserted = report.inserted_events;
+    }
+    if let Some(report) = collection_step(
+        "quota",
+        ingest_quota_tails(store, home, machine),
+        &mut failures,
+    ) {
+        if !report.issues.is_empty() {
+            failures.push("quota");
+        }
+        if report.quota_snapshots > 0 {
+            info!(
+                snapshots = report.quota_snapshots,
+                "quota snapshots synchronized"
+            );
+        }
+    }
+    if let Some(report) = collection_step(
+        "reconstruction",
+        ingest_reconstruction_batch(store, home, machine, 8),
+        &mut failures,
+    ) {
+        if !report.issues.is_empty() {
+            failures.push("reconstruction");
+        }
+        if report.files_advanced > 0 {
+            info!(
+                files = report.files_advanced,
+                events = report.inserted_events,
+                "rollout reconstruction slice synchronized"
+            );
+        }
+    }
+    status.mode = "daemon".to_owned();
+    status.phase = if failures.is_empty() {
+        "live"
+    } else {
+        "degraded"
+    }
+    .to_owned();
+    // Stable codes only: never expose a source path, database error, or body in
+    // the dashboard. Each locale supplies the user-facing explanation.
+    status.message = (!failures.is_empty()).then(|| failures.join(","));
+    status.updated_at = chrono::Utc::now();
+    Ok(status)
+}
+
+fn publish_daemon_status(store: &mut LedgerStore, status: &CollectorStatus) -> Result<()> {
+    let previous = store.collector_status()?;
+    if previous.phase != status.phase
+        || previous.message != status.message
+        || previous.items_total != status.items_total
+        || previous.items_completed != status.items_completed
+        || previous.bytes_read != status.bytes_read
+        || previous.events_inserted != status.events_inserted
+    {
+        store.set_collector_status(status)?;
+    }
     Ok(())
 }
 
@@ -803,6 +843,67 @@ impl RuntimePaths {
 #[cfg(test)]
 mod local_http_tests {
     use super::*;
+
+    #[test]
+    fn unavailable_sources_are_retryable_and_preserve_previous_evidence() {
+        let home = tempfile::tempdir().unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        let mut previous = startup_collector_status("daemon");
+        previous.items_total = 12;
+        previous.items_completed = 12;
+        previous.events_inserted = 10;
+        store.set_collector_status(&previous).unwrap();
+        let before = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+        for _ in 0..2 {
+            let failed =
+                collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+            assert_eq!(failed.phase, "degraded");
+            assert!(
+                failed
+                    .message
+                    .as_deref()
+                    .unwrap()
+                    .split(',')
+                    .any(|source| source == "sampling")
+            );
+            assert_eq!(failed.events_inserted, 10);
+            publish_daemon_status(&mut store, &failed).unwrap();
+            assert_eq!(
+                store.aggregate_usage(&AggregateFilter::default()).unwrap(),
+                before
+            );
+        }
+        let saved = store.collector_status().unwrap();
+        let mut repeated = saved.clone();
+        repeated.updated_at += chrono::Duration::seconds(5);
+        publish_daemon_status(&mut store, &repeated).unwrap();
+        assert_eq!(
+            store.collector_status().unwrap().updated_at,
+            saved.updated_at
+        );
+        rusqlite::Connection::open(home.path().join("logs_2.sqlite")).unwrap().execute_batch(
+            "CREATE TABLE logs(id INTEGER PRIMARY KEY, ts INTEGER, ts_nanos INTEGER, thread_id TEXT, feedback_log_body TEXT, target TEXT, process_uuid TEXT);"
+        ).unwrap();
+        let recovered =
+            collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+        assert_eq!(recovered.phase, "live");
+        publish_daemon_status(&mut store, &recovered).unwrap();
+        assert_eq!(store.collector_status().unwrap().phase, "live");
+        assert!(store.collector_status().unwrap().message.is_none());
+    }
+
+    #[test]
+    fn failed_source_does_not_prevent_other_steps_or_leak_error_text() {
+        let mut failures = Vec::new();
+        let failed: Option<()> = collection_step(
+            "sampling",
+            Err(anyhow::anyhow!("private source details")),
+            &mut failures,
+        );
+        assert!(failed.is_none());
+        assert_eq!(collection_step("quota", Ok(7), &mut failures), Some(7));
+        assert_eq!(failures, ["sampling"]);
+    }
 
     #[test]
     fn rejects_dns_rebinding_and_cross_site_origins() {

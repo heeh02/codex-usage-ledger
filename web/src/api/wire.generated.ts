@@ -9,7 +9,7 @@ export type TimeGrain = "hour" | "day" | "week" | "month";
 export type PeriodKey =
   "today" | "week" | "rolling7" | "month" | "rolling30" | "weeks12" | "months12" | "year" | "custom" | "lifetime";
 export type PeriodWindowKind = "calendar" | "rolling" | "lifetime";
-export type CollectionPhase = "idle" | "optimizing" | "compacting" | "backfill" | "syncing" | "live";
+export type CollectionPhase = "idle" | "optimizing" | "compacting" | "backfill" | "syncing" | "degraded" | "live";
 export type ExplorerProjectKind = "project" | "standalone_conversations" | "unmatched_records";
 export type ExplorerSessionKind = "session" | "orphan_subagent";
 export type QualitySeverity = "info" | "warning" | "critical";

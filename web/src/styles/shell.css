@@ -927,6 +927,16 @@ h1 {
   background: color-mix(in srgb, var(--blue-soft) 72%, var(--surface));
 }
 
+.collection-progress.phase-degraded {
+  border-color: color-mix(in srgb, var(--orange) 35%, var(--line));
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface));
+}
+
+.phase-degraded .collection-state-dot {
+  background: var(--orange);
+  box-shadow: none;
+}
+
 .data-status-strip {
   min-height: 30px;
   display: flex;
@@ -1024,6 +1034,28 @@ h1 {
   text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.phase-degraded .collection-progress-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.phase-degraded .collection-progress-copy > div {
+  white-space: normal;
+}
+
+.phase-degraded .collection-progress-copy strong,
+.phase-degraded .collection-progress-copy p {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.phase-degraded .collection-progress-copy p {
+  overflow: visible;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .collection-state-dot {

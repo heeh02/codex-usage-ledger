@@ -177,6 +177,14 @@ export function FilterBar({
 export function CollectionProgress({ status }: { status: CollectionStatus }) {
   const { t } = useI18n();
   if (status.phase === 'live') return null;
+  if (status.phase === 'degraded') return (
+    <aside className="collection-progress phase-degraded" role="status">
+      <div className="collection-progress-copy">
+        <div><span className="collection-state-dot" aria-hidden="true" /><strong>{t('collection.degraded')}</strong></div>
+        <p>{t('collection.retry_detail')}</p>
+      </div>
+    </aside>
+  );
   const active = ['optimizing', 'compacting', 'backfill', 'syncing'].includes(status.phase);
   const total = Math.max(status.itemsTotal, 0);
   const completed = Math.min(Math.max(status.itemsCompleted, 0), total || status.itemsCompleted);

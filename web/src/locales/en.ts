@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "collection.degraded": "Some local sources are unavailable",
+  "collection.retry_detail": "Existing ledger records remain available. Collection will retry automatically; recent usage may be incomplete. This is not zero usage or a quota reset.",
   "turns.title": "Retained turn usage",
   "turns.scope": "Confirmed subtotals within this window, account and model; not complete turn history. Missing turn IDs remain separate requests. Counts show confirmed/all retained requests.",
   "turns.turn": "Source turn",

@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "collection.degraded": "部分本地来源暂时无法采集",
+  "collection.retry_detail": "已有账本记录仍可查看，后台会自动重试；近期用量可能不完整。这不代表零用量或额度重置。",
   "turns.title": "保留轮次用量",
   "turns.scope": "所选时间、账号和模型内的已确认小计，不代表整轮历史完整。无轮次标识的请求单独列出；数量表示已确认／全部保留请求。",
   "turns.turn": "来源轮次",
