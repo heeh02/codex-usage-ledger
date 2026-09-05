@@ -24,3 +24,14 @@ cmp "$temporary_directory/dashboard-bundle.schema.json" \
 cmp "$temporary_directory/wire.generated.ts" "$repo_root/web/src/api/wire.generated.ts"
 
 echo "Rust schema and generated TypeScript API contract are current."
+
+cargo run --quiet --manifest-path "$repo_root/Cargo.toml" --example export_request_evidence_schema \
+  > "$temporary_directory/request-evidence.schema.json"
+cmp "$temporary_directory/request-evidence.schema.json" "$repo_root/web/src/api/request-evidence.schema.json"
+(
+  cd "$repo_root/web"
+  npx json2ts --input src/api/request-evidence.schema.json \
+    --output "$temporary_directory/request-evidence.generated.ts" --no-additionalProperties
+)
+cmp "$temporary_directory/request-evidence.generated.ts" "$repo_root/web/src/api/request-evidence.generated.ts"
+echo "Retained-request API contract is current."

@@ -98,6 +98,10 @@ instead. Official and local rows must never be added to each other.
 
 ## Retained request evidence
 
+The response type is defined in Rust wire DTOs and generated independently as
+`request-evidence.schema.json` and `request-evidence.generated.ts`. The API
+contract gate checks these artifacts alongside the dashboard bundle contract.
+
 `GET /v1/request-evidence` accepts required `threadId`, RFC3339 `start`
 and `end` (half-open), optional `limit` (1–500, default 100), and paired
 `afterTime`/`afterId` from the preceding response's `next` object.

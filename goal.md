@@ -356,3 +356,9 @@ No live data migration, installed-app replacement or release has occurred.
   in-memory SQLite path was reopened as a disk database requiring WAL. Filtering
   empty paths keeps the existing in-memory connection; the handler regression
   then passes. Initial success wording was premature, not a separate pass.
+- Batch 46: request-evidence responses now use a Rust wire DTO with independent
+  generated JSON Schema and TypeScript definitions. Both contracts are checked
+  by the shared contract gate. Request/retention regressions, schema comparison,
+  Clippy and Web build pass. Numeric assertions compare values after the shared
+  wire token type serializes as JSON numbers. Client and request table remain
+  the next incomplete integration layer.

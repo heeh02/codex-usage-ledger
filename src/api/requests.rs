@@ -14,7 +14,7 @@ pub(super) struct RequestEvidenceQuery {
 pub(super) async fn request_evidence(
     State(state): State<ApiState>,
     Query(query): Query<RequestEvidenceQuery>,
-) -> Result<Json<serde_json::Value>, ApiError> {
+) -> Result<Json<wire::RequestEvidenceResponse>, ApiError> {
     let limit = query.limit.unwrap_or(100);
     if query.thread_id.is_empty()
         || query.start >= query.end
@@ -70,7 +70,9 @@ pub(super) async fn request_evidence(
             }
             other => other,
         })?;
-    Ok(Json(value))
+    Ok(Json(
+        serde_json::from_value(value).map_err(StoreError::from)?,
+    ))
 }
 
 #[cfg(test)]
@@ -97,9 +99,13 @@ mod tests {
             .await
             .unwrap()
             .0;
+        let value = serde_json::to_value(value).unwrap();
         assert_eq!(value["scope"], "thread_own_retained_observations");
         assert_eq!(value["historyComplete"], false);
-        assert_eq!(value["rows"][0]["usage"]["total"], event.usage.total_tokens);
+        assert_eq!(
+            value["rows"][0]["usage"]["total"].as_f64(),
+            Some(event.usage.total_tokens as f64)
+        );
         assert_eq!(value["rows"][0]["turnId"], serde_json::Value::Null);
         let mut invalid = make_query();
         invalid.after_time = Some("bad-time".into());

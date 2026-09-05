@@ -16,6 +16,41 @@ string_enum!(DataQuality {
     Quarantined,
     Unknown
 });
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceCursor {
+    pub after_time: String,
+    pub after_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceRow {
+    pub id: String,
+    pub at: String,
+    pub turn_id: Nullable<String>,
+    pub model: Nullable<String>,
+    pub observed_account: Nullable<String>,
+    pub observed_project: Nullable<String>,
+    pub account_confidence: AttributionConfidence,
+    pub project_confidence: AttributionConfidence,
+    pub quality: DataQuality,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceResponse {
+    pub scope: String,
+    pub attribution: String,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: String,
+    pub end: String,
+    pub next: Nullable<RequestEvidenceCursor>,
+    pub rows: Vec<RequestEvidenceRow>,
+}
 string_enum!(QuotaPoolStatus {
     Healthy,
     Warning,

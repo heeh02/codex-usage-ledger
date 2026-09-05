@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RequestEvidenceResponse",
+  "type": "object",
+  "properties": {
+    "attribution": {
+      "type": "string"
+    },
+    "end": {
+      "type": "string"
+    },
+    "historyComplete": {
+      "type": "boolean"
+    },
+    "next": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RequestEvidenceCursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/RequestEvidenceRow"
+      }
+    },
+    "scope": {
+      "type": "string"
+    },
+    "start": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "scope",
+    "attribution",
+    "historyComplete",
+    "threadId",
+    "start",
+    "end",
+    "next",
+    "rows"
+  ],
+  "$defs": {
+    "AttributionConfidence": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "inferred",
+        "unknown"
+      ]
+    },
+    "DataQuality": {
+      "type": "string",
+      "enum": [
+        "confirmed",
+        "quarantined",
+        "unknown"
+      ]
+    },
+    "RequestEvidenceCursor": {
+      "type": "object",
+      "properties": {
+        "afterId": {
+          "type": "string"
+        },
+        "afterTime": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "afterTime",
+        "afterId"
+      ]
+    },
+    "RequestEvidenceRow": {
+      "type": "object",
+      "properties": {
+        "accountConfidence": {
+          "$ref": "#/$defs/AttributionConfidence"
+        },
+        "at": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observedAccount": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observedProject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "projectConfidence": {
+          "$ref": "#/$defs/AttributionConfidence"
+        },
+        "quality": {
+          "$ref": "#/$defs/DataQuality"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "at",
+        "turnId",
+        "model",
+        "observedAccount",
+        "observedProject",
+        "accountConfidence",
+        "projectConfidence",
+        "quality",
+        "usage"
+      ]
+    },
+    "TokenUsage": {
+      "type": "object",
+      "properties": {
+        "cacheWrite": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteCoverage": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteObservedInput": {
+          "type": "number",
+          "format": "double"
+        },
+        "cached": {
+          "type": "number",
+          "format": "double"
+        },
+        "input": {
+          "type": "number",
+          "format": "double"
+        },
+        "output": {
+          "type": "number",
+          "format": "double"
+        },
+        "reasoning": {
+          "type": "number",
+          "format": "double"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        },
+        "uncached": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "input",
+        "cached",
+        "cacheWrite",
+        "cacheWriteObservedInput",
+        "cacheWriteCoverage",
+        "uncached",
+        "output",
+        "reasoning",
+        "total"
+      ]
+    }
+  }
+}
