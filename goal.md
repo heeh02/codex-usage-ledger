@@ -505,3 +505,8 @@ No live data migration, installed-app replacement or release has occurred.
   regression preserves the required assertion; its explicit run FAILED.
   This is unresolved correctness evidence, not successful validation, and blocks
   claiming complete durable exact-window accounting.
+- Batch 69: retained detail lacked the machine identity required by historical
+  account-epoch reassignment. Schema 29 preserves that origin on writes and
+  before compaction; previous-schema raw records are covered by an upgrade test.
+  Targeted retention/upgrade tests and Clippy pass. This is a prerequisite,
+  not a fix claim for the still-failing exact-window regression. No live upgrade.

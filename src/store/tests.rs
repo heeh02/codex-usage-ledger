@@ -702,6 +702,15 @@ fn verified_rollup_survives_compaction_and_old_event_replay() {
         )
         .unwrap();
     assert_eq!(kept, (2, 240, 0));
+    let origins: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_origins WHERE machine_id='machine'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(origins, 2);
     assert_eq!(store.aggregate_usage(&all).unwrap().event_count, 0);
     assert_eq!(
         store.aggregate_rollup_usage(&all).unwrap(),
@@ -1055,6 +1064,42 @@ fn schema_28_indexes_existing_candidate_links_without_rewriting_them() {
         )
         .unwrap();
     assert_eq!(count, 1);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn schema_29_captures_existing_raw_origins_before_compaction() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema28.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("origin-upgrade", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_origins;
+             DELETE FROM schema_migrations WHERE version=29;
+             PRAGMA user_version=28;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let machine: String = store
+        .connection
+        .query_row(
+            "SELECT machine_id FROM retained_request_origins WHERE event_id='origin-upgrade'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(machine, "machine");
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
 }
 

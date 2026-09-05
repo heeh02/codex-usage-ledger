@@ -375,7 +375,11 @@ impl LedgerStore {
             params![timestamp(Utc::now())],
         )?;
         transaction.execute_batch(
-            "INSERT INTO retained_request_evidence(
+            "INSERT INTO retained_request_origins(event_id,machine_id)
+             SELECT usage.event_id,usage.machine_id FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+             WHERE true ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id;
+             INSERT INTO retained_request_evidence(
                 event_id, event_hash, effective_at, thread_id, model,
                 account_fingerprint, project_id, quality, input_tokens,
                 cached_input_tokens, cache_write_input_tokens,

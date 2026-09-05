@@ -60,6 +60,13 @@ neither that overloaded field nor one event per timestamp proves a turn boundary
 
 ## Transaction and upgrade order
 
+Schema 29 stores the source machine identity separately with retained requests,
+including the pre-delete compaction path. This is required to apply machine-
+scoped historical account epochs to retained detail. Already compacted records
+without recoverable origins stay unspecified; no default machine is invented.
+The exact-window compaction regression is still unresolved until effective
+attribution and source-aware boundary selection use this evidence.
+
 1. Add a new schema migration and typed request-evidence write path.
 2. Backfill only retained raw events, with a durable cursor and progress.
    Existing compact keys cannot reconstruct lost fields; mark their detail

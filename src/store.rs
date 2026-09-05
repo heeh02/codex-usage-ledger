@@ -883,6 +883,11 @@ fn retain_request_evidence_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
 ) -> StoreResult<()> {
+    transaction.execute(
+        "INSERT INTO retained_request_origins(event_id,machine_id) VALUES (?1,?2)
+         ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id",
+        params![event.event_id, event.provenance.machine_id],
+    )?;
     if let Some(candidate) = event.provenance.candidate_rollout_event_id.as_deref() {
         let existing: Option<String> = transaction
             .query_row(
