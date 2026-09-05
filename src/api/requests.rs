@@ -30,8 +30,8 @@ pub(super) async fn turn_evidence(
     let value=state.query_value(UsageQuery::default(),move |store,_| {
         let page=store.retained_turn_page(crate::store::RetainedRequestScope {
             thread_id:&query.thread_id,start:query.start,end:query.end,
-            account:query.account.as_deref().filter(|value|*value!="all"),
-            model:query.model.as_deref().filter(|value|*value!="all"),
+            account:query.account.as_deref().map(str::trim).filter(|value|!value.is_empty() && *value!="all"),
+            model:query.model.as_deref().map(str::trim).filter(|value|!value.is_empty() && *value!="all"),
         },offset,limit)?;
         Ok(serde_json::json!({
                 "scope":"thread_own_retained_turns","historyComplete":false,
@@ -94,8 +94,16 @@ pub(super) async fn request_evidence(
                     thread_id: &query.thread_id,
                     start: query.start,
                     end: query.end,
-                    account: query.account.as_deref().filter(|value| *value != "all"),
-                    model: query.model.as_deref().filter(|value| *value != "all"),
+                    account: query
+                        .account
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty() && *value != "all"),
+                    model: query
+                        .model
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty() && *value != "all"),
                 },
                 cursor.as_ref(),
                 limit,
@@ -154,8 +162,8 @@ mod tests {
                 thread_id: "thread".into(),
                 start: at - ChronoDuration::hours(1),
                 end: at + ChronoDuration::hours(1),
-                account: None,
-                model: None,
+                account: Some(" ".into()),
+                model: Some(" all ".into()),
                 offset: None,
                 limit: None,
             }),
@@ -207,6 +215,14 @@ mod tests {
             .unwrap()
             .0;
         assert!(filtered.rows.is_empty());
+        let mut normalized = make_query();
+        normalized.account = Some("  ".into());
+        normalized.model = Some(" gpt-5.6-sol ".into());
+        let normalized = request_evidence(State(state.clone()), Query(normalized))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(normalized.rows.len(), 1);
         let mut invalid = make_query();
         invalid.after_time = Some("bad-time".into());
         invalid.after_id = Some("request".into());

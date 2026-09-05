@@ -610,3 +610,6 @@ No live data migration, installed-app replacement or release has occurred.
   pages and duplicate/missing group IDs so invalid responses cannot cause
   misleading repeated pagination. Web 40 tests and build pass. Previously built
   native artifact predates this frontend change and must be rebuilt for release.
+- Batch 88: request/turn query execution now normalizes account/model selections
+  consistently with returned metadata. Blank/all/padded values no longer
+  execute a different scope than they advertise. Both endpoint regressions pass.
