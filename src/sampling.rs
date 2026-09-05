@@ -88,15 +88,17 @@ pub fn ingest_post_sampling(
     }
     let mut combined = SamplingImportReport::default();
     for (index, logs_path) in sources.iter().enumerate() {
-        let source_id = if index == 0 {
-            POST_SAMPLING_SOURCE_ID.to_owned()
+        let relative = relative_source(codex_home, logs_path);
+        let named_source = format!("{POST_SAMPLING_SOURCE_ID}:{relative}");
+        // A previously namespaced source must not inherit another source's
+        // high-water mark merely because an earlier path disappeared.
+        let namespaced = index > 0 || store.get_cursor(machine_id, &named_source)?.is_some();
+        let source_id = if namespaced {
+            named_source
         } else {
-            format!(
-                "{POST_SAMPLING_SOURCE_ID}:{}",
-                relative_source(codex_home, logs_path)
-            )
+            POST_SAMPLING_SOURCE_ID.to_owned()
         };
-        let namespace = (index > 0).then(|| relative_source(codex_home, logs_path));
+        let namespace = namespaced.then_some(relative);
         let report = ingest_post_sampling_source(
             store,
             codex_home,
@@ -1034,8 +1036,7 @@ mod tests {
         assert!(source_receipt_key("machine", None, 1, 100, 5, "thread", "body").is_none());
     }
 
-    #[test]
-    fn copied_log_sources_must_not_duplicate_sampling() {
+    fn copied_source_fixture() -> (tempfile::TempDir, LedgerStore, DateTime<Utc>, PathBuf) {
         let temporary = tempdir().unwrap();
         let home = temporary.path();
         let rollout = home.join("rollout.jsonl");
@@ -1113,6 +1114,62 @@ mod tests {
         let idle = ingest_post_sampling(&mut store, home, "machine").unwrap();
         assert_eq!(idle.observations, 0);
         assert_eq!(idle.bytes_read, 0);
+        (temporary, store, at, rollout)
+    }
+
+    #[test]
+    fn copied_log_sources_must_not_duplicate_sampling() {
+        let _fixture = copied_source_fixture();
+    }
+
+    #[test]
+    fn migrated_source_keeps_its_cursor_after_primary_is_removed() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary_at = at + chrono::Duration::seconds(3);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(primary_at, 200)
+        )
+        .unwrap();
+        {
+            let primary = Connection::open(root.join("logs_2.sqlite")).unwrap();
+            primary
+                .execute("UPDATE sqlite_sequence SET seq=99 WHERE name='logs'", [])
+                .unwrap();
+            insert_log(&primary, primary_at, "primary-high-watermark");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            450
+        );
+        fs::rename(root.join("logs_2.sqlite"), root.join("paused-logs.sqlite")).unwrap();
+        let next_at = at + chrono::Duration::seconds(4);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(root.join("sqlite/logs_2.sqlite")).unwrap();
+            insert_log(&migrated, next_at, "migrated-after-removal");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            630
+        );
     }
 
     #[test]

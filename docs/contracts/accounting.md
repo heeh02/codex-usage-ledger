@@ -85,6 +85,12 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+An already namespaced sampling source keeps that source/cursor identity when
+another source path disappears. Source list position must not replace an
+established independent high-water mark. Legacy unnamespaced first-source
+bindings and physical database replacement still require separate continuity
+validation; this rule does not infer a binding for those cases.
+
 Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
 matching immutable request fields and dimensions become receipt aliases without
 new usage rows; weaker unknown copies cannot replace confirmed evidence.

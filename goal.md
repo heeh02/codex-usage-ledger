@@ -655,3 +655,8 @@ No live data migration, installed-app replacement or release has occurred.
   to the migrated source. The duplicate stays excluded, the new 150 tokens are
   counted once (total 250), and a subsequent idle pass reads no new evidence.
   Targeted regression passes; source removal/reset continuity is still open.
+- Batch 95: primary removal with unequal source high-water marks reproduced
+  450 instead of expected 630. Existing namespaced sources now retain their
+  own cursor regardless of list position; the regression is unignored and
+  passes, alongside copied-source dedup and Clippy. Legacy first-source binding
+  ambiguity and physical source replacement remain open, not implicitly fixed.
