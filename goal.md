@@ -666,3 +666,9 @@ No live data migration, installed-app replacement or release has occurred.
   namespace. Both source-appearance/removal regressions and Clippy pass.
   Old cursors without binding metadata and physical replacement still need
   continuity audit; no legacy history is claimed repaired.
+- Batch 97: new cursor metadata tracks physical identity and source generations.
+  Detected replacement uses a new namespace and row-zero read; stable receipts
+  suppress copied rows while genuine reset IDs remain distinct, including a
+  reused turn ID. Replacement without receipt identity preserves the old cursor
+  and fails explicitly. All sampling tests and Clippy pass. Same-inode resets,
+  legacy identity adoption and live lifecycle handling remain open.

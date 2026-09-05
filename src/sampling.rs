@@ -133,13 +133,64 @@ fn ingest_post_sampling_source(
     source_id: &str,
     namespace: Option<&str>,
 ) -> Result<SamplingImportReport> {
-    let last_log_id = store
-        .get_cursor(machine_id, source_id)?
-        .map(|cursor| cursor.byte_offset)
-        .unwrap_or_default();
+    let saved = store.get_cursor(machine_id, source_id)?;
+    let saved_state = saved
+        .as_ref()
+        .and_then(|cursor| cursor.parser_state_json.as_deref())
+        .and_then(|state| serde_json::from_str::<Value>(state).ok());
+    let physical = physical_file_identity(logs_path, &logs_path.metadata()?)?;
+    let replaced = saved_state
+        .as_ref()
+        .and_then(|state| state.get("physicalIdentity"))
+        .and_then(Value::as_str)
+        .is_some_and(|previous| previous != physical);
+    let mut generation = saved_state
+        .as_ref()
+        .and_then(|state| state.get("generation"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let effective_namespace = if replaced {
+        generation = generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("sampling source generation exhausted"))?;
+        Some(format!(
+            "{}:generation-{generation}",
+            namespace.unwrap_or("primary")
+        ))
+    } else {
+        saved_state
+            .as_ref()
+            .and_then(|state| state.get("eventNamespace"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| namespace.map(str::to_owned))
+    };
+    let namespace = effective_namespace.as_deref();
+    let last_log_id = if replaced {
+        0
+    } else {
+        saved
+            .as_ref()
+            .map(|cursor| cursor.byte_offset)
+            .unwrap_or_default()
+    };
     let bootstrap = last_log_id == 0;
     let safe_before = Utc::now() - chrono::Duration::seconds(5);
     let observations = read_observations(logs_path, last_log_id, safe_before, machine_id)?;
+    if physical_file_identity(logs_path, &logs_path.metadata()?)? != physical {
+        return Err(anyhow!(
+            "sampling source changed during read; retry without advancing its cursor"
+        ));
+    }
+    if replaced
+        && observations
+            .iter()
+            .any(|observation| observation.receipt_key.is_none())
+    {
+        return Err(anyhow!(
+            "replaced sampling source lacks receipt identity; continuity audit required"
+        ));
+    }
     if observations.is_empty() {
         return Ok(SamplingImportReport::default());
     }
@@ -288,6 +339,12 @@ fn ingest_post_sampling_source(
                 source_id,
                 namespace,
             );
+            if generation > 0 {
+                event.provenance.file_identity = format!(
+                    "{}:sampling-generation-{generation}",
+                    event.provenance.file_identity
+                );
+            }
             if !ambiguous && let Some((_, index)) = best {
                 event.provenance.candidate_rollout_event_id =
                     rollout_identity.as_deref().map(|identity| {
@@ -304,13 +361,7 @@ fn ingest_post_sampling_source(
     }
     events.sort_by_key(|event| event.provenance.line_number);
 
-    let file_identity = format!(
-        "logs2:{}",
-        logs_path
-            .metadata()
-            .map(|metadata| metadata.len())
-            .unwrap_or_default()
-    );
+    let file_identity = format!("logs2-physical:{physical}");
     for batch in events.chunks(1_000) {
         let batch_end = batch
             .last()
@@ -325,8 +376,9 @@ fn ingest_post_sampling_source(
                 byte_offset: batch_end,
                 line_number: batch_end,
                 parser_state_json: Some(
-                    serde_json::json!({"source":"logs_2_post_sampling","version":2,
-                        "relativePath":relative_source(codex_home,logs_path)})
+                    serde_json::json!({"source":"logs_2_post_sampling","version":3,
+                        "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
+                        "generation":generation,"eventNamespace":namespace})
                     .to_string(),
                 ),
                 updated_at: Utc::now(),
@@ -342,8 +394,9 @@ fn ingest_post_sampling_source(
             byte_offset: max_log_id,
             line_number: max_log_id,
             parser_state_json: Some(
-                serde_json::json!({"source":"logs_2_post_sampling","version":2,
-                "relativePath":relative_source(codex_home,logs_path)})
+                serde_json::json!({"source":"logs_2_post_sampling","version":3,
+                "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
+                "generation":generation,"eventNamespace":namespace})
                 .to_string(),
             ),
             updated_at: Utc::now(),
@@ -1240,6 +1293,89 @@ mod tests {
                 .unwrap()
                 .observations,
             0
+        );
+    }
+
+    #[test]
+    fn physical_log_replacement_replays_copies_once_and_accepts_reset_ids() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary = root.join("logs_2.sqlite");
+        let replacement = root.join("replacement.sqlite");
+        fs::copy(&primary, &replacement).unwrap();
+        fs::rename(&primary, root.join("old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        fs::copy(&primary, &replacement).unwrap();
+        {
+            let reset = Connection::open(&replacement).unwrap();
+            reset
+                .execute_batch(
+                    "DELETE FROM logs; UPDATE sqlite_sequence SET seq=0 WHERE name='logs';",
+                )
+                .unwrap();
+            insert_log(&reset, next_at, "shared-turn");
+        }
+        fs::rename(&primary, root.join("second-old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let state: Value =
+            serde_json::from_str(checkpoint.parser_state_json.as_deref().unwrap()).unwrap();
+        assert_eq!(state["generation"], 2);
+        assert_eq!(checkpoint.byte_offset, 1);
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
+        );
+        fs::copy(&primary, &replacement).unwrap();
+        Connection::open(&replacement)
+            .unwrap()
+            .execute("UPDATE logs SET process_uuid=NULL", [])
+            .unwrap();
+        fs::rename(&primary, root.join("third-old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        assert!(ingest_post_sampling(&mut store, root, "machine").is_err());
+        let preserved = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(preserved.parser_state_json, checkpoint.parser_state_json);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
         );
     }
 

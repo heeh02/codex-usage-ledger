@@ -95,6 +95,13 @@ That binding preserves the first source's identity when another higher-priority
 path later appears. Existing namespaced cursors remain authoritative for their
 own paths. Unbound legacy cursors and physical replacement are not retroactively
 proven by this metadata.
+New cursors also persist physical file identity, generation and effective event
+namespace. A detected physical replacement is read from zero in a new generation
+only when observations carry stable receipt identities; copied receipts stay
+deduplicated and reused row/turn IDs do not collide with prior generations.
+Identity changes during reading or replacement without receipt identity fail
+without advancing the source cursor. Same-inode resets and older unbound cursor
+history are not covered by this guarantee.
 
 Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
 matching immutable request fields and dimensions become receipt aliases without
