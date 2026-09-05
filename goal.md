@@ -155,3 +155,6 @@ No live data migration, installed-app replacement or release has occurred.
   automated browser suite remains unverified. In-app browser inspection
   confirmed child context and exposed/fixed a synthetic tree subtotal mismatch.
   Temporary preview and test service were closed; installed app unchanged.
+- Batch 8: overview moves the main trend ahead of composition and diagnostic
+  panels. Secondary composition and reconciliation are explicitly expandable.
+  This is an initial layout improvement, not completed visual acceptance.

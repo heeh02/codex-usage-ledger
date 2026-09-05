@@ -44,10 +44,7 @@ export function OverviewPage({
   return (
     <>
       <ExplorerPulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
-      <AttributionCoveragePanel coverage={bundle.summary.attributionCoverage} />
-      <MissingAccountEstimatePanel estimate={bundle.summary.missingAccountEstimate} />
       <TrendAndTimeline data={bundle.timeseries} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} />
-      <TokenOverview summary={bundle.summary} metric={metric} />
       <section className="overview-tabs panel">
         <nav aria-label={t('overview.usage_details')}>
           {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', 'Sessions']] as const).map(([id, label]) => (
@@ -71,6 +68,15 @@ export function OverviewPage({
           {detailTab === 'sessions' && <><ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} /><OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} /></>}
         </div>
       </section>
+      <details className="overview-secondary panel">
+        <summary>{t('overview.composition_details')}</summary>
+        <TokenOverview summary={bundle.summary} metric={metric} />
+      </details>
+      <details className="overview-secondary panel">
+        <summary>{t('overview.evidence_details')}</summary>
+        <AttributionCoveragePanel coverage={bundle.summary.attributionCoverage} />
+        <MissingAccountEstimatePanel estimate={bundle.summary.missingAccountEstimate} />
+      </details>
     </>
   );
 }

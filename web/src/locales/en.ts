@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "overview.composition_details": "Input, cache and output details",
+  "overview.evidence_details": "Data coverage and reconciliation details",
   "chats.back_parent": "Back to parent conversation",
   "chats.search": "Search all conversations",
   "chats.search_action": "Search",
