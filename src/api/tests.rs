@@ -1,5 +1,34 @@
 use super::*;
 
+#[test]
+#[ignore = "known gap: exact boundary queries do not yet use retained request evidence"]
+fn exact_window_usage_must_survive_raw_compaction() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 8, 1, 1, 10, 0).unwrap();
+    let end = start + ChronoDuration::minutes(10);
+    let mut fact = explorer_event("compacted-boundary", "boundary-thread", None);
+    fact.source_timestamp = Some(start + ChronoDuration::minutes(1));
+    store.upsert_event(&fact).unwrap();
+    let filter = AggregateFilter {
+        start_inclusive: Some(start),
+        end_exclusive: Some(end),
+        ..AggregateFilter::default()
+    };
+    let before = queries::aggregate_exact_hour_window(&store, &filter).unwrap();
+    assert_eq!(before.usage.total_tokens, 120);
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(end + ChronoDuration::days(1), 100)
+        .unwrap();
+    let retained = store
+        .retained_request_page("boundary-thread", start, end, None, 100)
+        .unwrap();
+    assert_eq!(retained.observations[0].usage.total_tokens, 120);
+    let after = queries::aggregate_exact_hour_window(&store, &filter).unwrap();
+    assert_eq!(after.usage.total_tokens, before.usage.total_tokens);
+}
+
 pub(super) fn explorer_event(id: &str, thread_id: &str, parent: Option<&str>) -> crate::UsageEvent {
     crate::UsageEvent {
         event_id: id.to_owned(),

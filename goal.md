@@ -96,6 +96,13 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
+Blocking correctness regression (not a goal-status blocker): explicit run of
+`exact_window_usage_must_survive_raw_compaction` returns 0 after compaction
+instead of 120, despite retained request evidence containing 120. The test is
+marked ignored only to label a known unresolved regression, not a pass.
+Next accounting integration must restore boundary evidence while respecting
+effective source choice and revised attribution; do not simply add both tables.
+
 Current integrated state after batch 59: schema 26 retains local request facts,
 preserves explicit sampling turns without changing dedup hashes, and exposes
 typed request-evidence pages to an on-demand session table. Observed attribution
@@ -492,3 +499,9 @@ No live data migration, installed-app replacement or release has occurred.
   rather than consistent independent matches. Schema 28 indexes the reverse
   lookup; previous-schema upgrade preserves existing links. Shared-target and
   migration tests plus Clippy pass. No historical accounting selection changed.
+- Batch 68: exact boundary-hour audit reproduced a real gap in a synthetic
+  ten-minute window: 120 before compaction, retained evidence still 120, but
+  exact query returns 0 afterward. A deliberately ignored known-failing
+  regression preserves the required assertion; its explicit run FAILED.
+  This is unresolved correctness evidence, not successful validation, and blocks
+  claiming complete durable exact-window accounting.
