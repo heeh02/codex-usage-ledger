@@ -35,6 +35,6 @@ export function SessionPage({ dataMode, bundle, filters, onFiltersChange, metric
     trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} />
     {detail && <RequestEvidencePanel key={JSON.stringify([detail.id, filters.period, filters.startDate, filters.endDate, filters.account, filters.model])}
       threadId={detail.id} start={bundle.summary.period.start ?? '1970-01-01T00:00:00Z'}
-      end={bundle.summary.period.end} enabled={dataMode === 'http' && filters.account === 'all' && filters.model === 'all'} />}
+      end={bundle.summary.period.end} demo={dataMode === 'mock'} enabled={filters.account === 'all' && filters.model === 'all'} />}
     </>;
 }

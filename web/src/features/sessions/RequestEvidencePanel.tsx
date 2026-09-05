@@ -5,9 +5,10 @@ import { advanceRequestPage, firstRequestPage, previousRequestPage } from './req
 import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
 import './request-evidence.css';
+import { mockRequestEvidence } from '../../api/requestEvidenceMock';
 
-export function RequestEvidencePanel({ threadId, start, end, enabled }: {
-  threadId: string; start: string; end: string; enabled: boolean;
+export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
+  threadId: string; start: string; end: string; enabled: boolean; demo: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -23,17 +24,19 @@ export function RequestEvidencePanel({ threadId, start, end, enabled }: {
     setBusy(true);
     setError('');
     void runScopedRequest(controller.signal,
-      () => fetchRequestEvidence({ threadId, start, end, after: cursor }, controller.signal), {
+      () => demo ? Promise.resolve(mockRequestEvidence({ threadId, start, end, after: cursor }))
+        : fetchRequestEvidence({ threadId, start, end, after: cursor }, controller.signal), {
         success: setPage,
         failure: reason => setError(reason instanceof Error ? reason.message : String(reason)),
         settled: () => setBusy(false),
       });
     return () => controller.abort();
-  }, [threadId, start, end, cursor, open, enabled, retry]);
+  }, [threadId, start, end, cursor, open, enabled, demo, retry]);
   return <section className="request-evidence-panel">
     <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>{t('requests.title')}</button>
     {open && <>
       <p>{t('requests.scope')}</p>
+      {demo && <p>{t('requests.demo')}</p>}
       {!enabled ? <p>{t('requests.unavailable_scope')}</p> : <>
         {busy && <p role="status">{t('requests.loading')}</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}

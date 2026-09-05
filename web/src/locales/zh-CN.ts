@@ -1,7 +1,8 @@
 export const zhCNMessages = {
   "requests.title": "请求证据明细",
   "requests.scope": "仅所选聊天自身的保留观测，不含子代理。历史不完整，这些行不是额外用量；账号和项目归属为导入时观测。",
-  "requests.unavailable_scope": "需连接本机服务并选择全部账号、全部模型。筛选归属与演示请求数据尚未支持。",
+  "requests.unavailable_scope": "请选择全部账号、全部模型。筛选后的请求归属尚未支持。",
+  "requests.demo": "用于分页测试的合成请求夹具，不是真实用量，也不是演示曲线的组成明细。",
   "requests.loading": "正在读取请求证据…",
   "requests.retry": "重试",
   "requests.time": "时间（UTC）",

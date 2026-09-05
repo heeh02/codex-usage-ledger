@@ -399,3 +399,9 @@ No live data migration, installed-app replacement or release has occurred.
   typing failure exposed by importing Vite config into tests was corrected,
   then targeted isolation tests and production build pass. This prepares safe
   acceptance but does not itself validate the request-table UI.
+- Batch 53: mock mode has an explicit 205-request fixture for the retained
+  table, spanning three pages with repeated explicit turns and unknown turns.
+  Bilingual copy separates this test fixture from actual usage and the demo
+  aggregate chart. Its three-page identity/count/token conservation test passes;
+  Web 36 tests and build pass. This enables isolated table interaction acceptance
+  without proxying a live ledger; browser interaction remains to be executed.
