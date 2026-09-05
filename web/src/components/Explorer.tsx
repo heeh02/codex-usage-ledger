@@ -57,6 +57,7 @@ export function LedgerSidebar({
   period,
   onOverview,
   onChats,
+  onModels,
   onProject,
   onAccounts,
   onQuality,
@@ -67,6 +68,7 @@ export function LedgerSidebar({
   period: SummaryResponse['period'] | null;
   onOverview: () => void;
   onChats: () => void;
+  onModels: () => void;
   onProject: (projectId: string) => void;
   onAccounts: () => void;
   onQuality: () => void;
@@ -135,6 +137,7 @@ export function LedgerSidebar({
         </button>
 
         <button className={page === 'chats' ? 'sidebar-item is-active' : 'sidebar-item'} onClick={onChats} type="button"><ConversationIcon /><span>{t('chats.title')}</span></button>
+        <button className={page === 'models' ? 'sidebar-item is-active' : 'sidebar-item'} onClick={onModels} type="button"><OverviewIcon /><span>{t('models.title')}</span></button>
         <div className="sidebar-section-heading">
           <span>{t('components.explorer.local_work_evidence')} · {rankingLabel}</span>
           <small>{explorer ? `${projectFolders.length} ${t('components.explorer.projects_chats')} · ${compactNumber(displayedRankingTotal)}` : t('components.explorer.reading_trusted_snapshot')}</small>

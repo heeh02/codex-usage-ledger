@@ -1,6 +1,7 @@
 export type AppPage =
   | 'overview'
   | 'chats'
+  | 'models'
   | 'project'
   | 'conversation'
   | 'unmatched'
@@ -9,5 +10,5 @@ export type AppPage =
   | 'quality';
 
 export function isWorkDetailPage(page: AppPage): boolean {
-  return page === 'chats' || page === 'project' || page === 'conversation' || page === 'unmatched' || page === 'session';
+  return page === 'models' || page === 'chats' || page === 'project' || page === 'conversation' || page === 'unmatched' || page === 'session';
 }

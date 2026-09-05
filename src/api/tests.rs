@@ -383,6 +383,59 @@ fn custom_dates_include_the_end_day_and_reject_reversed_ranges() {
 }
 
 #[test]
+fn custom_window_bundle_conserves_usage_at_both_boundaries() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 1, 30, 16, 0, 0).unwrap();
+    let end = Utc.with_ymd_and_hms(2026, 2, 2, 16, 0, 0).unwrap();
+    for (index, at) in [
+        start - ChronoDuration::seconds(1),
+        start,
+        end - ChronoDuration::seconds(1),
+        end,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut event = explorer_event(&format!("boundary-{index}"), "custom-root", None);
+        event.source_timestamp = Some(at);
+        event.observed_at = at;
+        store.upsert_event(&event).unwrap();
+    }
+    store
+        .upsert_thread_catalog_batch(&[native_catalog_thread(
+            "custom-root",
+            None,
+            Some("project"),
+            0,
+            "Custom range fixture",
+        )])
+        .unwrap();
+    let query = UsageQuery {
+        period: Some("custom".to_owned()),
+        start_date: Some("2026-01-31".to_owned()),
+        end_date: Some("2026-02-02".to_owned()),
+        ..Default::default()
+    };
+    let bundle = http_bundle(&store, &query).unwrap();
+    assert_eq!(bundle["summary"]["usage"]["confirmed"]["total"], 240);
+    let series: u64 = bundle["timeseries"]["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| point["confirmed"]["total"].as_u64().unwrap())
+        .sum();
+    let projects: u64 = bundle["breakdowns"]["project"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| point["usage"]["confirmed"]["total"].as_u64().unwrap())
+        .sum();
+    assert_eq!(series, 240);
+    assert_eq!(projects, 240);
+    assert_eq!(bundle["explorer"]["sessions"][0]["treeUsage"]["total"], 240);
+}
+
+#[test]
 fn september_first_exposes_a_cross_month_week_without_changing_month_semantics() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 17, 30, 0).unwrap();
     let resolve = |period: &str| {

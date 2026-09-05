@@ -184,3 +184,8 @@ No live data migration, installed-app replacement or release has occurred.
   date filters survive navigation and reset conversation pagination. Demo scope
   filtering honors the requested dates. Web 20 unit tests and build pass;
   full custom-range browser and accounting acceptance remain required.
+- Batch 16: full custom-window fixture proves summary, time buckets, project
+  grouping and conversation totals all include exactly the two in-range events,
+  excluding events just outside each boundary. Dedicated model navigation now
+  displays local model trends and breakdowns; Web 20 tests and build pass.
+  Multi-model comparison and browser acceptance remain open.
