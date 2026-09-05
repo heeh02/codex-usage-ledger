@@ -299,3 +299,9 @@ No live data migration, installed-app replacement or release has occurred.
   bilingual local labels. Web 30 tests and build pass. A subsequent browser read
   still reported the old label, so runtime delivery/cache validation remains
   unresolved and is not claimed passed. Owned preview tabs and server closed.
+- Batch 38: an explicit mock-mode production build on a distinct preview origin
+  exposes the corrected local-refresh accessibility name in the in-app browser.
+  This verifies the built label, not the entire responsive/interaction matrix.
+  The prior stale development-preview observation remains unexplained. Future
+  visual acceptance should identify the build and explicit data mode. Owned
+  preview resources closed and the default HTTP-mode production build restored.
