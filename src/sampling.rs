@@ -220,6 +220,7 @@ fn ingest_post_sampling_source(
                 start += 1;
             }
             let mut best: Option<(i64, usize)> = None;
+            let mut ambiguous = false;
             for (index, candidate) in candidates.iter().enumerate().skip(start) {
                 let candidate_nanos = timestamp_nanos(candidate.observed_at);
                 if candidate_nanos > observed_nanos.saturating_add(MATCH_TOLERANCE_NANOS) {
@@ -231,9 +232,12 @@ fn ingest_post_sampling_source(
                 let delta = candidate_nanos.abs_diff(observed_nanos) as i64;
                 if best.is_none_or(|(best_delta, _)| delta < best_delta) {
                     best = Some((delta, index));
+                    ambiguous = false;
+                } else if best.is_some_and(|(best_delta, _)| delta == best_delta) {
+                    ambiguous = true;
                 }
             }
-            let (usage, quality, reason) = if let Some((_, index)) = best {
+            let (usage, quality, reason) = if let Some((_, index)) = best.filter(|_| !ambiguous) {
                 candidates[index].used = true;
                 report.matched = report.matched.saturating_add(1);
                 (candidates[index].usage, DataQuality::Confirmed, None)
@@ -242,7 +246,14 @@ fn ingest_post_sampling_source(
                 (
                     TokenUsage::default(),
                     DataQuality::Unknown,
-                    Some("post_sampling_without_nearby_last_token_usage".to_owned()),
+                    Some(
+                        if ambiguous {
+                            "post_sampling_ambiguous_nearby_last_token_usage"
+                        } else {
+                            "post_sampling_without_nearby_last_token_usage"
+                        }
+                        .to_owned(),
+                    ),
                 )
             };
             events.push(event_from_observation(
@@ -897,6 +908,37 @@ mod tests {
                 .total_tokens,
             700
         );
+        let ambiguous_at = Utc::now() - chrono::Duration::seconds(10);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(append, "{}", token_line(ambiguous_at, 500)).unwrap();
+        writeln!(append, "{}", token_line(ambiguous_at, 900)).unwrap();
+        insert_log(&logs, ambiguous_at, "ambiguous-turn");
+        let ambiguous = ingest_post_sampling(&mut store, codex_home, "machine").unwrap();
+        assert_eq!(
+            (
+                ambiguous.observations,
+                ambiguous.matched,
+                ambiguous.unmatched
+            ),
+            (1, 0, 1)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            700
+        );
+        let reason: String = store
+            .connection()
+            .query_row(
+                "SELECT quality_reason FROM usage_events WHERE quality='unknown'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reason, "post_sampling_ambiguous_nearby_last_token_usage");
     }
 
     #[test]

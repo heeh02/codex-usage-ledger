@@ -450,3 +450,10 @@ No live data migration, installed-app replacement or release has occurred.
   and 2 schema tests. Clippy, both generated API contracts, privacy, document
   links, generated-file and module-boundary checks pass. This verifies current
   synthetic/source contracts, not the outstanding accounting or device gates.
+- Batch 60: source-overlap audit confirms sampling IDs are log-row identities,
+  reconstruction IDs are rollout identities, and temporal candidate matches
+  discard shared rollout positions. Equal-distance candidate ties previously
+  picked the first and confirmed it. New ingestion now records such ties as
+  unknown with an ambiguity reason; a two-candidate regression preserves the
+  previous confirmed total. Targeted ingest test and Clippy pass. No historical
+  counters were reset/reprocessed; identity-based overlap remains outstanding.

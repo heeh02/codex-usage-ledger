@@ -67,6 +67,13 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Post-sampling timestamp matching must have a unique nearest unused candidate
+within its tolerance. Equally near candidates are unknown with an explicit
+ambiguity reason, not arbitrarily confirmed. This guards new ingestion only;
+it does not retroactively revise stored usage or establish shared request
+identity across sampling and reconstruction. Historical policy changes still
+require shadow validation and a migration receipt.
+
 1. Codex app-server `account/usage/read` for account lifetime and daily totals.
 2. Every retained `logs_2.sqlite` shard, including a migrated
    `sqlite/logs_2.sqlite`, for the local post-sampling request whitelist.
