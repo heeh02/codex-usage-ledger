@@ -3,7 +3,17 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 33;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 34;
+
+const MIGRATION_34: &str = r#"
+CREATE TABLE IF NOT EXISTS source_record_evidence (
+    evidence_source TEXT NOT NULL CHECK(evidence_source IN ('sampling','reconstruction')),
+    event_id TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    PRIMARY KEY(evidence_source,event_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS source_record_evidence_key ON source_record_evidence(record_key,evidence_source,event_id);
+"#;
 
 const MIGRATION_33: &str = r#"
 CREATE TABLE IF NOT EXISTS sampling_receipt_owners (
@@ -226,6 +236,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             31 => transaction.execute_batch(MIGRATION_31)?,
             32 => transaction.execute_batch(MIGRATION_32)?,
             33 => transaction.execute_batch(MIGRATION_33)?,
+            34 => transaction.execute_batch(MIGRATION_34)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

@@ -121,6 +121,7 @@ pub(super) fn deduplicate_sampling_receipt_in(
         canonical.provenance.candidate_rollout_event_id =
             event.provenance.candidate_rollout_event_id.clone();
         canonical.provenance.sampling_receipt_key = Some(receipt.to_owned());
+        canonical.provenance.source_record_key = event.provenance.source_record_key.clone();
         upsert_event_in(transaction, &canonical)?
     } else {
         return Err(StoreError::SamplingReceiptConflict(event.event_id.clone()));

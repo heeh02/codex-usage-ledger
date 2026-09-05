@@ -634,6 +634,7 @@ impl ReplayGuard {
                 source_turn_id: None,
                 candidate_rollout_event_id: None,
                 sampling_receipt_key: None,
+                source_record_key: None,
                 machine_id: self.config.machine_id.clone(),
                 source_id: self.config.source_id.clone(),
                 rollout_id,

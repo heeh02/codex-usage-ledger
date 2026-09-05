@@ -64,6 +64,7 @@ struct ThreadInfo {
 
 #[derive(Debug, Clone)]
 struct UsageCandidate {
+    record_digest: String,
     byte_offset: u64,
     observed_at: DateTime<Utc>,
     usage: TokenUsage,
@@ -359,6 +360,15 @@ fn ingest_post_sampling_source(
                 );
             }
             if !ambiguous && let Some((_, index)) = best {
+                event.provenance.source_record_key = rollout_identity.as_deref().map(|identity| {
+                    crate::reconstruction::source_record_key(
+                        machine_id,
+                        identity,
+                        &thread_id,
+                        candidates[index].byte_offset,
+                        &candidates[index].record_digest,
+                    )
+                });
                 event.provenance.candidate_rollout_event_id =
                     rollout_identity.as_deref().map(|identity| {
                         crate::reconstruction::stable_event_id(
@@ -779,6 +789,7 @@ fn read_usage_candidates(
             continue;
         }
         candidates.push(UsageCandidate {
+            record_digest: crate::reconstruction::source_record_digest(&value),
             byte_offset: line_start,
             observed_at,
             usage,
@@ -855,6 +866,7 @@ fn event_from_observation(
             source_turn_id: observation.turn_id.clone(),
             candidate_rollout_event_id: None,
             sampling_receipt_key: observation.receipt_key,
+            source_record_key: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: thread_id.to_owned(),
@@ -1247,6 +1259,65 @@ mod tests {
         assert_eq!(idle.observations, 0);
         assert_eq!(idle.bytes_read, 0);
         (temporary, store, at, rollout)
+    }
+
+    #[test]
+    fn sampling_and_reconstruction_share_the_same_source_record_evidence() {
+        let (temporary, _old_store, at, old_rollout) = copied_source_fixture();
+        let rollout = temporary.path().join("sessions/rollout.jsonl");
+        fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+        fs::rename(old_rollout, &rollout).unwrap();
+        for state in ["state_5.sqlite", "sqlite/state_5.sqlite"] {
+            Connection::open(temporary.path().join(state))
+                .unwrap()
+                .execute(
+                    "UPDATE threads SET rollout_path=?1",
+                    [rollout.to_string_lossy().as_ref()],
+                )
+                .unwrap();
+        }
+        let mut first: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        let mut second: Value =
+            serde_json::from_str(&token_line(at + chrono::Duration::seconds(1), 150)).unwrap();
+        second["payload"]["info"]["total_token_usage"] = serde_json::json!({
+            "input_tokens":230,"cached_input_tokens":190,"output_tokens":20,"reasoning_output_tokens":6,"total_tokens":250
+        });
+        fs::write(&rollout, format!("{}\n{}\n{}\n{}\n",
+            serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),
+            serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}), first, second)).unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let reconstructed = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(reconstructed.inserted_events, 2, "{reconstructed:?}");
+        let matched: i64 = store.connection().query_row(
+            "SELECT COUNT(*) FROM (SELECT record_key FROM source_record_evidence GROUP BY record_key HAVING COUNT(DISTINCT evidence_source)=2)",
+            [], |row| row.get(0)).unwrap();
+        assert_eq!(matched, 2);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let digest = crate::reconstruction::source_record_digest(&first);
+        second = first.clone();
+        second["timestamp"] = serde_json::json!("2020-01-01T00:00:00Z");
+        assert_ne!(digest, crate::reconstruction::source_record_digest(&second));
+        let key = crate::reconstruction::source_record_key("machine", "file", "thread", 1, &digest);
+        assert_ne!(
+            key,
+            crate::reconstruction::source_record_key("machine", "file", "thread", 2, &digest)
+        );
     }
 
     #[test]

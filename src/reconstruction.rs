@@ -650,6 +650,13 @@ fn process_line(
             source_turn_id: None,
             candidate_rollout_event_id: None,
             sampling_receipt_key: None,
+            source_record_key: Some(source_record_key(
+                machine_id,
+                file_identity,
+                &target.thread_id,
+                line.byte_offset,
+                &source_record_digest(&record),
+            )),
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: target.thread_id.clone(),
@@ -823,6 +830,30 @@ fn valid_usage(usage: TokenUsage) -> bool {
 
 fn source_id(thread_id: &str) -> String {
     format!("{RECONSTRUCTION_SOURCE_PREFIX}:{thread_id}")
+}
+
+pub(crate) fn source_record_digest(record: &Value) -> String {
+    hex::encode(Sha256::digest(
+        serde_json::to_vec(record).expect("source JSON is serializable"),
+    ))
+}
+
+pub(crate) fn source_record_key(
+    machine_id: &str,
+    file_identity: &str,
+    thread_id: &str,
+    byte_offset: u64,
+    record_digest: &str,
+) -> String {
+    let encoded = serde_json::to_vec(&(
+        machine_id,
+        file_identity,
+        thread_id,
+        byte_offset,
+        record_digest,
+    ))
+    .expect("source identity tuple is serializable");
+    format!("rollout-record-v1:{}", hex::encode(Sha256::digest(encoded)))
 }
 
 pub(crate) fn stable_event_id(
@@ -1009,6 +1040,7 @@ mod tests {
                 source_turn_id: None,
                 candidate_rollout_event_id: None,
                 sampling_receipt_key: None,
+                source_record_key: None,
                 machine_id: "m".to_owned(),
                 source_id: "sampling".to_owned(),
                 rollout_id: "thread".to_owned(),

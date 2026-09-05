@@ -852,3 +852,19 @@ No live data migration, installed-app replacement or release has occurred.
   policy. No true usage or source selector was rewritten. The critical finding
   is now near the start of this goal; request/coverage partitioning, cross-scope
   shadow validation and a migration receipt are required before replacing max.
+- Batch 108: prior turn verified the day-max counterexample. A bounded read-only
+  local schema/key-presence check did not find request/response identity markers
+  in the sampled post-sampling rows; this is not an all-log absence claim. Both
+  adapters now capture a shared local source-record fingerprint (machine/file/
+  thread/offset plus parsed-content digest). Schema 34 stores it separately by
+  evidence side without changing old event IDs or hashes or inventing old keys.
+  Genuine schema-33 upgrade, metadata enrichment, conflict preservation and
+  cross-adapter equality tests pass. Test debugging exposed ordinary replay
+  reinsertion after compaction; compacted-key checks now prevent new recounts.
+  The adapter fixture was moved inside allowed Codex roots and its timestamp
+  aligned with its log event; source boundaries/tolerance were not relaxed.
+  Legacy backdated migration fixtures use the existing idempotent DDL convention;
+  the new migration also has a genuine predecessor test. Final full Rust 155
+  tests and Clippy pass. ADR 0004 records that this is local measurement evidence,
+  not server equality or authorization to combine replayed history. No real
+  ledger migration, main-policy replacement or installed-app update occurred.

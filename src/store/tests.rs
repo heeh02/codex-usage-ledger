@@ -38,6 +38,7 @@ fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
             source_turn_id: None,
             candidate_rollout_event_id: None,
             sampling_receipt_key: None,
+            source_record_key: None,
             machine_id: "machine".to_owned(),
             source_id: "rollout-path".to_owned(),
             rollout_id: "rollout".to_owned(),
@@ -335,6 +336,91 @@ fn receipt_copy_can_resolve_an_unknown_raw_owner_without_a_second_request() {
     assert_eq!(outcome, UpsertOutcome::Updated);
     let usage = store.aggregate_usage(&AggregateFilter::default()).unwrap();
     assert_eq!((usage.event_count, usage.usage.total_tokens), (1, 120));
+}
+
+#[test]
+fn source_record_evidence_preserves_hash_counts_and_rejects_conflicts() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut fact = event("measured", DataQuality::Confirmed, 10);
+    let before_hash = event_hash(&fact).unwrap();
+    store.upsert_event(&fact).unwrap();
+    fact.provenance.source_record_key = Some("synthetic-record".into());
+    assert_eq!(event_hash(&fact).unwrap(), before_hash);
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    let mut rebuilt = fact.clone();
+    rebuilt.event_id = "rebuilt".into();
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: rebuilt,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM source_record_evidence WHERE record_key='synthetic-record'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    fact.provenance.source_record_key = Some("different-record".into());
+    assert!(matches!(
+        store.upsert_event(&fact),
+        Err(StoreError::SourceRecordConflict(_))
+    ));
+    assert_eq!(store.connection.query_row("SELECT record_key FROM source_record_evidence WHERE evidence_source='sampling' AND event_id='measured'", [], |row| row.get::<_,String>(0)).unwrap(), "synthetic-record");
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
+fn schema_34_upgrade_does_not_invent_source_record_proofs() {
+    let temporary = tempdir().unwrap();
+    let path = temporary.path().join("schema33.sqlite3");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 33).unwrap();
+        let mut store = LedgerStore { connection };
+        store
+            .upsert_event(&event("legacy", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 34);
+    assert_eq!(
+        store
+            .connection
+            .query_row("SELECT COUNT(*) FROM source_record_evidence", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .aggregate_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
 }
 
 #[test]
@@ -1676,7 +1762,7 @@ fn read_only_audit_open_never_creates_or_upgrades_a_ledger() {
         LedgerStore::open_read_only(&path),
         Err(StoreError::UnsupportedAuditSchema {
             found: 24,
-            supported: 33
+            supported: CURRENT_SCHEMA_VERSION
         })
     ));
     assert_eq!(std::fs::read(&path).unwrap(), before_old);

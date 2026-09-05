@@ -85,6 +85,14 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Schema 34 retains [shared local source-record evidence](../adr/0004-source-record-evidence.md)
+without changing event identities or accounting selection. A key includes the
+physical occurrence and parsed-content digest; copied interpretations of that
+record can be compared without treating time proximity as proof. Old absent
+keys are not fabricated. This does not prove independent inference usage or
+authorize merging inherited source history. Ordinary writes must also respect
+compacted event keys, preserving identical replays rather than reinserting them.
+
 The [read-only overlap audit](../architecture/source-overlap-audit.md) classifies
 bounded retained-request pages without refreshing source selection or rewriting
 history. Category amounts are page-local confirmed observations, not corrected

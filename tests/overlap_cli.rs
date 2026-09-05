@@ -34,6 +34,7 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
                     source_turn_id: None,
                     candidate_rollout_event_id: None,
                     sampling_receipt_key: None,
+                    source_record_key: None,
                     machine_id: "synthetic-machine".into(),
                     source_id: "synthetic-source".into(),
                     rollout_id: "synthetic-rollout".into(),
