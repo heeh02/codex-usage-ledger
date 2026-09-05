@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "nodes.page_sort": "当前页排序",
+  "nodes.more_pages": "节点已分页，合计仍包含完整子树。",
   "nodes.search_all": "搜索整棵任务树",
   "chart.open_day_chats": "查看当天聊天",
   "chart.open_range_chats": "查看此区间聊天",

@@ -601,6 +601,21 @@ function scaledUsage(usage: TokenUsage, ratio: number): TokenUsage {
   );
 }
 
+function paginateMockNodes(result: ExplorerResponse, filters: DashboardFilters): ExplorerResponse {
+  const detail = result.selectedSession;
+  if (!detail) return result;
+  const nodes = detail.nodes;
+  detail.ownEventCount = nodes.find(node => node.id === detail.id)?.eventCount ?? 0;
+  detail.treeEventCount = nodes.reduce((sum, node) => sum + node.eventCount, 0);
+  const search = (filters.nodeSearch ?? '').trim().toLowerCase();
+  const matches = nodes.filter(node => `${node.title} ${node.id}`.toLowerCase().includes(search));
+  const offset = filters.nodeOffset ?? 0, limit = filters.nodeLimit ?? 200;
+  detail.nodes = matches.slice(offset, offset + limit);
+  detail.nodePage = { offset, limit, total: matches.length, hasMore: offset + detail.nodes.length < matches.length, search, sort: 'hierarchy' };
+  detail.truncated = offset > 0 || detail.nodes.length < matches.length;
+  return result;
+}
+
 function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date): ExplorerResponse {
   const aggregate = (next: DashboardFilters) => aggregateByQuality(filterFacts(facts, next, anchor)).confirmed;
   const lifetime = aggregate({ ...filters, period: 'lifetime', project: filters.project });
@@ -1119,9 +1134,9 @@ export class MockLedgerApi implements LedgerApi {
         ownUsage: selected.ownUsage, treeUsage: total, nodes, subagentCount: nodes.length - 1,
         samplingTimeline: [{ bucket, usage: total, events }],
         ownSamplingTimeline: [{ bucket, usage: selected.ownUsage, events: selected.eventCount }] };
-      return result;
+      return paginateMockNodes(result, filters);
     }
-    return explorerFor(this.facts, filters, this.anchor);
+    return paginateMockNodes(explorerFor(this.facts, filters, this.anchor), filters);
   }
 
   async getBundle(filters: DashboardFilters, signal?: AbortSignal): Promise<DashboardBundle> {

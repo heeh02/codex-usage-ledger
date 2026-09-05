@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "nodes.page_sort": "Sort this page",
+  "nodes.more_pages": "Nodes are paginated; totals still include the full subtree.",
   "nodes.search_all": "Search the full task tree",
   "chart.open_day_chats": "View this day's conversations",
   "chart.open_range_chats": "View conversations in this interval",

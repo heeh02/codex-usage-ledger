@@ -221,3 +221,7 @@ No live data migration, installed-app replacement or release has occurred.
   opening another node resets its page. Request totals use backend full-scope
   counts instead of summing visible rows. Web build passes; demo pagination,
   interaction verification and removal of redundant page-local controls remain.
+- Batch 25: server tree search is no longer narrowed by stale hidden local
+  search/selection. Page-only ordering is labeled explicitly and pagination
+  copy no longer claims an 800-node cap. Demo responses now expose node paging.
+  Web 21 unit tests and build pass; large-tree browser acceptance remains open.

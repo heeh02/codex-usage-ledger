@@ -463,11 +463,12 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
 }) {
   const { t } = useI18n();
   const { search, sort, selectedNode, scope } = view;
+  const serverPaging = Boolean(nodeControls);
   const patchView = (patch: Partial<SessionViewState>) => onViewChange({ ...view, ...patch });
   const visibleNodes = useMemo(() => {
     if (!detail) return [];
     let nodes = [...detail.nodes];
-    if (selectedNode) {
+    if (selectedNode && !serverPaging) {
       const included = new Set([selectedNode]);
       let changed = true;
       while (changed) {
@@ -481,7 +482,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
       }
       nodes = detail.nodes.filter((node) => included.has(node.id));
     }
-    const query = search.trim().toLocaleLowerCase();
+    const query = serverPaging ? '' : search.trim().toLocaleLowerCase();
     if (query) {
       const byId = new Map(detail.nodes.map((node) => [node.id, node]));
       const included = new Set(nodes
@@ -505,7 +506,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
       });
     }
     return nodes;
-  }, [detail, metric, search, selectedNode, sort]);
+  }, [detail, metric, search, selectedNode, sort, serverPaging]);
   if (!detail) return <EmptyState text={t('components.explorer.this_session_was_not_found_and_may')} />;
   const focusedTimeline = scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline;
   const timelineMax = Math.max(...focusedTimeline.map((point) => metricValue(point.usage, metric, point.events)), 1);
@@ -561,8 +562,8 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
         <header className="agent-tree-heading">
           <div><p className="eyebrow">{t('components.explorer.hierarchy')}</p><h2 id="agent-tree-heading">{t('components.explorer.session_subagent_usage')}</h2></div>
           <div className="agent-tree-controls">
-            <input aria-label={t('components.explorer.search_subagents')} placeholder={t('components.explorer.search_subagents')} value={search} onChange={(event) => patchView({ search: event.target.value })} />
-            <select aria-label={t('components.explorer.subagent_sort')} value={sort} onChange={(event) => patchView({ sort: event.target.value as SessionSort })}>
+            {!nodeControls && <input aria-label={t('components.explorer.search_subagents')} placeholder={t('components.explorer.search_subagents')} value={search} onChange={(event) => patchView({ search: event.target.value })} />}
+            <select aria-label={t(serverPaging ? 'nodes.page_sort' : 'components.explorer.subagent_sort')} value={sort} onChange={(event) => patchView({ sort: event.target.value as SessionSort })}>
               <option value="hierarchy">{t('components.explorer.hierarchy_183fcb')}</option><option value="own">{t('components.explorer.own_usage')}</option><option value="tree">{t('components.explorer.with_subtree')}</option><option value="recent">{t('components.explorer.recent_activity')}</option>
             </select>
             {selectedNode && <button type="button" onClick={() => patchView({ selectedNode: null })}>{t('components.explorer.show_full_tree')}</button>}
@@ -575,7 +576,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
         </div>
         {visibleNodes.length === 0 && <EmptyState text={t('components.explorer.no_matching_sessions_or_subagents_were_found')} />}
         {visibleNodes.length > 0 && <table className="sr-only"><caption>{t('components.explorer.session_and_subagent_usage_table')}</caption><thead><tr><th>{t('components.explorer.level')}</th><th>{t('components.explorer.name')}</th><th>{t('components.explorer.model')}</th><th>{t('components.explorer.own_usage')}</th><th>{t('components.explorer.subtree')}</th></tr></thead><tbody>{visibleNodes.map((node) => <tr key={node.id}><td>{node.relativeDepth + 1}</td><td>{node.title}</td><td>{node.model ?? t('app.model_unknown')}</td><td>{exactNumber(metricValue(node.ownUsage, metric, node.eventCount))}</td><td>{exactNumber(metricValue(node.subtreeUsage, metric, node.subtreeEventCount))}</td></tr>)}</tbody></table>}
-        {detail.truncated && <div className="tree-truncated">{t('components.explorer.this_task_tree_is_large_the_latest')}</div>}
+        {detail.truncated && <div className="tree-truncated">{t(serverPaging ? 'nodes.more_pages' : 'components.explorer.this_task_tree_is_large_the_latest')}</div>}
       </section>
       <div className="accounting-note"><i />{t('components.explorer.own_includes_only_daily_deduplicated_records_for')}</div>
     </section>
