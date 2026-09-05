@@ -3,8 +3,10 @@ import { NodeControls } from '../../components/NodeControls';
 import { SessionExplorer, type SessionViewState } from '../../components/Explorer';
 import { useI18n } from '../../i18n';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
+import { RequestEvidencePanel } from './RequestEvidencePanel';
 
 interface SessionPageProps {
+  dataMode: 'http' | 'mock';
   filters: DashboardFilters;
   onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
@@ -15,7 +17,7 @@ interface SessionPageProps {
   onBack?: () => void;
 }
 
-export function SessionPage({ bundle, filters, onFiltersChange, metric, view, onViewChange, onOpenSession, onBack }: SessionPageProps) {
+export function SessionPage({ dataMode, bundle, filters, onFiltersChange, metric, view, onViewChange, onOpenSession, onBack }: SessionPageProps) {
   const { t } = useI18n();
   const detail = bundle.explorer.selectedSession;
   const timeline = detail ? view.scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline : [];
@@ -30,5 +32,9 @@ export function SessionPage({ bundle, filters, onFiltersChange, metric, view, on
   };
   return <>{onBack && <button className="session-parent-back" type="button" onClick={onBack}>{t('chats.back_parent')}</button>}<SessionExplorer detail={detail ?? null} metric={metric} view={view} onViewChange={onViewChange} onOpenSession={onOpenSession}
     nodeControls={detail && <NodeControls detail={detail} filters={filters} onChange={onFiltersChange} />}
-    trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} /></>;
+    trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} />
+    {detail && <RequestEvidencePanel key={JSON.stringify([detail.id, filters.period, filters.startDate, filters.endDate, filters.account, filters.model])}
+      threadId={detail.id} start={bundle.summary.period.start ?? '1970-01-01T00:00:00Z'}
+      end={bundle.summary.period.end} enabled={dataMode === 'http' && filters.account === 'all' && filters.model === 'all'} />}
+    </>;
 }

@@ -367,3 +367,12 @@ No live data migration, installed-app replacement or release has occurred.
   thread/time/attribution scope instead of returning empty usage. Web 32 tests
   and build pass; additional time-scope guard passes targeted client tests.
   The helper is not yet wired to a visible request table.
+- Batch 48: session pages now include an on-demand retained-request table:
+  UTC timestamp, model, non-cache/unresolved input, cache read, observed cache
+  write, output and quality, with bounded scrolling, next/first pages and retry.
+  Scope changes reset the panel; obsolete fetch callbacks are ignored. Bilingual
+  copy states own-only/incomplete observations and no additive accounting.
+  Account/model-filtered views and mock mode explicitly remain unsupported,
+  rather than displaying unfiltered observations under filtered labels.
+  Web 32 tests and build pass. Real table interaction, filtered attribution,
+  turn grouping and responsive visual acceptance remain incomplete.

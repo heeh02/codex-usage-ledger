@@ -421,7 +421,7 @@ function App() {
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
                 <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
               )}
-              {currentPage === 'session' && <SessionPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
+              {currentPage === 'session' && <SessionPage dataMode={api.mode} filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
                 const parent = sessionTrail.at(-1)!;
                 setSessionTrail(trail => trail.slice(0, -1));
                 setFilters(value => ({ ...value, session: parent.id, nodeOffset: 0, nodeSearch: '' }));
