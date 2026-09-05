@@ -39,6 +39,7 @@ pub struct TurnEvidenceRow {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TurnEvidenceResponse {
+    pub backfill_complete: bool,
     pub scope: String,
     pub history_complete: bool,
     pub thread_id: String,
@@ -68,6 +69,7 @@ pub struct RequestEvidenceRow {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestEvidenceResponse {
+    pub backfill_complete: bool,
     pub selection_attribution: String,
     pub selected_account: Nullable<String>,
     pub selected_model: Nullable<String>,

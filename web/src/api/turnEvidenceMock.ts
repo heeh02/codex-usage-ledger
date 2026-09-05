@@ -30,6 +30,6 @@ export function mockTurnEvidence(query: TurnEvidenceQuery): TurnEvidenceResponse
   const all = [...groups.values()], offset = query.offset ?? 0, limit = query.limit ?? 100;
   return { scope: 'thread_own_retained_turns', threadId: query.threadId, start: query.start,
     end: query.end, selectedAccount: query.account && query.account !== 'all' ? query.account : null,
-    selectedModel: query.model && query.model !== 'all' ? query.model : null, historyComplete: false,
+    selectedModel: query.model && query.model !== 'all' ? query.model : null, historyComplete: false, backfillComplete: true,
     rows: all.slice(offset, offset + limit), nextOffset: offset + limit < all.length ? offset + limit : null };
 }

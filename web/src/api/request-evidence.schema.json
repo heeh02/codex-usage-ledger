@@ -6,6 +6,9 @@
     "attribution": {
       "type": "string"
     },
+    "backfillComplete": {
+      "type": "boolean"
+    },
     "end": {
       "type": "string"
     },
@@ -54,6 +57,7 @@
     }
   },
   "required": [
+    "backfillComplete",
     "selectionAttribution",
     "selectedAccount",
     "selectedModel",

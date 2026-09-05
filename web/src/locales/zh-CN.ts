@@ -15,6 +15,7 @@ export const zhCNMessages = {
   "requests.unavailable_scope": "请选择全部账号、全部模型。筛选后的请求归属尚未支持。",
   "requests.demo": "用于分页测试的合成请求夹具，不是真实用量，也不是演示曲线的组成明细。",
   "requests.loading": "正在读取请求证据…",
+  "requests.backfill_pending": "历史请求明细正在分批准备，已保留记录仍可查看；准备完成也不代表全部历史完整。",
   "requests.retry": "重试",
   "requests.time": "时间（UTC）",
   "requests.turn": "来源轮次",

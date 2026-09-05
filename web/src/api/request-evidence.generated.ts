@@ -10,6 +10,7 @@ export type DataQuality = "confirmed" | "quarantined" | "unknown";
 
 export interface RequestEvidenceResponse {
   attribution: string;
+  backfillComplete: boolean;
   end: string;
   historyComplete: boolean;
   next: RequestEvidenceCursor | null;

@@ -1,6 +1,13 @@
 use super::*;
 
 impl LedgerStore {
+    pub fn request_evidence_backfill_complete(&self) -> StoreResult<bool> {
+        Ok(self.connection.query_row(
+            "SELECT complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?)
+    }
     /// Bounded upgrade backfill. Returns true only when the persisted target is complete.
     pub fn backfill_request_evidence_chunk(&mut self, limit: usize) -> StoreResult<bool> {
         if self.connection.query_row(

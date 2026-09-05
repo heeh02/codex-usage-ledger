@@ -34,7 +34,8 @@ pub(super) async fn turn_evidence(
             model:query.model.as_deref().filter(|value|*value!="all"),
         },offset,limit)?;
         Ok(serde_json::json!({
-            "scope":"thread_own_retained_turns","historyComplete":false,
+                "scope":"thread_own_retained_turns","historyComplete":false,
+                "backfillComplete":store.request_evidence_backfill_complete()?,
             "threadId":query.thread_id,"start":query.start,"end":query.end,
             "selectedAccount":selected(&query.account),"selectedModel":selected(&query.model),
             "nextOffset":page.next_offset,
@@ -101,6 +102,7 @@ pub(super) async fn request_evidence(
             )?;
             Ok(serde_json::json!({
                 "scope": "thread_own_retained_observations",
+                "backfillComplete": store.request_evidence_backfill_complete()?,
                 "attribution": "ingest_observed",
                 "selectionAttribution": "current_ledger",
                 "selectedAccount": selected(&query.account),

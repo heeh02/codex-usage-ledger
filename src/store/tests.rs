@@ -166,7 +166,9 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
     }
     let mut store = LedgerStore::open(&path).unwrap();
     assert!(!store.backfill_request_evidence_chunk(1).unwrap());
+    assert!(!store.request_evidence_backfill_complete().unwrap());
     assert!(store.backfill_request_evidence_chunk(1).unwrap());
+    assert!(store.request_evidence_backfill_complete().unwrap());
     let before = store.connection.total_changes();
     assert!(store.backfill_request_evidence_chunk(1).unwrap());
     assert_eq!(store.connection.total_changes(), before);

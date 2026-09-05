@@ -583,3 +583,8 @@ No live data migration, installed-app replacement or release has occurred.
   Restart/resume fixture preserves all request facts and rollup totals; targeted
   test and Clippy pass. Live upgrade/backfill performance and UI progress
   communication still require acceptance.
+- Batch 83: request/turn responses expose actual backfill completion independently
+  of history completeness. Panels show a pending-only bilingual notice and
+  reload on refreshed bundles even with fixed custom dates, without resetting
+  pagination/open state. Backfill regression, three contracts, Web 40 tests and
+  final build pass. Live progress transitions and GUI acceptance remain open.

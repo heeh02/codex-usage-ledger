@@ -6,6 +6,7 @@
  */
 
 export interface TurnEvidenceResponse {
+  backfillComplete: boolean;
   end: string;
   historyComplete: boolean;
   nextOffset: number | null;

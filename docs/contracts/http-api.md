@@ -98,6 +98,10 @@ instead. Official and local rows must never be added to each other.
 
 ## Retained request evidence
 
+Request and turn responses expose `backfillComplete`: completion of the bounded
+upgrade raw-evidence target, not complete lifetime history. Clients may show a
+pending notice only when false. `historyComplete` remains independently false.
+
 The response type is defined in Rust wire DTOs and generated independently as
 `request-evidence.schema.json` and `request-evidence.generated.ts`. The API
 contract gate checks these artifacts alongside the dashboard bundle contract.

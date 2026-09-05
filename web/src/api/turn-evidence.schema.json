@@ -3,6 +3,9 @@
   "title": "TurnEvidenceResponse",
   "type": "object",
   "properties": {
+    "backfillComplete": {
+      "type": "boolean"
+    },
     "end": {
       "type": "string"
     },
@@ -46,6 +49,7 @@
     }
   },
   "required": [
+    "backfillComplete",
     "scope",
     "historyComplete",
     "threadId",

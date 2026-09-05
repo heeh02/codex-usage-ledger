@@ -17,6 +17,7 @@ export const enMessages = {
   "requests.unavailable_scope": "Select All accounts and All models. Filtered request attribution is not supported yet.",
   "requests.demo": "Synthetic request fixture for pagination testing; not actual usage or a breakdown of the demo chart.",
   "requests.loading": "Loading request evidence…",
+  "requests.backfill_pending": "Historical request details are still being prepared in small batches. Existing records remain available; completion does not imply complete lifetime history.",
   "requests.retry": "Retry",
   "requests.time": "Time (UTC)",
   "requests.turn": "Source turn",

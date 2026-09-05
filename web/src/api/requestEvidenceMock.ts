@@ -25,6 +25,6 @@ export function mockRequestEvidence(query: RequestEvidenceQuery): RequestEvidenc
     selectionAttribution: 'current_ledger',
     selectedAccount: query.account && query.account !== 'all' ? query.account : null,
     selectedModel: query.model && query.model !== 'all' ? query.model : null,
-    historyComplete: false, threadId: query.threadId, start: query.start, end: query.end,
+    historyComplete: false, backfillComplete: true, threadId: query.threadId, start: query.start, end: query.end,
     rows: page, next: remaining.length > limit && last ? { afterTime: last.at, afterId: last.id } : null };
 }

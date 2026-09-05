@@ -6,8 +6,8 @@ import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
 import './request-evidence.css';
 
-export function TurnEvidencePanel({ threadId, start, end, account, model, demo }: {
-  threadId: string; start: string; end: string; account: string; model: string; demo: boolean;
+export function TurnEvidencePanel({ threadId, start, end, account, model, demo, revision }: {
+  threadId: string; start: string; end: string; account: string; model: string; demo: boolean; revision: object;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false), [offset, setOffset] = useState(0);
@@ -23,11 +23,12 @@ export function TurnEvidencePanel({ threadId, start, end, account, model, demo }
       success: setPage, failure: reason => setError(String(reason)), settled: () => setBusy(false),
     });
     return () => controller.abort();
-  }, [open, threadId, start, end, account, model, offset, demo, retry]);
+  }, [open, threadId, start, end, account, model, offset, demo, retry, revision]);
   return <section className="request-evidence-panel" aria-label={t('turns.title')}>
     <button className="evidence-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><span aria-hidden="true">{open ? '⌄' : '›'}</span>{t('turns.title')}</button>
     {open && <><p>{t('turns.scope')}</p>{demo && <p>{t('requests.demo')}</p>}
       {busy && <p role="status">{t('requests.loading')}</p>}
+      {page?.backfillComplete === false && <p role="status">{t('requests.backfill_pending')}</p>}
       {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
       {page && <><div className="request-evidence-scroll" tabIndex={0} role="region" aria-label={t('turns.title')}>
         <table><thead><tr>{(['turn', 'time', 'count', 'total', 'input', 'read', 'write', 'output'] as const).map(key =>

@@ -8,8 +8,8 @@ import './request-evidence.css';
 import { mockRequestEvidence } from '../../api/requestEvidenceMock';
 import { requestTokenDisplay } from './requestValue';
 
-export function RequestEvidencePanel({ threadId, start, end, account, model, demo }: {
-  threadId: string; start: string; end: string; account: string; model: string; demo: boolean;
+export function RequestEvidencePanel({ threadId, start, end, account, model, demo, revision }: {
+  threadId: string; start: string; end: string; account: string; model: string; demo: boolean; revision: object;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -32,14 +32,15 @@ export function RequestEvidencePanel({ threadId, start, end, account, model, dem
         settled: () => setBusy(false),
       });
     return () => controller.abort();
-  }, [threadId, start, end, account, model, cursor, open, demo, retry]);
+  }, [threadId, start, end, account, model, cursor, open, demo, retry, revision]);
   return <section className="request-evidence-panel" aria-label={t('requests.title')}>
     <button className="evidence-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><span aria-hidden="true">{open ? '⌄' : '›'}</span>{t('requests.title')}</button>
     {open && <>
       <p>{t('requests.scope')}</p>
       {demo && <p>{t('requests.demo')}</p>}
       <>
-        {busy && <p role="status">{t('requests.loading')}</p>}
+      {busy && <p role="status">{t('requests.loading')}</p>}
+      {page?.backfillComplete === false && <p role="status">{t('requests.backfill_pending')}</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
         {page && <><p role="status">{t('requests.page_summary', {
           count: String(page.rows.length), start: page.rows[0]?.at ?? '—', end: page.rows.at(-1)?.at ?? '—',
