@@ -254,3 +254,8 @@ No live data migration, installed-app replacement or release has occurred.
   3 binary and 1 schema tests pass, with Clippy and repository policy checks.
   This is a derived-index optimization, not proof of source accounting accuracy
   or a deployed migration. No live ledger or installed application was changed.
+- Batch 31: custom date validation now rejects nonexistent civil-date boundaries.
+  Midnight clock gaps resolve to the first actual instant of the day rather
+  than falling back to now. A 23-hour day and a skipped-date timezone fixture
+  pass alongside all 107 library, 3 binary and 1 schema tests; Clippy passes.
+  This does not close broader DST chart-bucket or coverage acceptance.

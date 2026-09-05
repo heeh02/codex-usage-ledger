@@ -53,6 +53,9 @@ allocation. Each dimension conserves the corresponding local time series.
 `period=custom` accepts `startDate` and `endDate` as ordered YYYY-MM-DD dates
 in the selected timezone. The ending day is included, using an exclusive
 midnight boundary on the following day. Missing/reversed dates return 400.
+If a clock transition skips midnight, the boundary is the first existing
+instant of that civil date. A completely skipped boundary date returns 400;
+it must never resolve to the current time or silently yield a different range.
 Custom windows do not assume a previous-period comparison. Future ending
 boundaries keep the result marked partial rather than claiming future zeroes.
 

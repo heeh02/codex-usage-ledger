@@ -135,7 +135,22 @@ pub(super) fn local_midnight_utc(date: NaiveDate, timezone: Tz) -> Option<DateTi
         LocalResult::Single(value) | LocalResult::Ambiguous(value, _) => {
             Some(value.with_timezone(&Utc))
         }
-        LocalResult::None => None,
+        LocalResult::None => {
+            // Some zones advance the clock at midnight. Start at the first
+            // existing instant of that civil date, never at the current time.
+            // A completely skipped civil date remains unavailable.
+            (1..1440).find_map(|minute| {
+                let candidate = local + ChronoDuration::minutes(minute);
+                timezone.from_local_datetime(&candidate).earliest()?;
+                (0..60).find_map(|second| {
+                    let boundary = candidate - ChronoDuration::seconds(59 - second);
+                    timezone
+                        .from_local_datetime(&boundary)
+                        .earliest()
+                        .map(|value| value.with_timezone(&Utc))
+                })
+            })
+        }
     }
 }
 

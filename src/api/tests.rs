@@ -500,6 +500,34 @@ fn custom_window_bundle_conserves_usage_at_both_boundaries() {
 }
 
 #[test]
+fn custom_dates_handle_midnight_clock_changes_without_now_fallback() {
+    let mut query = UsageQuery {
+        period: Some("custom".into()),
+        start_date: Some("2018-11-04".into()),
+        end_date: Some("2018-11-04".into()),
+        timezone: Some("America/Sao_Paulo".into()),
+        ..Default::default()
+    };
+    assert!(query.validate().is_ok());
+    let period = resolve_period_at(&query, Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap()).2;
+    assert_eq!(
+        period.start,
+        Some(Utc.with_ymd_and_hms(2018, 11, 4, 3, 0, 0).unwrap())
+    );
+    assert_eq!(
+        period.end.unwrap() - period.start.unwrap(),
+        ChronoDuration::hours(23)
+    );
+    query.timezone = Some("Pacific/Apia".into());
+    query.start_date = Some("2011-12-30".into());
+    query.end_date = Some("2011-12-31".into());
+    assert!(query.validate().is_err());
+    query.start_date = Some("2011-12-29".into());
+    query.end_date = Some("2011-12-29".into());
+    assert!(query.validate().is_err());
+}
+
+#[test]
 fn september_first_exposes_a_cross_month_week_without_changing_month_semantics() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 17, 30, 0).unwrap();
     let resolve = |period: &str| {

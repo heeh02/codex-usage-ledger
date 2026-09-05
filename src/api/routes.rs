@@ -91,6 +91,23 @@ impl UsageQuery {
                     "custom requires ordered startDate and endDate (YYYY-MM-DD)".to_owned(),
                 ));
             }
+            let timezone = self
+                .timezone
+                .as_deref()
+                .unwrap_or("Asia/Shanghai")
+                .parse::<chrono_tz::Tz>()
+                .map_err(|_| ApiError::InvalidQuery("unsupported timezone".to_owned()))?;
+            let (start, end) = dates.expect("ordered dates validated above");
+            if super::period::local_midnight_utc(start, timezone).is_none()
+                || end
+                    .succ_opt()
+                    .and_then(|date| super::period::local_midnight_utc(date, timezone))
+                    .is_none()
+            {
+                return Err(ApiError::InvalidQuery(
+                    "custom date boundary does not exist in the selected timezone".to_owned(),
+                ));
+            }
         }
         if self
             .session_limit
