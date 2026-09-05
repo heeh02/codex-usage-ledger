@@ -78,7 +78,7 @@ export function FilterBar({
   const [startDate, setStartDate] = useState(value.startDate ?? '');
   const [endDate, setEndDate] = useState(value.endDate ?? '');
   useEffect(() => { setStartDate(value.startDate ?? ''); setEndDate(value.endDate ?? ''); }, [value.startDate, value.endDate]);
-  const localScope = isWorkDetailPage(page);
+  const localScope = page === 'overview' || isWorkDetailPage(page);
   const showModel = page !== 'accounts' && page !== 'quality';
   const showMetric = page !== 'accounts';
   const showGrain = page !== 'accounts' && page !== 'quality';
@@ -218,7 +218,7 @@ export function DataStatusStrip({ summary, page }: { summary: SummaryResponse; p
   const coverage = summary.attributionCoverage;
   const scopeRange = `${t('components.ui.account')} ${coverage.officialWindowStart ?? '—'}—${coverage.officialWindowThrough ?? '—'} · ${t('components.ui.local')} ${coverage.localWindowStart ?? '—'}—${coverage.localWindowThrough ?? '—'}`;
   const compactScope = `${periodLabel(summary.period.key)} · ${formatPeriodRange(summary.period)}`;
-  const globalPage = page === 'overview' || page === 'accounts' || page === 'quality';
+  const globalPage = page === 'accounts' || page === 'quality';
   return (
     <aside className="data-status-strip" aria-label={t('components.ui.data_status')}>
       <span className="period-window-label" title={`${t('components.ui.exact_local_window')} ${formatPeriodRange(summary.period)}; ${scopeRange}`}><strong>{globalPage ? periodLabel(summary.period.key) : compactScope}</strong>{globalPage ? ` ${scopeRange}` : ''}{summary.period.crossesMonth && <b>{t('app.cross_month')}</b>}{summary.period.partial && <em>{t('components.ui.in_progress')}</em>}</span>

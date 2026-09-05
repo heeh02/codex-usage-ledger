@@ -263,7 +263,7 @@ function App() {
       ? t('app.data_quality')
       : selectedSession?.title ?? (selectedProject?.kind === 'standalone_conversations' ? t('app.standalone_chats') : selectedProject?.kind === 'unmatched_records' ? t('app.local_unmatched') : selectedProject?.label) ?? t('app.overview');
   const periodCaption = bundle ? `${formatPeriodRange(bundle.summary.period)}${bundle.summary.period.crossesMonth ? ` · ${t('app.cross_month')}` : ''}` : t('app.loading_time_range');
-  const pageCaption = currentPage === 'chats' || currentPage === 'models'
+  const pageCaption = currentPage === 'overview' || currentPage === 'chats' || currentPage === 'models'
     ? `${t('app.local_attribution')} · ${periodCaption}`
     : currentPage === 'accounts'
     ? t('app.official_account_archives_quota_cycles_reset_times')
@@ -382,7 +382,7 @@ function App() {
 
           {refreshFeedback && <div className={refreshFeedback.startsWith('同步失败') || refreshFeedback.startsWith('Sync failed') ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
 
-          {bundle?.summary.official.totalIsLowerBound && (currentPage === 'overview' || currentPage === 'accounts') && (
+          {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && (
             <aside className="account-coverage-alert">
               <div><strong>{coverageAlertTitle}</strong><span>{t('app.primary_kpi_explanation', {
                 tail: compactNumber(bundle.summary.official.localTailTokens),

@@ -4,10 +4,9 @@ import { AttributionCoveragePanel } from '../../components/AttributionCoveragePa
 import { BreakdownPanel } from '../../components/BreakdownPanel';
 import { OverviewSessions } from '../../components/Explorer';
 import { MissingAccountEstimatePanel } from '../../components/MissingAccountEstimatePanel';
-import { TokenOverview } from '../../components/TokenOverview';
-import { ExplorerPulse } from '../../components/Explorer';
+import { LocalComposition } from '../../components/LocalComposition';
+import { LocalUsagePulse } from '../../components/Explorer';
 import { TrendAndTimeline } from '../../components/TrendAndTimeline';
-import { compactNumber, formatPercent } from '../../lib';
 import { useI18n } from '../../i18n';
 
 export type OverviewDetailTab = 'projects' | 'models' | 'sessions';
@@ -36,15 +35,11 @@ export function OverviewPage({
   onSelectBreakdown,
 }: OverviewPageProps) {
   const { t } = useI18n();
-  const officialTotal = bundle.summary.official.totalTokens;
-  const showReconciliation = metric === 'total'
-    && bundle.summary.official.authoritativeForAccountTotal
-    && officialTotal !== null;
 
   return (
     <>
-      <ExplorerPulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
-      <TrendAndTimeline data={bundle.timeseries} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} />
+      <LocalUsagePulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
+      <TrendAndTimeline data={{ ...bundle.timeseries, official: { ...bundle.timeseries.official, primaryScope: false } }} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} />
       <section className="overview-tabs panel">
         <nav aria-label={t('overview.usage_details')}>
           {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', 'Sessions']] as const).map(([id, label]) => (
@@ -54,13 +49,6 @@ export function OverviewPage({
         <div className="overview-tab-content">
           {detailTab === 'projects' && (
             <>
-              {showReconciliation && (
-                <div className="project-tab-reconciliation">
-                  <span>{t('overview.official_account_total')} <strong>{compactNumber(officialTotal)}</strong></span>
-                  <span>{t('components.trend-and-timeline.local_project_sample')} <strong>{compactNumber(bundle.summary.usage.confirmed.total)} · {officialTotal ? formatPercent(bundle.summary.usage.confirmed.total / officialTotal) : '0%'}</strong></span>
-                  <span>{t('overview.scope')} <strong>{t('overview.official_data_has_no_project_dimension_gaps')}</strong></span>
-                </div>
-              )}
               <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['project']} onSelect={onSelectBreakdown} />
             </>
           )}
@@ -70,7 +58,7 @@ export function OverviewPage({
       </section>
       <details className="overview-secondary panel">
         <summary>{t('overview.composition_details')}</summary>
-        <TokenOverview summary={bundle.summary} metric={metric} />
+        <LocalComposition usage={bundle.summary.usage.confirmed} />
       </details>
       <details className="overview-secondary panel">
         <summary>{t('overview.evidence_details')}</summary>

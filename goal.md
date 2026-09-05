@@ -204,3 +204,7 @@ No live data migration, installed-app replacement or release has occurred.
   page assertions. In-app browser verified All conversations search reduces
   the synthetic directory from 5 to 2 title/ID matches while the scope total
   remains unchanged. Fixed local-only page captions found during inspection.
+- Batch 21: overview primary values, trend and rankings now all use local
+  activity. Official totals remain in Accounts and explicit reconciliation.
+  Local composition no longer pairs its buckets with an official total; account
+  capture alerts are confined to the account view. Build verification follows.

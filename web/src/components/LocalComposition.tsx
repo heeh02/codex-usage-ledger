@@ -1,0 +1,19 @@
+import type { TokenUsage } from '../api/types';
+import { compactNumber, formatPercent } from '../lib';
+import { useI18n } from '../i18n';
+
+export function LocalComposition({ usage }: { usage: TokenUsage }) {
+  const { t } = useI18n();
+  const rows = [
+    { label: t(usage.cacheWriteCoverage >= 0.999 ? 'components.ui.input_uncached' : 'components.explorer.input_unsplit'), value: usage.uncached, color: 'var(--orange)' },
+    { label: t('components.explorer.cache_read'), value: usage.cached, color: 'var(--accent)' },
+    { label: t('components.explorer.cache_write'), value: usage.cacheWriteCoverage > 0 ? usage.cacheWrite : null, color: 'var(--purple)' },
+    { label: t('components.explorer.output'), value: usage.output, color: 'var(--blue)' },
+  ];
+  return <section className="local-composition">
+    <p>{t('app.local_attribution')} · {compactNumber(usage.total)} tokens</p>
+    <div className="local-composition-meter" aria-hidden="true">{rows.map(row => <span key={row.label} style={{ width: `${usage.total ? (row.value ?? 0) / usage.total * 100 : 0}%`, background: row.color }} />)}</div>
+    <dl className="local-composition-values">{rows.map(row => <div key={row.label}><dt>{row.label}</dt><dd>{row.value === null ? '—' : compactNumber(row.value)}</dd></div>)}</dl>
+    <p>{t('components.explorer.write_field_coverage')} {formatPercent(usage.cacheWriteCoverage)} · {t('components.explorer.reasoning_inside_output')} {compactNumber(usage.reasoning)}</p>
+  </section>;
+}

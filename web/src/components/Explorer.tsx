@@ -105,7 +105,7 @@ export function LedgerSidebar({
   const rankingWindow = rankingSort === 'rate' ? null : period;
   const standaloneConversation = rankedProjects.find((project) => project.kind === 'standalone_conversations');
   const unmatchedRecords = rankedProjects.find((project) => project.kind === 'unmatched_records');
-  const showAccountCoverage = page === 'overview' || page === 'accounts';
+  const showAccountCoverage = page === 'accounts';
   const projectFolders = rankedProjects.filter((project) => project.kind === 'project');
   const activeProjects = projectFolders.filter((project) => displayUsage(project).total > 0 || project.activeSessionCount > 0);
   const inactiveProjects = projectFolders.filter((project) => displayUsage(project).total === 0 && project.activeSessionCount === 0);
@@ -192,6 +192,18 @@ function PulseMetric({ label, value, detail, tone = 'default' }: { label: string
       <small>{detail}</small>
     </article>
   );
+}
+
+export function LocalUsagePulse({ explorer, summary, metric }: { explorer: ExplorerResponse; summary: SummaryResponse; metric: MetricKey }) {
+  const { t } = useI18n();
+  const usage = summary.usage.confirmed;
+  return <section className="explorer-pulse" aria-label={t('app.local_attribution')}>
+    <PulseMetric label={metricLabel(metric)} value={compactNumber(metricValue(usage, metric, summary.confirmedEvents))} detail={t('app.local_attribution')} tone="blue" />
+    <PulseMetric label={t('components.explorer.cache_read')} value={compactNumber(usage.cached)} detail={formatPercent(summary.cacheRate)} tone="green" />
+    <PulseMetric label={t('components.explorer.output')} value={compactNumber(usage.output)} detail={t('components.explorer.selected_period')} tone="purple" />
+    <PulseMetric label={t('components.ui.requests')} value={compactNumber(summary.confirmedEvents)} detail={t('components.explorer.selected_period')} tone="green" />
+    <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={compactNumber(explorer.stats.localRecent15Minutes.total)} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
+  </section>;
 }
 
 export function ExplorerPulse({ explorer, summary, metric }: { explorer: ExplorerResponse; summary: SummaryResponse; metric: MetricKey }) {
