@@ -60,6 +60,14 @@ neither that overloaded field nor one event per timestamp proves a turn boundary
 
 ## Transaction and upgrade order
 
+Schema 31 captures a bounded raw-row target for request evidence backfill.
+At most 1,000 missing evidence/origin/assignment rows are filled per transaction;
+the cursor advances atomically. Startup preparation performs one chunk and
+periodic collection continues it. Completed targets return without writes or
+rescanning raw history. New ingestion already persists its own request evidence.
+Compaction remains responsible for preserving rows deleted before backfill reaches
+them. The backfill does not alter rollup token totals or recover deleted sources.
+
 Schema 30 separates current request account/project assignments from retained
 observations. New event writes and pre-delete compaction populate assignments;
 metadata-only matching replay does not overwrite a revised assignment.

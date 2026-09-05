@@ -1,6 +1,57 @@
 use super::*;
 
 impl LedgerStore {
+    /// Bounded upgrade backfill. Returns true only when the persisted target is complete.
+    pub fn backfill_request_evidence_chunk(&mut self, limit: usize) -> StoreResult<bool> {
+        if self.connection.query_row(
+            "SELECT complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| row.get::<_, bool>(0),
+        )? {
+            return Ok(true);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (last, target, complete): (i64, i64, bool) = transaction.query_row(
+            "SELECT last_rowid,target_rowid,complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if complete {
+            return Ok(true);
+        }
+        let mut statement=transaction.prepare(
+            "SELECT rowid FROM usage_events raw WHERE rowid>?1 AND rowid<=?2
+             AND (NOT EXISTS(SELECT 1 FROM retained_request_evidence kept WHERE kept.event_id=raw.event_id)
+               OR NOT EXISTS(SELECT 1 FROM retained_request_origins origin WHERE origin.event_id=raw.event_id)
+               OR NOT EXISTS(SELECT 1 FROM retained_request_assignments assigned WHERE assigned.event_id=raw.event_id))
+             ORDER BY rowid LIMIT ?3"
+        )?;
+        let ids = statement
+            .query_map(params![last, target, limit.clamp(1, 1000) as i64], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        for id in &ids {
+            let event = transaction.query_row(
+                &format!("SELECT {EVENT_SELECT_COLUMNS} FROM usage_events WHERE rowid=?1"),
+                params![id],
+                row_to_event,
+            )?;
+            retain_request_evidence_in(&transaction, &event, false)?;
+        }
+        let next = ids.last().copied().unwrap_or(target);
+        let complete = next >= target;
+        transaction.execute(
+            "UPDATE request_backfill_state SET last_rowid=?1,complete=?2 WHERE id=1",
+            params![next, complete],
+        )?;
+        transaction.commit()?;
+        Ok(complete)
+    }
+
     pub fn rollup_progress(&self) -> StoreResult<RollupProgress> {
         self.connection
             .query_row(

@@ -134,6 +134,62 @@ fn genuine_schema_24_upgrade_preserves_raw_and_rollup_dimensions() {
 }
 
 #[test]
+fn request_backfill_resumes_without_restarting_or_changing_rollups() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("request-backfill.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        for index in 0..3 {
+            store
+                .upsert_event(&event(
+                    &format!("backfill-{index}"),
+                    DataQuality::Confirmed,
+                    index * 10,
+                ))
+                .unwrap();
+        }
+        store
+            .connection
+            .execute_batch(
+                "DELETE FROM retained_request_evidence;
+             DELETE FROM retained_request_origins;
+             DELETE FROM retained_request_assignments;
+             DROP TABLE request_backfill_state;
+             DELETE FROM schema_migrations WHERE version=31;
+             PRAGMA user_version=30;",
+            )
+            .unwrap();
+    }
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        assert!(!store.backfill_request_evidence_chunk(1).unwrap());
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    assert!(!store.backfill_request_evidence_chunk(1).unwrap());
+    assert!(store.backfill_request_evidence_chunk(1).unwrap());
+    let before = store.connection.total_changes();
+    assert!(store.backfill_request_evidence_chunk(1).unwrap());
+    assert_eq!(store.connection.total_changes(), before);
+    let kept: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*),SUM(total_tokens) FROM retained_request_evidence",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(kept, (3, 360));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+}
+
+#[test]
 fn effective_projection_updates_only_dirty_keys_and_survives_restart() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("incremental.sqlite");

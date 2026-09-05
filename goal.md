@@ -577,3 +577,9 @@ No live data migration, installed-app replacement or release has occurred.
   All raw/rollup token dimensions and counts remain equal; no request detail is
   invented by migration. Test and Clippy pass. This validates the schema chain,
   not the real database, backup consistency or installed application.
+- Batch 82: schema 31 adds durable bounded request-evidence backfill. Startup
+  does one <=1,000-row chunk; daemon/serve ticks continue it. Completed targets
+  skip without writes, and source cursor/evidence changes are transactional.
+  Restart/resume fixture preserves all request facts and rollup totals; targeted
+  test and Clippy pass. Live upgrade/backfill performance and UI progress
+  communication still require acceptance.

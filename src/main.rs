@@ -471,6 +471,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
         tokio::select! {
             _ = reconcile.tick() => {
                 ticks = ticks.saturating_add(1);
+                if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
+                    warn!(%error, "retained request backfill deferred");
+                }
                 if ticks.is_multiple_of(6) {
                     if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
                         warn!(%error, "Codex project and session directory refresh failed");
@@ -640,6 +643,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         tokio::select! {
             _ = catalog_refresh.tick() => {
                 catalog_ticks = catalog_ticks.saturating_add(1);
+                if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
+                    warn!(%error, "retained request backfill deferred");
+                }
                 if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
                     warn!(%error, "Codex project and session directory refresh failed");
                 }

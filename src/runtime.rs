@@ -709,6 +709,7 @@ pub fn prepare_fast_ledger(store: &mut LedgerStore, mode: &str) -> Result<()> {
         store.checkpoint_wal()?;
     }
     store.verify_rollup_before_compaction()?;
+    store.backfill_request_evidence_chunk(1000)?;
     Ok(())
 }
 
