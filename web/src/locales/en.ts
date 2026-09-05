@@ -7,6 +7,8 @@ export const enMessages = {
   "requests.loading": "Loading request evidence…",
   "requests.retry": "Retry",
   "requests.time": "Time (UTC)",
+  "requests.turn": "Source turn",
+  "requests.unknown_turn": "No explicit turn ID",
   "requests.model": "Model",
   "requests.input": "Non-cache / unresolved input",
   "requests.read": "Cache read",

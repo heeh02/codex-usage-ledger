@@ -38,9 +38,10 @@ export function RequestEvidencePanel({ threadId, start, end, enabled }: {
         {busy && <p role="status">{t('requests.loading')}</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
         {page && <><div className="request-evidence-scroll"><table>
-          <thead><tr>{(['time', 'model', 'input', 'read', 'write', 'output', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
+          <thead><tr>{(['time', 'turn', 'model', 'input', 'read', 'write', 'output', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
           <tbody>{page.rows.map(row => <tr key={row.id}>
-            <td><time dateTime={row.at}>{row.at}</time></td><td>{row.model ?? '—'}</td>
+            <td><time dateTime={row.at}>{row.at}</time></td>
+            <td title={row.turnId ?? undefined}>{row.turnId ?? t('requests.unknown_turn')}</td><td>{row.model ?? '—'}</td>
             <td>{row.usage.uncached.toLocaleString()}</td><td>{row.usage.cached.toLocaleString()}</td>
             <td>{row.usage.cacheWriteCoverage > 0 ? row.usage.cacheWrite.toLocaleString() : '—'}</td>
             <td>{row.usage.output.toLocaleString()}</td><td>{t(`requests.${row.quality}`)}</td>

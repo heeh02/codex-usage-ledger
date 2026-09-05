@@ -388,3 +388,7 @@ No live data migration, installed-app replacement or release has occurred.
   remain two requests. Rust 112 library, 3 binary, 2 schema tests and Clippy
   pass. Historical unknown turns and reconstruction memberships are not inferred;
   turn-level query/grouping and visual acceptance remain incomplete.
+- Batch 51: request table displays explicit source turn IDs and a bilingual
+  missing-turn label. It does not infer a turn from the current page or bucket.
+  Web 33 tests and build pass; complete turn aggregation and browser layout
+  acceptance remain open.

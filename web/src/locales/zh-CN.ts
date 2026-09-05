@@ -5,6 +5,8 @@ export const zhCNMessages = {
   "requests.loading": "正在读取请求证据…",
   "requests.retry": "重试",
   "requests.time": "时间（UTC）",
+  "requests.turn": "来源轮次",
+  "requests.unknown_turn": "无明确轮次标识",
   "requests.model": "模型",
   "requests.input": "非缓存／未细分输入",
   "requests.read": "缓存读取",
