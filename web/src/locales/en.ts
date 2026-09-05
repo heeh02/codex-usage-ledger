@@ -1,6 +1,7 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "accounts.trend": "Account usage over time",
   "models.title": "Models",
   "models.trend": "Model usage over time",
   "dates.custom": "Custom dates",

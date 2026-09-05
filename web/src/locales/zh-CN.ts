@@ -1,4 +1,5 @@
 export const zhCNMessages = {
+  "accounts.trend": "账号用量趋势",
   "models.title": "模型分析",
   "models.trend": "模型用量趋势",
   "dates.custom": "自定义日期",

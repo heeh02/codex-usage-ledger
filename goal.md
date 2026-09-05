@@ -189,3 +189,6 @@ No live data migration, installed-app replacement or release has occurred.
   excluding events just outside each boundary. Dedicated model navigation now
   displays local model trends and breakdowns; Web 20 tests and build pass.
   Multi-model comparison and browser acceptance remain open.
+- Batch 17: account page now leads with its scoped time trend and filters its
+  account cards to the applied account selection. All-account mode retains the
+  full list. Multi-account overlay comparison and usability acceptance remain.

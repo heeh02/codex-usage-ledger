@@ -400,7 +400,7 @@ function App() {
             <>
               {error && <div className="inline-error">{t('app.update_failed')}: {error}. {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
               {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
-              {currentPage === 'accounts' && <AccountsPage bundle={bundle} onConfirmAccountCount={confirmAccountCount} />}
+              {currentPage === 'accounts' && <AccountsPage bundle={bundle} accountId={appliedFilters.account} onConfirmAccountCount={confirmAccountCount} />}
               {currentPage === 'chats' && <ConversationsPage bundle={bundle} filters={appliedFilters} onChange={setFilters} onOpenSession={openSession} />}
               {currentPage === 'models' && <ModelsPage bundle={bundle} metric={appliedFilters.metric} onSelect={selectBreakdown} />}
               {currentPage === 'quality' && <QualityPage bundle={bundle} metric={appliedFilters.metric} />}
