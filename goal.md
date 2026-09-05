@@ -419,3 +419,10 @@ No live data migration, installed-app replacement or release has occurred.
   previous-page identity and exact return-to-first-row checks using scoped
   accessible controls. Web 36 unit tests/build pass. The new browser regression
   has not passed execution; prior manual evidence remains limited as recorded.
+- Batch 56: request pagination now uses a direct compound cursor predicate,
+  with a separate first-page lower bound. A 100,000-row same-timestamp fixture
+  verifies the final 100 records and EXPLAIN confirms compound-index search,
+  no table scan or temporary sorting. Initial millisecond fixture timestamps
+  were rejected by canonical nanosecond validation; corrected fixture passes.
+  Existing paging regression and Clippy pass. This is query-plan evidence,
+  not a full retention-size or production-load benchmark.

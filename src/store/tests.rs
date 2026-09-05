@@ -905,6 +905,65 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
 }
 
 #[test]
+fn deep_request_page_seeks_by_compound_index() {
+    let store = LedgerStore::open_in_memory().unwrap();
+    store.connection.execute_batch(
+        "WITH RECURSIVE seq(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM seq WHERE n<99999)
+         INSERT INTO retained_request_evidence(
+            event_id,event_hash,effective_at,thread_id,quality,input_tokens,
+            cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+            output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence)
+         SELECT printf('request-%06d',n),'synthetic','2026-08-01T00:00:00.000000000Z',
+            'large-thread','confirmed',100,40,10,100,20,5,120,'unknown','unknown' FROM seq;"
+    ).unwrap();
+    let cursor = RetainedRequestCursor {
+        effective_at: "2026-08-01T00:00:00.000000000Z".into(),
+        event_id: "request-099899".into(),
+    };
+    let page = store
+        .retained_request_page(
+            "large-thread",
+            Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 8, 2, 0, 0, 0).unwrap(),
+            Some(&cursor),
+            100,
+        )
+        .unwrap();
+    assert_eq!(page.observations.len(), 100);
+    assert_eq!(page.observations[0].cursor.event_id, "request-099900");
+    assert!(page.next.is_none());
+    let mut statement = store
+        .connection
+        .prepare(&format!(
+            "EXPLAIN QUERY PLAN {}",
+            request_repository::request_page_sql(true)
+        ))
+        .unwrap();
+    let plan = statement
+        .query_map(
+            params![
+                "large-thread",
+                "2026-08-01T00:00:00.000000000Z",
+                "2026-08-02T00:00:00.000000000Z",
+                cursor.effective_at,
+                cursor.event_id,
+                101
+            ],
+            |row| row.get::<_, String>(3),
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .join("\n");
+    assert!(plan.contains("retained_request_thread_time_idx"), "{plan}");
+    assert!(plan.contains("(effective_at,event_id)>"), "{plan}");
+    assert!(
+        !plan.contains("SCAN") && !plan.contains("TEMP B-TREE"),
+        "{plan}"
+    );
+}
+
+#[test]
 fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("schema25.sqlite");

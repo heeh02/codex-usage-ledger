@@ -1,5 +1,23 @@
 use super::*;
 
+pub(super) fn request_page_sql(has_cursor: bool) -> String {
+    let lower_bound = if has_cursor {
+        "(effective_at, event_id) > (?4, ?5)"
+    } else {
+        "effective_at >= ?2"
+    };
+    format!(
+        "SELECT effective_at, event_id, turn_id, model, account_fingerprint,
+        project_id, quality, input_tokens, cached_input_tokens,
+        cache_write_input_tokens, cache_write_observed_input_tokens,
+        output_tokens, reasoning_output_tokens, total_tokens,
+        account_confidence, project_confidence
+        FROM retained_request_evidence
+        WHERE thread_id = ?1 AND effective_at < ?3 AND {lower_bound}
+        ORDER BY effective_at, event_id LIMIT ?6"
+    )
+}
+
 impl LedgerStore {
     /// Retained local observations only, not a completeness claim or an
     /// effective-accounting source. Attribution is ingest-observed, not current.
@@ -32,17 +50,9 @@ impl LedgerStore {
                 ));
             }
         }
-        let mut statement = self.connection.prepare(
-            "SELECT effective_at, event_id, turn_id, model, account_fingerprint,
-                project_id, quality, input_tokens, cached_input_tokens,
-                cache_write_input_tokens, cache_write_observed_input_tokens,
-                output_tokens, reasoning_output_tokens, total_tokens,
-                account_confidence, project_confidence
-             FROM retained_request_evidence
-             WHERE thread_id = ?1 AND effective_at >= ?2 AND effective_at < ?3
-               AND (?4 IS NULL OR (effective_at, event_id) > (?4, ?5))
-             ORDER BY effective_at, event_id LIMIT ?6",
-        )?;
+        let mut statement = self
+            .connection
+            .prepare(&request_page_sql(after.is_some()))?;
         let rows = statement.query_map(
             params![
                 thread_id,
