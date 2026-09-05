@@ -528,3 +528,7 @@ No live data migration, installed-app replacement or release has occurred.
   adding the retained sampling copy. Full Rust 121 library, 3 binary, 2 schema
   tests and Clippy pass. No persisted historical token values were rewritten;
   missing pre-retention detail and source-policy correctness remain open.
+- Batch 73: compaction boundary regression now compares the complete usage
+  aggregate, request counts and account/project/model/thread time series in
+  another timezone, not only total tokens. Targeted regression passes with
+  identical pre/post-compaction dimensions. Broader coverage gaps remain open.

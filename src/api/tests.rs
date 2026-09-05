@@ -15,6 +15,25 @@ fn exact_window_usage_must_survive_raw_compaction() {
     };
     let before = queries::aggregate_exact_hour_window(&store, &filter).unwrap();
     assert_eq!(before.usage.total_tokens, 120);
+    let dimensions = [
+        AggregateDimension::Account,
+        AggregateDimension::Project,
+        AggregateDimension::Model,
+        AggregateDimension::Thread,
+    ];
+    let before_series = dimensions
+        .iter()
+        .map(|dimension| {
+            store
+                .aggregate_exact_time_series(
+                    TimeGrain::Hour,
+                    Some(*dimension),
+                    &filter,
+                    "America/New_York",
+                )
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
     while !store.backfill_rollup_chunk(100).unwrap().complete {}
     store.verify_rollup_before_compaction().unwrap();
     store
@@ -25,7 +44,23 @@ fn exact_window_usage_must_survive_raw_compaction() {
         .unwrap();
     assert_eq!(retained.observations[0].usage.total_tokens, 120);
     let after = queries::aggregate_exact_hour_window(&store, &filter).unwrap();
-    assert_eq!(after.usage.total_tokens, before.usage.total_tokens);
+    for (dimension, expected) in dimensions.iter().zip(before_series) {
+        assert_eq!(
+            store
+                .aggregate_exact_time_series(
+                    TimeGrain::Hour,
+                    Some(*dimension),
+                    &filter,
+                    "America/New_York"
+                )
+                .unwrap(),
+            expected
+        );
+    }
+    assert_eq!(
+        after, before,
+        "all token dimensions and request counts must survive compaction"
+    );
 }
 
 pub(super) fn explorer_event(id: &str, thread_id: &str, parent: Option<&str>) -> crate::UsageEvent {
