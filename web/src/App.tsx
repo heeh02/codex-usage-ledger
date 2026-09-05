@@ -263,7 +263,9 @@ function App() {
       ? t('app.data_quality')
       : selectedSession?.title ?? (selectedProject?.kind === 'standalone_conversations' ? t('app.standalone_chats') : selectedProject?.kind === 'unmatched_records' ? t('app.local_unmatched') : selectedProject?.label) ?? t('app.overview');
   const periodCaption = bundle ? `${formatPeriodRange(bundle.summary.period)}${bundle.summary.period.crossesMonth ? ` · ${t('app.cross_month')}` : ''}` : t('app.loading_time_range');
-  const pageCaption = currentPage === 'accounts'
+  const pageCaption = currentPage === 'chats' || currentPage === 'models'
+    ? `${t('app.local_attribution')} · ${periodCaption}`
+    : currentPage === 'accounts'
     ? t('app.official_account_archives_quota_cycles_reset_times')
     : currentPage === 'quality'
       ? t('app.sources_freshness_unmatched_records_reconstruction_and_r')

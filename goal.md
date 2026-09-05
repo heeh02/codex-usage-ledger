@@ -199,3 +199,8 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 19: all-account view includes a shared-axis local account comparison,
   explicitly distinguished from official multi-device totals. Single-account
   view avoids the redundant comparison. Visual acceptance remains open.
+- Batch 20: accumulated regression passes 102 Rust library + 3 binary + 1
+  schema tests, Clippy, Web 20 unit tests and build. Chrome still aborts before
+  page assertions. In-app browser verified All conversations search reduces
+  the synthetic directory from 5 to 2 title/ID matches while the scope total
+  remains unchanged. Fixed local-only page captions found during inspection.
