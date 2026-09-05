@@ -1,9 +1,12 @@
-import type { DashboardBundle, MetricKey } from '../../api/types';
+import type { DashboardBundle, DashboardFilters, MetricKey } from '../../api/types';
+import { NodeControls } from '../../components/NodeControls';
 import { SessionExplorer, type SessionViewState } from '../../components/Explorer';
 import { useI18n } from '../../i18n';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
 
 interface SessionPageProps {
+  filters: DashboardFilters;
+  onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
   metric: MetricKey;
   view: SessionViewState;
@@ -12,7 +15,7 @@ interface SessionPageProps {
   onBack?: () => void;
 }
 
-export function SessionPage({ bundle, metric, view, onViewChange, onOpenSession, onBack }: SessionPageProps) {
+export function SessionPage({ bundle, filters, onFiltersChange, metric, view, onViewChange, onOpenSession, onBack }: SessionPageProps) {
   const { t } = useI18n();
   const detail = bundle.explorer.selectedSession;
   const timeline = detail ? view.scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline : [];
@@ -26,5 +29,6 @@ export function SessionPage({ bundle, metric, view, onViewChange, onOpenSession,
       quarantined: empty, unknown: empty, quarantinedEvents: 0, unknownEvents: 0 })),
   };
   return <>{onBack && <button className="session-parent-back" type="button" onClick={onBack}>{t('chats.back_parent')}</button>}<SessionExplorer detail={detail ?? null} metric={metric} view={view} onViewChange={onViewChange} onOpenSession={onOpenSession}
+    nodeControls={detail && <NodeControls detail={detail} filters={filters} onChange={onFiltersChange} />}
     trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} /></>;
 }

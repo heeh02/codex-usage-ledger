@@ -21,6 +21,9 @@ function queryString(filters: DashboardFilters): string {
   });
   if (filters.grain !== 'auto') params.set('grain', filters.grain);
   if (filters.session !== 'all') params.set('session', filters.session);
+  if (filters.nodeOffset) params.set('nodeOffset', String(filters.nodeOffset));
+  if (filters.nodeLimit) params.set('nodeLimit', String(filters.nodeLimit));
+  if (filters.nodeSearch) params.set('nodeSearch', filters.nodeSearch);
   if (filters.period === 'custom') {
     if (filters.startDate) params.set('startDate', filters.startDate);
     if (filters.endDate) params.set('endDate', filters.endDate);

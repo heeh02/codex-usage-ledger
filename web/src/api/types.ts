@@ -25,6 +25,9 @@ export interface DashboardFilters {
   grain: GrainKey;
   startDate?: string;
   endDate?: string;
+  nodeOffset?: number;
+  nodeLimit?: number;
+  nodeSearch?: string;
   sessionSearch?: string;
   sessionSort?: 'tokens' | 'output' | 'requests' | 'recent';
   sessionOffset?: number;

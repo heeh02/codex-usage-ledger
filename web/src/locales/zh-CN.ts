@@ -1,4 +1,5 @@
 export const zhCNMessages = {
+  "nodes.search_all": "搜索整棵任务树",
   "chart.open_day_chats": "查看当天聊天",
   "chart.open_range_chats": "查看此区间聊天",
   "accounts.compare_local": "账号对比 · 本机活动",

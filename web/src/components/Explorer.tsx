@@ -452,13 +452,14 @@ export interface SessionViewState {
   scope: SessionScope;
 }
 
-export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSession, trend }: {
+export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSession, trend, nodeControls }: {
   detail: ExplorerSessionDetail | null;
   metric: MetricKey;
   view: SessionViewState;
   onViewChange: (next: SessionViewState) => void;
   onOpenSession: (session: string) => void;
   trend?: ReactNode;
+  nodeControls?: ReactNode;
 }) {
   const { t } = useI18n();
   const { search, sort, selectedNode, scope } = view;
@@ -509,7 +510,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
   const focusedTimeline = scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline;
   const timelineMax = Math.max(...focusedTimeline.map((point) => metricValue(point.usage, metric, point.events)), 1);
   const focusedUsage = scope === 'own' ? detail.ownUsage : detail.treeUsage;
-  const selectedValue = metricValue(focusedUsage, metric, scope === 'own' ? detail.nodes[0]?.eventCount ?? 0 : detail.nodes.reduce((sum, node) => sum + node.eventCount, 0));
+  const selectedValue = metricValue(focusedUsage, metric, scope === 'own' ? detail.ownEventCount ?? detail.nodes.find(node => node.id === detail.id)?.eventCount ?? 0 : detail.treeEventCount ?? detail.nodes.reduce((sum, node) => sum + node.eventCount, 0));
   return (
     <section className="explorer-page session-detail-page" aria-labelledby="session-detail-heading">
       <header className="session-detail-hero">
@@ -568,6 +569,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
           </div>
           <div className="agent-column-labels"><span>{t('components.explorer.cache')}</span><span>{t('components.explorer.own')}</span><span>{t('components.explorer.subtree')}</span></div>
         </header>
+        {nodeControls}
         <div className="agent-tree-list" role="tree" aria-label={t('components.explorer.session_and_subagent_hierarchy')} aria-live="polite">
           {visibleNodes.map((node) => <AgentNodeRow key={node.id} node={node} isRoot={node.id === detail.id} isSelected={node.id === detail.id} metric={metric} onSelect={() => { if (node.id !== detail.id) onOpenSession(node.id); }} />)}
         </div>

@@ -217,3 +217,7 @@ No live data migration, installed-app replacement or release has occurred.
   root own/tree usage and event counts are independent of the page. A 901-node
   fixture checks late-page totals and ID lookup. UI pagination wiring remains
   required; this backend change is not installed or marked complete.
+- Batch 24: task-tree page/search controls are wired to node query parameters;
+  opening another node resets its page. Request totals use backend full-scope
+  counts instead of summing visible rows. Web build passes; demo pagination,
+  interaction verification and removal of redundant page-local controls remain.

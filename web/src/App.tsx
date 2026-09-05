@@ -191,7 +191,7 @@ function App() {
     if (current && current.id !== session) {
       setSessionTrail(trail => [...trail, { id: current.id, title: current.title }]);
     }
-    setFilters((value) => ({ ...value, session }));
+    setFilters((value) => ({ ...value, session, nodeOffset: 0, nodeSearch: '' }));
     api.refreshOfficialThread(session)
       .then(() => setRefreshKey((value) => value + 1))
       .catch(() => { /* Thread billing detail can legitimately be unavailable. */ });
@@ -409,7 +409,7 @@ function App() {
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
                 <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
               )}
-              {currentPage === 'session' && <SessionPage bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
+              {currentPage === 'session' && <SessionPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
                 const parent = sessionTrail.at(-1)!;
                 setSessionTrail(trail => trail.slice(0, -1));
                 setFilters(value => ({ ...value, session: parent.id }));
