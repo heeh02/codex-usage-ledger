@@ -67,6 +67,14 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Schema 27 retains sampling-to-rollout candidate links using the reconstruction
+record identity derived from physical file identity and byte position. The
+method remains `unique_nearest_timestamp`, not proven request equality.
+Supplemental links do not change legacy event hashes or effective totals.
+Ambiguous matches have no link. Existing history receives no invented links.
+Before any shadow dedup decision, compare effective time and token dimensions:
+in-place source rewrites can reuse physical positions and identities.
+
 Post-sampling timestamp matching must have a unique nearest unused candidate
 within its tolerance. Equally near candidates are unknown with an explicit
 ambiguity reason, not arbitrarily confirmed. This guards new ingestion only;

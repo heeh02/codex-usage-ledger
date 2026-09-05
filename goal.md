@@ -474,3 +474,11 @@ No live data migration, installed-app replacement or release has occurred.
   sticky column headings and a keyboard-focusable labeled scroll region. Browser
   regression now specifies 560px page-overflow and keyboard-scroll checks.
   Web 38 unit tests/build pass; new browser assertions are not executed proof.
+- Batch 65: sampling retains the matched rollout byte position and physical
+  identity as a candidate reconstruction link in schema 27. Supplemental
+  provenance is excluded from legacy dedup hashes; links commit with evidence,
+  and conflicting links fail rather than relabeling silently. Ambiguous matches
+  have no link. Full pre-final-test Rust regression, targeted link/hash/upgrade
+  tests and Clippy pass. Links are not equality proof: in-place rewrites can
+  reuse positions, so shadow overlap still needs time/component verification.
+  No historical source reprocessing or live database upgrade occurred.

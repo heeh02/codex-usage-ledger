@@ -30,6 +30,7 @@ pub(super) fn explorer_event(id: &str, thread_id: &str, parent: Option<&str>) ->
         quality_reason: None,
         provenance: crate::EventProvenance {
             source_turn_id: None,
+            candidate_rollout_event_id: None,
             machine_id: "machine".to_owned(),
             source_id: format!("source-{id}"),
             rollout_id: thread_id.to_owned(),

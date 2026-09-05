@@ -36,6 +36,7 @@ fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
         quality_reason: None,
         provenance: EventProvenance {
             source_turn_id: None,
+            candidate_rollout_event_id: None,
             machine_id: "machine".to_owned(),
             source_id: "rollout-path".to_owned(),
             rollout_id: "rollout".to_owned(),
@@ -888,6 +889,7 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
     let legacy_hash = event_hash(&fact).unwrap();
     store.upsert_event(&fact).unwrap();
     fact.provenance.source_turn_id = Some("explicit-turn".into());
+    fact.provenance.candidate_rollout_event_id = Some("reconstruction:synthetic".into());
     assert_eq!(event_hash(&fact).unwrap(), legacy_hash);
     assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
     let turn: String = store
@@ -917,6 +919,38 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
         store.upsert_event(&fact),
         Err(StoreError::TurnEvidenceConflict(_))
     ));
+}
+
+#[test]
+fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema26.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("unlinked", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE sampling_candidate_links;
+             DELETE FROM schema_migrations WHERE version=27;
+             PRAGMA user_version=26;",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let state: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM sampling_candidate_links),
+                (SELECT SUM(total_tokens) FROM retained_request_evidence)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (0, 120));
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
 }
 
 #[test]

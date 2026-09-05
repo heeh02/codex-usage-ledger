@@ -61,6 +61,7 @@ struct ThreadInfo {
 
 #[derive(Debug, Clone)]
 struct UsageCandidate {
+    byte_offset: u64,
     observed_at: DateTime<Utc>,
     usage: TokenUsage,
     used: bool,
@@ -156,10 +157,12 @@ fn ingest_post_sampling_source(
     let mut candidate_cursors = Vec::<(FileCursor, bool)>::new();
     for (thread_id, observations) in by_thread {
         let thread = thread_index.get(&thread_id).cloned().unwrap_or_default();
+        let mut rollout_identity = None;
         let mut candidates = match thread.rollout_path.as_deref() {
             Some(path) if path.is_file() => {
                 let candidate_id = candidate_source_id(&thread_id, namespace);
                 let metadata = path.metadata()?;
+                rollout_identity = Some(physical_file_identity(path, &metadata)?);
                 let candidate_identity = format!(
                     "sampling-rollout:{thread_id}:{}",
                     physical_file_identity(path, &metadata)?
@@ -256,7 +259,7 @@ fn ingest_post_sampling_source(
                     ),
                 )
             };
-            events.push(event_from_observation(
+            let mut event = event_from_observation(
                 observation,
                 &thread_id,
                 &thread,
@@ -267,7 +270,19 @@ fn ingest_post_sampling_source(
                 &account_epochs,
                 source_id,
                 namespace,
-            ));
+            );
+            if !ambiguous && let Some((_, index)) = best {
+                event.provenance.candidate_rollout_event_id =
+                    rollout_identity.as_deref().map(|identity| {
+                        crate::reconstruction::stable_event_id(
+                            machine_id,
+                            identity,
+                            &thread_id,
+                            candidates[index].byte_offset,
+                        )
+                    });
+            }
+            events.push(event);
         }
     }
     events.sort_by_key(|event| event.provenance.line_number);
@@ -590,6 +605,7 @@ fn read_usage_candidates(
             continue;
         }
         candidates.push(UsageCandidate {
+            byte_offset: line_start,
             observed_at,
             usage,
             used: false,
@@ -663,6 +679,7 @@ fn event_from_observation(
         quality_reason,
         provenance: EventProvenance {
             source_turn_id: observation.turn_id.clone(),
+            candidate_rollout_event_id: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: thread_id.to_owned(),
@@ -939,6 +956,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(reason, "post_sampling_ambiguous_nearby_last_token_usage");
+        let linked: i64 = store.connection().query_row(
+            "SELECT COUNT(*) FROM sampling_candidate_links WHERE method='unique_nearest_timestamp'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(
+            linked, 3,
+            "the ambiguous fourth observation must not get a candidate link"
+        );
     }
 
     #[test]

@@ -84,6 +84,8 @@ pub enum StoreError {
     InvalidRequestQuery(&'static str),
     #[error("conflicting explicit turn membership for event {0}")]
     TurnEvidenceConflict(String),
+    #[error("conflicting sampling candidate link for event {0}")]
+    CandidateLinkConflict(String),
     #[error("usage aggregate overflowed u64")]
     AggregateOverflow,
     #[error("daily rollup does not reconcile with raw event totals")]
@@ -468,6 +470,7 @@ fn event_hash(event: &UsageEvent) -> StoreResult<String> {
     // Supplemental source turn membership must not invalidate legacy dedup keys.
     let mut identity = event.clone();
     identity.provenance.source_turn_id = None;
+    identity.provenance.candidate_rollout_event_id = None;
     let encoded = serde_json::to_vec(&identity)?;
     Ok(hex::encode(Sha256::digest(encoded)))
 }
@@ -679,7 +682,9 @@ fn upsert_event_in(
         )
         .optional()?;
     if old_hash.as_deref() == Some(new_hash.as_str()) {
-        if event.provenance.source_turn_id.is_some() {
+        if event.provenance.source_turn_id.is_some()
+            || event.provenance.candidate_rollout_event_id.is_some()
+        {
             retain_request_evidence_in(transaction, event)?;
         }
         return Ok(UpsertOutcome::Unchanged);
@@ -830,7 +835,9 @@ fn upsert_compact_event_in(
         .optional()?;
     if let Some(existing_hash) = compacted_hash {
         if existing_hash == new_hash {
-            if event.provenance.source_turn_id.is_some() {
+            if event.provenance.source_turn_id.is_some()
+                || event.provenance.candidate_rollout_event_id.is_some()
+            {
                 retain_request_evidence_in(transaction, event)?;
             }
             return Ok(UpsertOutcome::Unchanged);
@@ -864,6 +871,26 @@ fn retain_request_evidence_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
 ) -> StoreResult<()> {
+    if let Some(candidate) = event.provenance.candidate_rollout_event_id.as_deref() {
+        let existing: Option<String> = transaction
+            .query_row(
+                "SELECT reconstruction_event_id FROM sampling_candidate_links WHERE event_id=?1",
+                params![event.event_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing
+            .as_deref()
+            .is_some_and(|existing| existing != candidate)
+        {
+            return Err(StoreError::CandidateLinkConflict(event.event_id.clone()));
+        }
+        transaction.execute(
+            "INSERT INTO sampling_candidate_links(event_id,reconstruction_event_id,method)
+             VALUES (?1,?2,'unique_nearest_timestamp') ON CONFLICT(event_id) DO NOTHING",
+            params![event.event_id, candidate],
+        )?;
+    }
     let existing_turn: Option<String> = transaction
         .query_row(
             "SELECT turn_id FROM retained_request_evidence WHERE event_id=?1",
@@ -1464,6 +1491,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageEvent> {
         quality_reason: row.get(21)?,
         provenance: EventProvenance {
             source_turn_id: None,
+            candidate_rollout_event_id: None,
             machine_id: row.get(22)?,
             source_id: row.get(23)?,
             rollout_id: row.get(24)?,

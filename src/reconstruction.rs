@@ -648,6 +648,7 @@ fn process_line(
         quality_reason: Some("rollout_reconstruction_selected_by_thread_day".to_owned()),
         provenance: EventProvenance {
             source_turn_id: None,
+            candidate_rollout_event_id: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: target.thread_id.clone(),
@@ -823,7 +824,7 @@ fn source_id(thread_id: &str) -> String {
     format!("{RECONSTRUCTION_SOURCE_PREFIX}:{thread_id}")
 }
 
-fn stable_event_id(
+pub(crate) fn stable_event_id(
     machine_id: &str,
     file_identity: &str,
     thread_id: &str,
@@ -1005,6 +1006,7 @@ mod tests {
             quality_reason: None,
             provenance: EventProvenance {
                 source_turn_id: None,
+                candidate_rollout_event_id: None,
                 machine_id: "m".to_owned(),
                 source_id: "sampling".to_owned(),
                 rollout_id: "thread".to_owned(),
