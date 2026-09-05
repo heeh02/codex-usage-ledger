@@ -780,3 +780,21 @@ No live data migration, installed-app replacement or release has occurred.
   dev server closed; no live ledger or installed application changed. Native
   zoom, full language/large-tree acceptance and the remaining accounting goal
   are still open, not certified by this scrolling fix.
+- Batch 104: the previous turn made verified scrolling progress. Added an
+  explicit UUID-only native isolated profile so future native acceptance can
+  use temporary ledger/source paths and independent UI preferences. Normal
+  launch paths remain unchanged; invalid/duplicate/misspelled profile flags and
+  linked profile boundaries fail closed. Both serve/daemon arguments explicitly
+  select the temporary Codex home and discard conflicting inherited path
+  overrides. Toolbar marks the isolated context; bundled resource and fixed-port
+  policies remain unchanged. Swift tests cover these branches and permissions;
+  a local name-shadowing compile error was fixed before the passing tests.
+  Standard macOS build, arm64 metadata/resources, nested/deep ad-hoc signatures
+  and production Web build pass. Final bundle manifest SHA-256:
+  `9acaacda034a603a630cbceebc3b47557ed74dec726740544bee8b93b443189a`.
+  A direct native executable launch returned exit code 1 with no diagnostic;
+  no isolated data directory or port listener was observed afterward. Native
+  window/zoom/lifecycle acceptance therefore remains NOT ACHIEVED. This is not
+  an installed-app update, notarized release or live-ledger migration. ADR 0003
+  and the isolated-preview architecture document record the boundary. The pure
+  test runner now removes its own temporary executable directory on exit.

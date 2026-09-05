@@ -35,7 +35,7 @@ final class LedgerServiceController: ObservableObject {
     private var applicationIsTerminating = false
     private var diagnosticBuffer = LedgerProcessDiagnostics()
 
-    private init(defaults: UserDefaults = .standard) {
+    private init(defaults: UserDefaults = LedgerLaunchProfile.preferences) {
         self.defaults = defaults
         uiLanguage = defaults.string(forKey: NativeLocalization.defaultsKey) ?? NativeLocalization.language
         collectionEnabled = defaults.bool(forKey: Self.collectionDefaultsKey)
@@ -198,17 +198,8 @@ final class LedgerServiceController: ObservableObject {
             let process = Process()
             process.executableURL = paths.binary
             process.currentDirectoryURL = paths.applicationSupportDirectory
-            process.arguments = [
-                mode.rawValue,
-                "--db", paths.database.path,
-                "--listen", "127.0.0.1:47127",
-                "--web-root", paths.webRoot.path,
-            ]
-
-            var environment = ProcessInfo.processInfo.environment
-            environment["NO_COLOR"] = "1"
-            environment["RUST_LOG"] = environment["RUST_LOG"] ?? "codex_usage_ledger=info"
-            process.environment = environment
+            process.arguments = paths.serviceArguments(mode: mode)
+            process.environment = paths.serviceEnvironment(inherited: ProcessInfo.processInfo.environment)
 
             let outputPipe = Pipe()
             let errorPipe = Pipe()

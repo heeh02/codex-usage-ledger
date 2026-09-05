@@ -33,6 +33,13 @@ struct DashboardWindowView: View {
             }
         }
         .toolbar {
+            if LedgerLaunchProfile.isRequested {
+                ToolbarItem(placement: .principal) {
+                    Text(NativeLocalization.text("隔离验收 · 非真实账本", "Isolated preview · Not the real ledger"))
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
             ToolbarItem(placement: .navigation) {
                 Image(systemName: service.state.symbolName)
                     .font(.caption)
