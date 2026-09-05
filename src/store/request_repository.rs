@@ -13,7 +13,25 @@ impl LedgerStore {
         after: Option<&RetainedRequestCursor>,
         limit: usize,
     ) -> StoreResult<RetainedRequestPage> {
-        let limit = limit.clamp(1, 500);
+        if start >= end || thread_id.is_empty() || !(1..=500).contains(&limit) {
+            return Err(StoreError::InvalidRequestQuery(
+                "require thread, start < end and limit 1..500",
+            ));
+        }
+        if let Some(cursor) = after {
+            let at = DateTime::parse_from_rfc3339(&cursor.effective_at)
+                .map_err(|_| StoreError::InvalidRequestQuery("invalid cursor timestamp"))?
+                .with_timezone(&Utc);
+            if at < start
+                || at >= end
+                || cursor.event_id.is_empty()
+                || timestamp(at) != cursor.effective_at
+            {
+                return Err(StoreError::InvalidRequestQuery(
+                    "cursor must use canonical time within the query window",
+                ));
+            }
+        }
         let mut statement = self.connection.prepare(
             "SELECT effective_at, event_id, turn_id, model, account_fingerprint,
                 project_id, quality, input_tokens, cached_input_tokens,

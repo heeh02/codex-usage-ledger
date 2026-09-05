@@ -335,3 +335,7 @@ No live data migration, installed-app replacement or release has occurred.
   distinct; a fixture checks missing account identity is not promoted to
   verified. Targeted pagination test and Clippy pass. No GUI/accounting source
   integration is implied by these observation fields.
+- Batch 43: retained-request queries reject reversed/empty windows, absent
+  thread IDs, invalid page sizes and malformed/out-of-window cursors instead
+  of presenting invalid requests as empty usage. Cursors use canonical UTC
+  timestamps to preserve lexical ordering. Targeted paging regression passes.

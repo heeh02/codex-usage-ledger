@@ -80,6 +80,8 @@ pub enum StoreError {
     SchemaTooNew { found: i64, supported: i64 },
     #[error("invalid IANA timezone {0:?}")]
     InvalidTimezone(String),
+    #[error("invalid retained-request query: {0}")]
+    InvalidRequestQuery(&'static str),
     #[error("usage aggregate overflowed u64")]
     AggregateOverflow,
     #[error("daily rollup does not reconcile with raw event totals")]

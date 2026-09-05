@@ -842,9 +842,26 @@ fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
     assert!(
         store
             .retained_request_page("thread", end, start, None, 2)
-            .unwrap()
-            .observations
-            .is_empty()
+            .is_err()
+    );
+    assert!(
+        store
+            .retained_request_page("thread", start, end, None, 0)
+            .is_err()
+    );
+    assert!(
+        store
+            .retained_request_page("", start, end, None, 10)
+            .is_err()
+    );
+    let invalid = RetainedRequestCursor {
+        effective_at: "not-a-time".into(),
+        event_id: "a".into(),
+    };
+    assert!(
+        store
+            .retained_request_page("thread", start, end, Some(&invalid), 10)
+            .is_err()
     );
 }
 
