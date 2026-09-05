@@ -23,5 +23,13 @@ export async function fetchTurnEvidence(query: TurnEvidenceQuery, signal?: Abort
     || (row.confirmedRequestCount === 0 ? row.confirmedUsage !== null : !validRequestUsage(row.confirmedUsage)))) {
     throw new Error('Turn evidence contains invalid counts or dimensions');
   }
+  if (value.nextOffset !== null && (!Number.isSafeInteger(value.nextOffset)
+    || value.nextOffset <= (query.offset ?? 0) || value.rows.length === 0)) {
+    throw new Error('Turn evidence contains invalid pagination');
+  }
+  if (value.rows.some(row => typeof row.groupId !== 'string' || row.groupId.length === 0)
+    || new Set(value.rows.map(row => row.groupId)).size !== value.rows.length) {
+    throw new Error('Turn evidence contains duplicate or missing groups');
+  }
   return value;
 }
