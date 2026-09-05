@@ -225,3 +225,6 @@ No live data migration, installed-app replacement or release has occurred.
   search/selection. Page-only ordering is labeled explicitly and pagination
   copy no longer claims an 800-node cap. Demo responses now expose node paging.
   Web 21 unit tests and build pass; large-tree browser acceptance remains open.
+- Batch 26: demo regression verifies node pages and full-tree search retain
+  root totals and request counts even when the root is not on the visible
+  page. Web 22 unit tests pass; this does not substitute for browser acceptance.
