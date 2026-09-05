@@ -303,6 +303,7 @@ pub(super) fn http_timeseries(
         "grain": grain,
         "points": points,
         "comparisonPoints": comparison_points,
+        "dailyPoints": confirmed_series_points(store, &base, "day", exact_rolling_window, &period.timezone)?,
         "projectSeries": project_series,
         "modelSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Model)?,
         "accountSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Account)?,

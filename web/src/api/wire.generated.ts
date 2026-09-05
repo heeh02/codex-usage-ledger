@@ -611,6 +611,7 @@ export interface SummaryReconciliation {
 export interface TimeseriesResponse {
   accountSeries?: ProjectSeries[] | null;
   comparisonPoints: TimeseriesComparisonPoint[];
+  dailyPoints?: TimeseriesComparisonPoint[] | null;
   generatedAt: string;
   grain: TimeGrain;
   modelSeries?: ProjectSeries[] | null;

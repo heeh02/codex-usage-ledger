@@ -231,3 +231,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 27: returning to a parent clears child-specific node search/offset so
   a later child page cannot make the parent appear empty. Account/model/date
   scope remains intact; typecheck verifies the navigation update.
+- Batch 28: daily local series powers an activity calendar with year selection
+  and date-to-conversation filtering. Unavailable/out-of-scope days stay distinct
+  from recorded zero. Web build passes; calendar interaction/visual acceptance
+  and complete coverage semantics remain open.

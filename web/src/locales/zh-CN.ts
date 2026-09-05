@@ -1,4 +1,7 @@
 export const zhCNMessages = {
+  "calendar.title": "活动日历",
+  "calendar.year": "日历年份",
+  "calendar.scope": "仅着色当前筛选范围的本机记录。灰色日期在范围外或没有可用记录，不假定为零。",
   "nodes.page_sort": "当前页排序",
   "nodes.more_pages": "节点已分页，合计仍包含完整子树。",
   "nodes.search_all": "搜索整棵任务树",

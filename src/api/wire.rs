@@ -586,6 +586,7 @@ pub struct ProjectSeries {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeseriesResponse {
+    pub daily_points: Option<Vec<TimeseriesComparisonPoint>>,
     pub generated_at: String,
     pub period: PeriodWindow,
     pub grain: TimeGrain,

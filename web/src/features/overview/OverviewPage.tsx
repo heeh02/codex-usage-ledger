@@ -6,6 +6,7 @@ import { OverviewSessions } from '../../components/Explorer';
 import { MissingAccountEstimatePanel } from '../../components/MissingAccountEstimatePanel';
 import { LocalComposition } from '../../components/LocalComposition';
 import { LocalUsagePulse } from '../../components/Explorer';
+import { ActivityCalendar } from '../../components/ActivityCalendar';
 import { TrendAndTimeline } from '../../components/TrendAndTimeline';
 import { useI18n } from '../../i18n';
 
@@ -59,6 +60,10 @@ export function OverviewPage({
           {detailTab === 'sessions' && <><ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} /><OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} /></>}
         </div>
       </section>
+      <ActivityCalendar data={bundle.timeseries} metric={metric} onSelectDay={date => {
+        onFiltersChange({ ...filters, period: 'custom', startDate: date, endDate: date, sessionOffset: 0, sessionSearch: '' });
+        onDetailTabChange('sessions');
+      }} />
       <details className="overview-secondary panel">
         <summary>{t('overview.composition_details')}</summary>
         <LocalComposition usage={bundle.summary.usage.confirmed} />

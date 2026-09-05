@@ -3139,6 +3139,15 @@
             "$ref": "#/$defs/TimeseriesComparisonPoint"
           }
         },
+        "dailyPoints": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/TimeseriesComparisonPoint"
+          }
+        },
         "generatedAt": {
           "type": "string"
         },

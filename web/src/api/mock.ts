@@ -964,6 +964,7 @@ export class MockLedgerApi implements LedgerApi {
       grain: 'day',
       points,
       comparisonPoints: [],
+      dailyPoints: points,
       modelSeries: MODELS.map(model => {
         const points = buildTimeseries(facts.filter(fact => fact.modelId === model.id));
         return { id: model.id, label: model.label, points, totalTokens: points.reduce((sum, point) => sum + point.confirmed.total, 0) };

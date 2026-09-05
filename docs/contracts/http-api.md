@@ -36,6 +36,9 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+`timeseries.dailyPoints` retains daily local aggregates even when the main
+plot uses week/month grain. Missing days are absent, not implicitly zero.
+
 Session detail accepts `nodeOffset`, `nodeLimit` (1–1000, default 200), and
 `nodeSearch` over safe display labels/IDs. Its optional `nodePage` metadata
 describes matching nodes; own/tree totals and event counts always cover the

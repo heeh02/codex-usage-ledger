@@ -1,6 +1,9 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "calendar.title": "Activity calendar",
+  "calendar.year": "Calendar year",
+  "calendar.scope": "Colored cells show local records in the selected scope. Gray dates are outside this scope or have no available record; they are not assumed zero.",
   "nodes.page_sort": "Sort this page",
   "nodes.more_pages": "Nodes are paginated; totals still include the full subtree.",
   "nodes.search_all": "Search the full task tree",
