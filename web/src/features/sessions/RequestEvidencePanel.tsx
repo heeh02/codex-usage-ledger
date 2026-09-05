@@ -34,7 +34,7 @@ export function RequestEvidencePanel({ threadId, start, end, account, model, dem
     return () => controller.abort();
   }, [threadId, start, end, account, model, cursor, open, demo, retry]);
   return <section className="request-evidence-panel" aria-label={t('requests.title')}>
-    <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>{t('requests.title')}</button>
+    <button className="evidence-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><span aria-hidden="true">{open ? '⌄' : '›'}</span>{t('requests.title')}</button>
     {open && <>
       <p>{t('requests.scope')}</p>
       {demo && <p>{t('requests.demo')}</p>}

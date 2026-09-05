@@ -25,7 +25,7 @@ export function TurnEvidencePanel({ threadId, start, end, account, model, demo }
     return () => controller.abort();
   }, [open, threadId, start, end, account, model, offset, demo, retry]);
   return <section className="request-evidence-panel" aria-label={t('turns.title')}>
-    <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>{t('turns.title')}</button>
+    <button className="evidence-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}><span aria-hidden="true">{open ? '⌄' : '›'}</span>{t('turns.title')}</button>
     {open && <><p>{t('turns.scope')}</p>{demo && <p>{t('requests.demo')}</p>}
       {busy && <p role="status">{t('requests.loading')}</p>}
       {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}

@@ -1,6 +1,11 @@
 .request-evidence-panel { padding: 16px; border: 1px solid var(--border, #ddd); border-radius: 12px; margin-block: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .request-evidence-panel p { font-size: 14px; line-height: 1.5; }
 .request-evidence-panel > button { margin: 4px 8px 4px 0; }
+.request-evidence-panel button { font: inherit; font-size: 14px; padding: 6px 12px; min-height: 32px; border: 1px solid var(--border, #ddd); border-radius: 8px; color: inherit; background: var(--surface-strong, #fff); cursor: pointer; }
+.request-evidence-panel button:disabled { opacity: .45; cursor: default; }
+.request-evidence-panel button:not(:disabled):hover { background: var(--surface-hover, #ececea); }
+.request-evidence-panel .evidence-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; padding: 4px 0; border: 0; background: transparent; }
+.request-evidence-panel button:focus-visible { outline: 2px solid var(--accent, #3973db); outline-offset: 2px; }
 .request-evidence-scroll { max-width: 100%; overflow: auto; max-height: 420px; margin-block: 12px; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
 .request-evidence-scroll:focus-visible { outline: 2px solid var(--accent, #3973db); outline-offset: 2px; }
 .request-evidence-scroll table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; font-variant-numeric: tabular-nums; }

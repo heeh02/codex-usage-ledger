@@ -560,3 +560,9 @@ No live data migration, installed-app replacement or release has occurred.
   a two-page test conserves all 205 requests and 24,600 tokens while keeping
   missing turn IDs separate. Web 39-test suite/build plus new fixture test and
   typecheck pass. Browser turn-table and real-account acceptance remain open.
+- Batch 79: in-app browser exercised the synthetic turn panel and next page,
+  verifying explicit/missing turns and disabled next on the final page. Screenshot
+  inspection exposed native unstyled toggle/pager controls; shared evidence
+  controls now use consistent typography, spacing, surfaces and focus styling.
+  Web 40 tests/build pass. Updated styling itself still needs visual readback;
+  full narrow/zoom/live-data acceptance remains open. Owned preview resources closed.
