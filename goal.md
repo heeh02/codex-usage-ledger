@@ -339,3 +339,10 @@ No live data migration, installed-app replacement or release has occurred.
   thread IDs, invalid page sizes and malformed/out-of-window cursors instead
   of presenting invalid requests as empty usage. Cursors use canonical UTC
   timestamps to preserve lexical ordering. Targeted paging regression passes.
+- Batch 44: full current Rust integration regression passes after request
+  retention/query changes: 110 library, 3 binary and 1 schema tests. Clippy,
+  module boundaries, generated-file and version consistency checks pass.
+  Existing selected-session HTTP DTO still exposes aggregate timelines, not
+  retained request pages. The next integration must explicitly distinguish
+  ingest-observed account attribution from the active effective-account filter
+  and must not label partial retained observations as complete session usage.
