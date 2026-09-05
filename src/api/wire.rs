@@ -26,6 +26,32 @@ pub struct RequestEvidenceCursor {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+pub struct TurnEvidenceRow {
+    pub group_id: String,
+    pub turn_id: Nullable<String>,
+    pub first_at: String,
+    pub last_at: String,
+    pub request_count: u64,
+    pub confirmed_request_count: u64,
+    pub confirmed_usage: Nullable<TokenUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnEvidenceResponse {
+    pub scope: String,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: String,
+    pub end: String,
+    pub selected_account: Nullable<String>,
+    pub selected_model: Nullable<String>,
+    pub next_offset: Nullable<usize>,
+    pub rows: Vec<TurnEvidenceRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RequestEvidenceRow {
     pub id: String,
     pub at: String,

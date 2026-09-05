@@ -53,6 +53,7 @@ pub struct RetainedRequestPage {
 }
 
 pub struct RetainedTurnObservation {
+    pub group_id: String,
     pub turn_id: Option<String>,
     pub first_at: String,
     pub last_at: String,

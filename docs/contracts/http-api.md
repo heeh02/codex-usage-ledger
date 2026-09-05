@@ -121,6 +121,18 @@ applies. These observations must not be added to effective aggregate totals.
 
 ## Scoped JSON export
 
+## Retained turn evidence
+
+`GET /v1/turn-evidence` uses required threadId/start/end, optional account/model,
+limit (1–500, default 100) and offset (default 0). It returns typed turn rows
+grouped before paging, with nextOffset and historyComplete=false. Stable groupId
+distinguishes explicit turns from separate requests lacking turn IDs. Each row
+has firstAt/lastAt, requestCount, confirmedRequestCount and confirmedUsage;
+confirmedUsage is null when no confirmed requests exist. It is never a complete
+turn/lifetime claim or a second amount to add to account totals.
+
+## Scoped JSON export details
+
 JSON exports use `format: codex-usage-ledger.scoped-usage`, `version: 1`,
 `generatedAt` and `rows`. Row field names and scope match the CSV contract.
 Unavailable CSV fields become JSON null, not numeric zero. Session own/tree

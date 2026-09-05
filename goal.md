@@ -545,3 +545,8 @@ No live data migration, installed-app replacement or release has occurred.
   Confirmed counts accompany usage subtotals so unknown-only groups are not
   presented as measured zero. Targeted test and Clippy pass. HTTP/UI integration
   and complete-turn coverage remain open.
+- Batch 76: typed turn-evidence HTTP endpoint exposes paged scoped groups with
+  distinct group IDs, total/confirmed request counts and nullable confirmed
+  usage for unknown-only groups. Handler null-usage regression and Clippy pass.
+  Generated browser contract, frontend integration and complete-turn coverage
+  remain open; no totals are rewritten or added.

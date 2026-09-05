@@ -46,7 +46,8 @@ impl LedgerStore {
                 SUM(CASE WHEN quality='confirmed' THEN cache_write_observed_input_tokens ELSE 0 END),
                 SUM(CASE WHEN quality='confirmed' THEN output_tokens ELSE 0 END),
                 SUM(CASE WHEN quality='confirmed' THEN reasoning_output_tokens ELSE 0 END),
-                SUM(CASE WHEN quality='confirmed' THEN total_tokens ELSE 0 END)
+                SUM(CASE WHEN quality='confirmed' THEN total_tokens ELSE 0 END),
+                CASE WHEN turn_id IS NULL THEN 'request:'||event_id ELSE 'turn:'||turn_id END
              FROM retained_request_evidence kept
              WHERE thread_id=?1 AND effective_at>=?2 AND effective_at<?3
                AND (?4 IS NULL OR EXISTS(SELECT 1 FROM retained_request_assignments assigned
@@ -68,6 +69,7 @@ impl LedgerStore {
             ],
             |row| {
                 Ok(RetainedTurnObservation {
+                    group_id: row.get(12)?,
                     turn_id: row.get(0)?,
                     first_at: row.get(1)?,
                     last_at: row.get(2)?,

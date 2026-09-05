@@ -184,6 +184,7 @@ pub fn router(state: ApiState) -> Router {
             get(super::requests::request_evidence),
         )
         .route("/v1/bundle", get(bundle))
+        .route("/v1/turn-evidence", get(super::requests::turn_evidence))
         .route("/v1/quotas", get(quotas))
         .route("/v1/switches", get(switches))
         .route("/v1/changes", get(changes))
