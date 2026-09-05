@@ -330,3 +330,8 @@ No live data migration, installed-app replacement or release has occurred.
   equal timestamps, final pages, excluded end boundaries and thread isolation.
   Missing turn IDs remain null. Targeted test and Clippy pass; HTTP/UI exposure,
   late-arrival snapshot consistency and effective attribution remain open.
+- Batch 42: retained-request query rows preserve typed quality plus observed
+  account/project confidence. Verified, inferred and unknown attribution remain
+  distinct; a fixture checks missing account identity is not promoted to
+  verified. Targeted pagination test and Clippy pass. No GUI/accounting source
+  integration is implied by these observation fields.

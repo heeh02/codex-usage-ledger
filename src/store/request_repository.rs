@@ -18,7 +18,8 @@ impl LedgerStore {
             "SELECT effective_at, event_id, turn_id, model, account_fingerprint,
                 project_id, quality, input_tokens, cached_input_tokens,
                 cache_write_input_tokens, cache_write_observed_input_tokens,
-                output_tokens, reasoning_output_tokens, total_tokens
+                output_tokens, reasoning_output_tokens, total_tokens,
+                account_confidence, project_confidence
              FROM retained_request_evidence
              WHERE thread_id = ?1 AND effective_at >= ?2 AND effective_at < ?3
                AND (?4 IS NULL OR (effective_at, event_id) > (?4, ?5))
@@ -43,7 +44,15 @@ impl LedgerStore {
                     model: row.get(3)?,
                     observed_account: row.get(4)?,
                     observed_project: row.get(5)?,
-                    quality: row.get(6)?,
+                    quality: parse_quality_column(&row.get::<_, String>(6)?, 6)?,
+                    observed_account_confidence: parse_confidence_column(
+                        &row.get::<_, String>(14)?,
+                        14,
+                    )?,
+                    observed_project_confidence: parse_confidence_column(
+                        &row.get::<_, String>(15)?,
+                        15,
+                    )?,
                     usage: TokenUsage {
                         input_tokens: u64_from_sql(row.get(7)?, 7)?,
                         cached_input_tokens: u64_from_sql(row.get(8)?, 8)?,

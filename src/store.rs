@@ -40,7 +40,9 @@ pub struct RetainedRequestObservation {
     pub model: Option<String>,
     pub observed_account: Option<String>,
     pub observed_project: Option<String>,
-    pub quality: String,
+    pub observed_account_confidence: AttributionConfidence,
+    pub observed_project_confidence: AttributionConfidence,
+    pub quality: DataQuality,
     pub usage: TokenUsage,
 }
 

@@ -788,6 +788,11 @@ fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
     {
         let mut fact = event(id, DataQuality::Confirmed, index as u64 * 10);
         fact.source_timestamp = Some(if id == "outside" { end } else { start });
+        if id == "b" {
+            fact.account_fingerprint = None;
+            fact.account_confidence = AttributionConfidence::Unknown;
+            fact.project.confidence = AttributionConfidence::Inferred;
+        }
         if id == "other-thread" {
             fact.thread_id = Some("other".into());
         }
@@ -805,6 +810,20 @@ fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
         ["a", "b"]
     );
     assert!(first.observations.iter().all(|row| row.turn_id.is_none()));
+    assert_eq!(first.observations[0].quality, DataQuality::Confirmed);
+    assert_eq!(
+        first.observations[0].observed_account_confidence,
+        AttributionConfidence::Verified
+    );
+    assert_eq!(first.observations[1].observed_account, None);
+    assert_eq!(
+        first.observations[1].observed_account_confidence,
+        AttributionConfidence::Unknown
+    );
+    assert_eq!(
+        first.observations[1].observed_project_confidence,
+        AttributionConfidence::Inferred
+    );
     let last = store
         .retained_request_page("thread", start, end, first.next.as_ref(), 2)
         .unwrap();
