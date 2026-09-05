@@ -1,6 +1,16 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "turns.title": "Retained turn usage",
+  "turns.scope": "Confirmed subtotals within this window, account and model; not complete turn history. Missing turn IDs remain separate requests. Counts show confirmed/all retained requests.",
+  "turns.turn": "Source turn",
+  "turns.time": "First request (UTC)",
+  "turns.count": "Confirmed / retained requests",
+  "turns.total": "Confirmed tokens",
+  "turns.input": "Non-cache / unresolved input",
+  "turns.read": "Cache read",
+  "turns.write": "Observed cache write",
+  "turns.output": "Output",
   "requests.title": "Request evidence",
   "requests.scroll_region": "Scrollable request table; use arrow keys to inspect more columns",
   "requests.scope": "Own retained observations only; excludes child agents. Filtered by current ledger account and model. History is incomplete; rows are not additional usage. Observed attribution is distinct from current assignment.",

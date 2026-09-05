@@ -554,3 +554,9 @@ No live data migration, installed-app replacement or release has occurred.
   included in the API gate. Frontend client validates scope, selected account/
   model, time window, request counts and nullable confirmed usage. Web 39 tests,
   build and three-contract comparison pass. Visible turn UI remains pending.
+- Batch 78: session pages have a collapsed on-demand retained-turn table with
+  current account/model filtering, paging, confirmed/retained counts and nullable
+  component subtotals. Synthetic turn rows derive from the same request fixture;
+  a two-page test conserves all 205 requests and 24,600 tokens while keeping
+  missing turn IDs separate. Web 39-test suite/build plus new fixture test and
+  typecheck pass. Browser turn-table and real-account acceptance remain open.

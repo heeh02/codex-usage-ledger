@@ -4,6 +4,7 @@ import { SessionExplorer, type SessionViewState } from '../../components/Explore
 import { useI18n } from '../../i18n';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
 import { RequestEvidencePanel } from './RequestEvidencePanel';
+import { TurnEvidencePanel } from './TurnEvidencePanel';
 
 interface SessionPageProps {
   dataMode: 'http' | 'mock';
@@ -34,6 +35,9 @@ export function SessionPage({ dataMode, bundle, filters, onFiltersChange, metric
     nodeControls={detail && <NodeControls detail={detail} filters={filters} onChange={onFiltersChange} />}
     trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} />
     {detail && <RequestEvidencePanel key={JSON.stringify([detail.id, filters.period, filters.startDate, filters.endDate, filters.account, filters.model])}
+      threadId={detail.id} start={bundle.summary.period.start ?? '1970-01-01T00:00:00Z'}
+      end={bundle.summary.period.end} demo={dataMode === 'mock'} account={filters.account} model={filters.model} />}
+    {detail && <TurnEvidencePanel key={`turns:${JSON.stringify([detail.id, filters.period, filters.startDate, filters.endDate, filters.account, filters.model])}`}
       threadId={detail.id} start={bundle.summary.period.start ?? '1970-01-01T00:00:00Z'}
       end={bundle.summary.period.end} demo={dataMode === 'mock'} account={filters.account} model={filters.model} />}
     </>;
