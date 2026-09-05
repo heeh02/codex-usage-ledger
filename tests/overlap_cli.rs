@@ -68,7 +68,7 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["readOnly"], true);
-    assert_eq!(report["auditVersion"], 2);
+    assert_eq!(report["auditVersion"], 3);
     assert_eq!(report["requestEqualityProven"], false);
     assert_eq!(report["historyComplete"], false);
     assert_eq!(report["rows"].as_array().unwrap().len(), 1);
@@ -76,6 +76,12 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
     assert!(report["rows"][0]["comparison"]["candidateId"].is_null());
     assert!(report["rows"][0]["comparison"]["candidateUsage"].is_null());
     assert_eq!(report["rows"][0]["confirmedUsage"]["total_tokens"], 0);
+    assert_eq!(report["rows"][0]["retainedSideSelectedByDayPolicy"], true);
+    assert_eq!(report["dayPolicyContexts"][0]["samplingRecords"], 1);
+    assert_eq!(
+        report["dayPolicyContexts"][0]["scope"],
+        "full_storage_day_all_accounts_and_models"
+    );
     assert!(report["next"].is_null());
     assert_eq!(std::fs::read(&path).unwrap(), before);
     let rejected = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))

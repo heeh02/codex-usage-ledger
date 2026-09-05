@@ -19,6 +19,15 @@ project names, account identifiers, source files or usage snapshots.
 
 ## Invariants
 
+Current critical accounting finding: `max_thread_day_v1` loses independent
+requests when the two sources cover different portions of a day. The verified
+A/B versus B/C fixture yields 500 instead of 600 and suppresses a 100-token
+model entirely. **This defect is not yet fixed in the main aggregate policy.**
+The next policy work must partition request/coverage evidence, shadow all
+dimensions, then record a validated migration. Neither max nor an unqualified
+sum is an acceptable proof of complete usage. See the
+[counterexample and read-only diagnostics](docs/architecture/source-overlap-audit.md).
+
 - Official account totals and local activity have explicit, independent scopes.
 - Summary, chart, ranking and composition use one applied scope and revision.
 - Do not sum cumulative counters, inherited history or alternative source rows.
@@ -829,3 +838,17 @@ No live data migration, installed-app replacement or release has occurred.
   Rust 151 tests, Clippy, API contracts and governance checks pass. No persisted
   totals, source selection, real ledger or installed app were modified. Whole-
   history overlap measurement and validated replacement accounting remain open.
+- Batch 107: previous turn improved counterpart explanations. A constructed
+  partial-overlap scenario now proves loss in the existing aggregate policy:
+  retained A/B=300, reconstructed B/C=500, known independent A/B/C=600; the
+  application returns 500 and zero for A's 100-token model. The test explicitly
+  records this defect, not correctness of the current max rule. Audit format v3
+  adds full-storage-day policy context and a per-row retained-side-selection
+  flag, computed read-only from rollups rather than refreshing cached choices.
+  A one-second/model-scoped audit still exposes the full-day decision while
+  keeping its own page subtotal at 100, preventing scope conflation. Unknown
+  observations have no selection flag. Full Rust 152 tests, Clippy, contracts
+  and governance checks pass; this validates the diagnosis, not a fixed main
+  policy. No true usage or source selector was rewritten. The critical finding
+  is now near the start of this goal; request/coverage partitioning, cross-scope
+  shadow validation and a migration receipt are required before replacing max.

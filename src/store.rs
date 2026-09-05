@@ -102,6 +102,28 @@ pub struct CandidateAuditRow {
     pub quality: DataQuality,
     pub confirmed_usage: Option<TokenUsage>,
     pub comparison: CandidateComparison,
+    pub policy_day: Option<String>,
+    pub retained_side_selected_by_day_policy: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DayPolicySource {
+    Sampling,
+    Reconstruction,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayPolicyContext {
+    pub policy: &'static str,
+    pub scope: &'static str,
+    pub day: String,
+    pub sampling_records: u64,
+    pub sampling_tokens: u64,
+    pub reconstruction_records: u64,
+    pub reconstruction_tokens: u64,
+    pub selected_source: Option<DayPolicySource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -164,6 +186,7 @@ pub struct CandidateAuditPage {
     pub selected_model: Option<String>,
     pub rows: Vec<CandidateAuditRow>,
     pub groups: Vec<CandidateAuditGroup>,
+    pub day_policy_contexts: Vec<DayPolicyContext>,
     pub next: Option<RetainedRequestCursor>,
 }
 #[cfg(test)]

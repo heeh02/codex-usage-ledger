@@ -47,6 +47,32 @@ also exist. Candidate amounts are diagnostic references and are never included
 in group totals. Consumers must check `auditVersion`; no HTTP schema or persisted
 data migration is introduced by this CLI diagnostic format change.
 
+Version 3 adds `dayPolicyContexts` and per-row `policyDay` /
+`retainedSideSelectedByDayPolicy`. The contexts recompute the current
+`max_thread_day_v1` decision from stored day rollups without updating its cached
+projection. They cover the complete storage day (Shanghai day keys), thread,
+all accounts and all models, not the narrower audit window/filter. These totals
+must not be displayed as the user's selected-period totals or added to page
+groups. A false row flag means the retained side is not selected, not proof
+that the request is absent from reconstruction; unknown quality has no flag.
+
+## Confirmed policy counterexample, not repaired historical data
+
+A synthetic fixture defines independent requests A=100, B=200, C=300. Retained
+evidence has A/B and reconstruction has B/C. The actual current max policy
+selects reconstruction=500 rather than the known fixture truth=600, and a model
+used only by A displays zero rather than 100. The v3 audit shows A's 100 retained
+tokens excluded by a decision comparing 300 with 500 across the whole day, even
+when the audit selects only A's model and one-second window. This is a known
+accounting defect, not validation of max as an accurate algorithm.
+
+Changing max to simple addition would instead produce 800 in the same fixture.
+Replacement therefore needs request-level overlap and source-coverage evidence,
+cross-dimension shadow comparisons and a historical migration receipt. A missing
+candidate link alone does not prove that two observations are independent.
+The counterexample regression intentionally captures the old policy's loss;
+it must be replaced by a truth-conservation regression when selection changes.
+
 Tests exercise mixed states across equal-time pages, account/model scope,
 confirmed-usage conservation, invalid bounds, no writes, missing-file refusal,
 unsupported-schema refusal and the actual CLI output/paired-cursor validation.

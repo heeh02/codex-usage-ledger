@@ -1309,6 +1309,108 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    // Ground truth is three distinct synthetic requests A=100, B=200, C=300.
+    // The retained side has A/B; reconstruction has B/C. Only B is shared.
+    let make = |id: &str, amount: u64, offset: u64| {
+        let mut record = event(id, DataQuality::Confirmed, offset);
+        record.usage = TokenUsage {
+            input_tokens: amount,
+            total_tokens: amount,
+            cache_write_observed_input_tokens: amount,
+            ..TokenUsage::default()
+        };
+        record.source_timestamp = Some(record.observed_at + ChronoDuration::minutes(offset as i64));
+        record
+    };
+    let mut a = make("sample-a", 100, 1);
+    a.model = Some("model-only-in-sampling".into());
+    let mut b = make("sample-b", 200, 2);
+    b.provenance.candidate_rollout_event_id = Some("reconstructed-b".into());
+    store.upsert_event(&a).unwrap();
+    store.upsert_event(&b).unwrap();
+    let mut rebuilt_b = b.clone();
+    rebuilt_b.event_id = "reconstructed-b".into();
+    let c = make("reconstructed-c", 300, 3);
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    for record in [rebuilt_b, c] {
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: record,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+    }
+    transaction.commit().unwrap();
+    let writes = store.connection.total_changes();
+    let at = a.source_timestamp.unwrap();
+    let audit = store
+        .audit_candidate_page(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: at,
+                end: at + ChronoDuration::seconds(1),
+                account: Some("acct-fp"),
+                model: a.model.as_deref(),
+            },
+            None,
+            10,
+        )
+        .unwrap();
+    assert_eq!(audit.rows.len(), 1);
+    assert_eq!(audit.rows[0].confirmed_usage.unwrap().total_tokens, 100);
+    assert_eq!(
+        audit.rows[0].retained_side_selected_by_day_policy,
+        Some(false)
+    );
+    assert_eq!(audit.groups[0].confirmed_usage.unwrap().total_tokens, 100);
+    assert_eq!(audit.day_policy_contexts.len(), 1);
+    let policy = &audit.day_policy_contexts[0];
+    assert_eq!(policy.scope, "full_storage_day_all_accounts_and_models");
+    assert_eq!((policy.sampling_records, policy.sampling_tokens), (2, 300));
+    assert_eq!(
+        (policy.reconstruction_records, policy.reconstruction_tokens),
+        (2, 500)
+    );
+    assert_eq!(
+        policy.selected_source,
+        Some(DayPolicySource::Reconstruction)
+    );
+    assert_eq!(store.connection.total_changes(), writes);
+    let total = store
+        .aggregate_rollup_usage(&AggregateFilter::default())
+        .unwrap()
+        .usage
+        .total_tokens;
+    let model_total = store
+        .aggregate_rollup_usage(&AggregateFilter {
+            model: a.model.clone(),
+            ..AggregateFilter::default()
+        })
+        .unwrap()
+        .usage
+        .total_tokens;
+    println!(
+        "partial-overlap counterexample: current={total}, known_fixture_truth=600, sampling_only_model={model_total}, known_model_truth=100"
+    );
+    // This captures the existing defect, not an assertion that max is correct.
+    assert_eq!(total, 500);
+    assert_ne!(total, 600);
+    assert_eq!(model_total, 0);
+    assert_eq!(
+        store.request_candidate_overlap("sample-b").unwrap(),
+        CandidateOverlapStatus::ConsistentCandidate
+    );
+    assert_eq!(
+        store.request_candidate_overlap("sample-a").unwrap(),
+        CandidateOverlapStatus::NotLinked
+    );
+}
+
+#[test]
 fn candidate_comparison_explains_dimensions_time_and_unknowns() {
     type Mutation = fn(&mut UsageEvent);
     let mutations: &[(CandidateMismatch, Mutation)] = &[
@@ -1497,6 +1599,7 @@ fn candidate_audit_pages_classify_without_recounting_or_writes() {
         ]
     );
     assert!(rows[2].confirmed_usage.is_none());
+    assert!(rows[2].retained_side_selected_by_day_policy.is_none());
     assert_eq!(rows[0].comparison.candidate_usage_valid, Some(true));
     assert_eq!(
         rows[0].comparison.candidate_minus_source_nanoseconds,
