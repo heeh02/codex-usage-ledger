@@ -2,6 +2,35 @@ import { expect, test } from '@playwright/test';
 
 const widths = [560, 700, 900, 1280];
 
+for (const width of [560, 700, 900, 1280, 1440]) {
+  test(`English filter controls do not overlap at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await page.locator('.language-select select').selectOption('en');
+    await expect(page.locator('.workspace-heading h1')).toHaveText('Overview');
+    for (const zoom of [0.8, 1, 1.6]) {
+      await page.evaluate(value => { document.body.style.zoom = String(value); }, zoom);
+      const violations = await page.locator('.filter-bar').evaluate(bar => {
+        const bounds = bar.getBoundingClientRect();
+        const targets = Array.from(bar.querySelectorAll('.filter-scope-label, .filter-field, .period-option, .refresh-button'));
+        const failures: string[] = [];
+        for (let index = 0; index < targets.length; index++) {
+          const a = targets[index].getBoundingClientRect();
+          if (a.left < bounds.left - 1 || a.right > bounds.right + 1) failures.push(`outside-${index}`);
+          for (let other = index + 1; other < targets.length; other++) {
+            const b = targets[other].getBoundingClientRect();
+            if (Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+                Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1) failures.push(`overlap-${index}-${other}`);
+          }
+        }
+        return failures;
+      });
+      expect(violations).toEqual([]);
+      await expect(page.getByRole('button', { name: 'Refresh local usage' })).toBeVisible();
+    }
+  });
+}
+
 for (const width of widths) {
   test(`dashboard remains usable at ${width}px`, async ({ page }) => {
     const pageErrors: string[] = [];

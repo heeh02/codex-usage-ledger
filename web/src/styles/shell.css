@@ -439,11 +439,6 @@
   display: none;
 }
 
-.view-session > .filter-bar .period-control,
-.view-session > .filter-bar .refresh-button {
-  height: 30px;
-}
-
 .view-project > .explorer-page,
 .view-conversation > .explorer-page,
 .view-unmatched > .explorer-page,

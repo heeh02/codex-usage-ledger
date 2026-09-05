@@ -724,3 +724,41 @@ No live data migration, installed-app replacement or release has occurred.
   Remaining: propagate/verify no-evidence semantics across all detail/export
   surfaces, fix crowded English filter layout, full responsive/zoom acceptance,
   continuous coverage, legacy/source shadow accounting and safe live migration.
+- Batch 101 (interrupted by user-requested storage cleanup): filter layout now
+  removes fixed narrow caption columns and conflicting viewport overrides in
+  favor of panel-width wrapping. Refresh keeps stable visible text with an
+  accessible busy state. Web 44 unit tests and explicit mock build passed;
+  new five-width/three-zoom English non-overlap browser tests are written but
+  NOT executed. No visual acceptance or commit of this layout batch is claimed.
+  The user then requested project garbage cleanup; preview was stopped and its
+  mock Web output removed. Approximately 1.45 GiB of regenerable target,
+  node_modules and app bundles inside three obsolete isolated audit copies
+  were deleted, plus small generated Web/test outputs. Audit sources, current
+  target/node_modules, all pending source edits, real ledger and installed app
+  were preserved. No matching open files were reported by the available lsof
+  check; process enumeration itself was sandbox-denied. Available disk space
+  read 9.4 GiB afterward (not all free-space change is attributed to cleanup).
+  Resume with the uncommitted filter layout, browser acceptance and production
+  Web rebuild as needed; do not recreate deleted obsolete audit environments.
+- Batch 102: resumed the pending filter layout after completed storage cleanup.
+  Scope captions now occupy their own wrapping row; local selectors use one
+  adaptive grid, and panel-width container rules replace narrow fixed caption
+  columns/page-specific selector counts. Period buttons use a balanced grid at
+  medium/narrow widths; visible refresh text stays stable while aria-busy and
+  the accessible label expose activity. Web 44 tests and production build pass.
+  Shell-launched Chrome again exited with SIGABRT before all five Playwright
+  layout tests could execute: those tests remain NOT PASSED, not product proof.
+  Added a development-only synthetic iframe harness excluded from the production
+  bundle. In-app browser measured 30 cases (two locales, five widths, three CSS
+  zoom levels), with 16 controls per case and no overlapping/outside controls.
+  Separate real-viewport checks at 560/700/900/1280/1440 had no document overflow
+  or control overlap, and project navigation produced no captured console error.
+  Final period-grid refinement required another verification: the first attempt
+  ran before component readiness; a later inspection revealed stale dev-server
+  CSS. Added readiness waiting, restarted the isolated server, inspected loaded
+  CSS, and reran all 30 cases successfully on the final rules. Final 560px English
+  screenshot shows readable two-row periods. This is not native WKWebView zoom
+  acceptance or full workflow approval: extreme narrow/160% layouts still use
+  substantial vertical space. Test tabs/server closed and viewport reset.
+  Production build excludes the harness; no real ledger, installed app or old
+  audit environments changed. Full goal remains ACTIVE.

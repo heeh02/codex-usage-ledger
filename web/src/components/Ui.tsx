@@ -116,12 +116,12 @@ export function FilterBar({
             </button>
           ))}
         </div>
-        <button aria-label={refreshing ? t('components.ui.refreshing_local_usage') : t('components.ui.refresh_local_usage')} className="refresh-button" onClick={onRefresh} disabled={refreshing} type="button">
+        <button aria-label={refreshing ? t('components.ui.refreshing_local_usage') : t('components.ui.refresh_local_usage')} aria-busy={refreshing} className="refresh-button" onClick={onRefresh} disabled={refreshing} type="button">
           <svg className={refreshing ? 'refresh-icon spinning' : 'refresh-icon'} viewBox="0 0 20 20" aria-hidden="true">
             <path d="M16.6 7.2A7 7 0 1 0 17 11" />
             <path d="m13.5 4.3 3.4 3.2 1.9-4.1" />
           </svg>
-          <span>{refreshing ? t('components.ui.syncing') : t('components.ui.refresh')}</span>
+          <span>{t('components.ui.refresh')}</span>
         </button>
       </div>
       {(showModel || showMetric || showGrain) && <div className="filter-scope filter-local-scope">
