@@ -72,6 +72,8 @@ project names, account identifiers, source files or usage snapshots.
 
 ## Phase 5 — Durable detailed evidence and incremental operation
 
+Implementation contract: [durable request evidence](docs/architecture/durable-request-evidence.md).
+
 - [ ] Persist compact turn/request identity and usage without prompt bodies.
 - [ ] Retain durable turn aggregates before raw compaction; label old detail limits.
 - [ ] Validate source overlap using identities and coverage, not merely larger totals.
@@ -305,3 +307,10 @@ No live data migration, installed-app replacement or release has occurred.
   The prior stale development-preview observation remains unexplained. Future
   visual acceptance should identify the build and explicit data mode. Owned
   preview resources closed and the default HTTP-mode production build restored.
+- Batch 39: retention audit confirms both chunk compaction and direct old-event
+  ingestion discard per-request timestamps/components, retaining keys and
+  aggregates. Sampling overloads file identity with an optional turn ID.
+  Durable-request design now specifies both transactional write paths, explicit
+  request-versus-turn semantics, historical detail gaps, attribution alignment,
+  migration receipts and size/performance gates. Implementation remains open;
+  no retention or live data changed.
