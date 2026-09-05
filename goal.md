@@ -672,3 +672,16 @@ No live data migration, installed-app replacement or release has occurred.
   reused turn ID. Replacement without receipt identity preserves the old cursor
   and fails explicitly. All sampling tests and Clippy pass. Same-inode resets,
   legacy identity adoption and live lifecycle handling remain open.
+- Batch 98: the prior goal turn was concrete progress (physical-generation
+  handling). A same-file row-ID reset then reproduced a missed request: 250
+  instead of 430 synthetic tokens. Cursor metadata v4 now stores each committed
+  batch's last-row digest. One read-only source snapshot checks that anchor and
+  reads appended rows; a changed/missing anchor uses the receipt-guarded new
+  generation path. The regression now passes, including an empty intermediate
+  source, reused turn ID, idle replay and missing-identity rollback. A pruned
+  anchor fixture also preserves existing receipts while adding only the new
+  request. Full Rust 143 tests and Clippy pass; privacy, doc links, generated
+  files, module boundaries and version checks pass. No schema bump, real source
+  mutation, installed-ledger upgrade or application installation occurred.
+  Legacy unanchored cursors, rewrites that preserve the anchor, source failure
+  lifecycle, shadow accounting and complete GUI/native acceptance remain open.

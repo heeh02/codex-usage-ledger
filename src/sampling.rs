@@ -43,6 +43,7 @@ pub struct SamplingImportReport {
 
 #[derive(Debug, Clone)]
 struct Observation {
+    anchor_key: String,
     receipt_key: Option<String>,
     log_id: u64,
     observed_at: DateTime<Utc>,
@@ -139,11 +140,28 @@ fn ingest_post_sampling_source(
         .and_then(|cursor| cursor.parser_state_json.as_deref())
         .and_then(|state| serde_json::from_str::<Value>(state).ok());
     let physical = physical_file_identity(logs_path, &logs_path.metadata()?)?;
-    let replaced = saved_state
+    let physical_replaced = saved_state
         .as_ref()
         .and_then(|state| state.get("physicalIdentity"))
         .and_then(Value::as_str)
         .is_some_and(|previous| previous != physical);
+    let previous_id = saved
+        .as_ref()
+        .map(|cursor| cursor.byte_offset)
+        .unwrap_or_default();
+    let previous_anchor = saved_state
+        .as_ref()
+        .and_then(|state| state.get("anchorKey"))
+        .and_then(Value::as_str);
+    let safe_before = Utc::now() - chrono::Duration::seconds(5);
+    let (observations, replaced) = read_observations(
+        logs_path,
+        previous_id,
+        safe_before,
+        machine_id,
+        previous_anchor,
+        physical_replaced,
+    )?;
     let mut generation = saved_state
         .as_ref()
         .and_then(|state| state.get("generation"))
@@ -166,17 +184,8 @@ fn ingest_post_sampling_source(
             .or_else(|| namespace.map(str::to_owned))
     };
     let namespace = effective_namespace.as_deref();
-    let last_log_id = if replaced {
-        0
-    } else {
-        saved
-            .as_ref()
-            .map(|cursor| cursor.byte_offset)
-            .unwrap_or_default()
-    };
+    let last_log_id = if replaced { 0 } else { previous_id };
     let bootstrap = last_log_id == 0;
-    let safe_before = Utc::now() - chrono::Duration::seconds(5);
-    let observations = read_observations(logs_path, last_log_id, safe_before, machine_id)?;
     if physical_file_identity(logs_path, &logs_path.metadata()?)? != physical {
         return Err(anyhow!(
             "sampling source changed during read; retry without advancing its cursor"
@@ -200,6 +209,10 @@ fn ingest_post_sampling_source(
         .last()
         .map(|value| value.log_id)
         .unwrap_or(last_log_id);
+    let anchor_keys: BTreeMap<_, _> = observations
+        .iter()
+        .map(|observation| (observation.log_id, observation.anchor_key.clone()))
+        .collect();
     let state_path = logs_path
         .parent()
         .map(|parent| parent.join("state_5.sqlite"))
@@ -376,8 +389,9 @@ fn ingest_post_sampling_source(
                 byte_offset: batch_end,
                 line_number: batch_end,
                 parser_state_json: Some(
-                    serde_json::json!({"source":"logs_2_post_sampling","version":3,
+                    serde_json::json!({"source":"logs_2_post_sampling","version":4,
                         "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
+                        "anchorKey":anchor_keys.get(&batch_end),
                         "generation":generation,"eventNamespace":namespace})
                     .to_string(),
                 ),
@@ -394,8 +408,9 @@ fn ingest_post_sampling_source(
             byte_offset: max_log_id,
             line_number: max_log_id,
             parser_state_json: Some(
-                serde_json::json!({"source":"logs_2_post_sampling","version":3,
+                serde_json::json!({"source":"logs_2_post_sampling","version":4,
                 "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
+                "anchorKey":anchor_keys.get(&max_log_id),
                 "generation":generation,"eventNamespace":namespace})
                 .to_string(),
             ),
@@ -437,12 +452,47 @@ fn read_observations(
     after_id: u64,
     safe_before: DateTime<Utc>,
     machine_id: &str,
-) -> Result<Vec<Observation>> {
+    previous_anchor: Option<&str>,
+    physical_replaced: bool,
+) -> Result<(Vec<Observation>, bool)> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )?;
     connection.pragma_update(None, "query_only", "ON")?;
+    // The anchor and appended rows must describe the same source snapshot.
+    let transaction = connection.unchecked_transaction()?;
+    let anchor_changed = if let Some(expected) = previous_anchor {
+        let anchor = read_observation_rows(
+            &transaction,
+            after_id.saturating_sub(1),
+            Some(after_id),
+            DateTime::<Utc>::MAX_UTC,
+            machine_id,
+        )?;
+        anchor.first().is_none_or(|row| row.anchor_key != expected)
+    } else {
+        false // Legacy cursors have no retrospective continuity proof.
+    };
+    let replaced = physical_replaced || anchor_changed;
+    let rows = read_observation_rows(
+        &transaction,
+        if replaced { 0 } else { after_id },
+        None,
+        safe_before,
+        machine_id,
+    )?;
+    transaction.commit()?;
+    Ok((rows, replaced))
+}
+
+fn read_observation_rows(
+    connection: &Connection,
+    after_id: u64,
+    through_id: Option<u64>,
+    safe_before: DateTime<Utc>,
+    machine_id: &str,
+) -> Result<Vec<Observation>> {
     let columns = connection
         .prepare("PRAGMA table_info(logs)")?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -456,6 +506,7 @@ fn read_observations(
         "SELECT id, ts, ts_nanos, thread_id, feedback_log_body, {process_column}
          FROM logs
          WHERE id > ?1
+           AND id <= ?3
            AND ts <= ?2
            AND target = 'codex_core::session::turn'
            AND instr(feedback_log_body, ' post sampling token usage ') > 0
@@ -465,7 +516,10 @@ fn read_observations(
     let rows = statement.query_map(
         params![
             i64::try_from(after_id).unwrap_or(i64::MAX),
-            safe_before.timestamp()
+            safe_before.timestamp(),
+            through_id
+                .and_then(|id| i64::try_from(id).ok())
+                .unwrap_or(i64::MAX)
         ],
         |row| {
             let id: i64 = row.get(0)?;
@@ -475,6 +529,12 @@ fn read_observations(
             let thread_id: String = row.get(3)?;
             let process: Option<String> = row.get(5)?;
             Ok(Observation {
+                // This checkpoint digest is not a cross-source receipt. Even
+                // weak sources can detect mutation, but cannot authorize replay.
+                anchor_key: hex::encode(Sha256::digest(
+                    serde_json::to_vec(&(id, seconds, nanos, &thread_id, &body, &process))
+                        .expect("source scalar tuple is serializable"),
+                )),
                 receipt_key: source_receipt_key(
                     machine_id,
                     process.as_deref(),
@@ -1294,6 +1354,129 @@ mod tests {
                 .observations,
             0
         );
+    }
+
+    #[test]
+    fn same_file_log_reset_must_not_skip_reused_row_ids() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary = root.join("logs_2.sqlite");
+        let identity = physical_file_identity(&primary, &primary.metadata().unwrap()).unwrap();
+        let old_checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        {
+            let reset = Connection::open(&primary).unwrap();
+            reset
+                .execute_batch(
+                    "DELETE FROM logs; UPDATE sqlite_sequence SET seq=0 WHERE name='logs';",
+                )
+                .unwrap();
+            assert_eq!(
+                ingest_post_sampling(&mut store, root, "machine")
+                    .unwrap()
+                    .observations,
+                0
+            );
+            assert_eq!(
+                store
+                    .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                    .unwrap()
+                    .unwrap()
+                    .parser_state_json,
+                old_checkpoint.parser_state_json
+            );
+            insert_log(&reset, next_at, "shared-turn");
+        }
+        assert_eq!(
+            physical_file_identity(&primary, &primary.metadata().unwrap()).unwrap(),
+            identity
+        );
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
+        );
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let state: Value =
+            serde_json::from_str(checkpoint.parser_state_json.as_deref().unwrap()).unwrap();
+        assert_eq!(state["version"], 4);
+        assert_eq!(state["generation"], 1);
+        assert_eq!(state["anchorKey"].as_str().unwrap().len(), 64);
+        Connection::open(&primary)
+            .unwrap()
+            .execute("UPDATE logs SET process_uuid=NULL", [])
+            .unwrap();
+        assert!(ingest_post_sampling(&mut store, root, "machine").is_err());
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .parser_state_json,
+            checkpoint.parser_state_json
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+    }
+
+    #[test]
+    fn removed_anchor_replays_remaining_receipts_without_recounting() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 210)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(root.join("sqlite/logs_2.sqlite")).unwrap();
+            migrated.execute("DELETE FROM logs WHERE id=2", []).unwrap();
+            insert_log(&migrated, next_at, "after-pruned-anchor");
+        }
+        let report = ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(report.observations, 2);
+        assert_eq!(report.unchanged_events, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            460
+        );
+        let idle = ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(idle.observations, 0);
+        assert_eq!(idle.bytes_read, 0);
     }
 
     #[test]

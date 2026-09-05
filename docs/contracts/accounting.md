@@ -88,8 +88,8 @@ must retain the pre-upgrade backup until upgrade acceptance.
 An already namespaced sampling source keeps that source/cursor identity when
 another source path disappears. Source list position must not replace an
 established independent high-water mark. Legacy unnamespaced first-source
-bindings and physical database replacement still require separate continuity
-validation; this rule does not infer a binding for those cases.
+bindings still require separate continuity validation; source ordering does
+not infer a binding for those cases.
 Newly committed sampling cursors record their actual relative source path.
 That binding preserves the first source's identity when another higher-priority
 path later appears. Existing namespaced cursors remain authoritative for their
@@ -100,8 +100,21 @@ namespace. A detected physical replacement is read from zero in a new generation
 only when observations carry stable receipt identities; copied receipts stay
 deduplicated and reused row/turn IDs do not collide with prior generations.
 Identity changes during reading or replacement without receipt identity fail
-without advancing the source cursor. Same-inode resets and older unbound cursor
-history are not covered by this guarantee.
+without advancing the source cursor.
+
+Cursor metadata version 4 additionally retains a digest of the last committed
+sampling row. An indexed lookup checks this anchor and reads appended rows in
+one read-only SQLite snapshot. A changed or missing anchor starts a new source
+generation even when the physical file identity and row numbers are unchanged.
+Remaining copied receipts are not recounted; missing receipt identity prevents
+replay and preserves the checkpoint. An empty replacement leaves the previous
+checkpoint intact until observations become available. Each committed batch
+stores its own final-row anchor atomically with usage, not the end of a later
+uncommitted batch. Ordinary idle reads inspect the anchor but do not rescan
+rollouts. The anchor digest is not a cross-source receipt or an account identity.
+This detects mutations affecting the anchor, not arbitrary rewrites that leave
+that row intact. Older cursors without anchors have no retrospective continuity
+proof; missing legacy receipt identities and prior omissions still need audit.
 
 Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
 matching immutable request fields and dimensions become receipt aliases without
