@@ -268,3 +268,10 @@ No live data migration, installed-app replacement or release has occurred.
   and roots. Web 23 unit tests and production build pass. Four requested browser
   regressions fail before assertions because Chrome launch exits with SIGABRT;
   interaction and installed-app acceptance remain unverified.
+- Batch 33: dashboard response callbacks are guarded against canceled requests,
+  including transports that resolve or reject after abort. Obsolete responses
+  cannot replace the applied account/date snapshot, error message or loading
+  state. Current failures retain the previous snapshot. Three lifecycle tests
+  cover late success, late failure and current success/failure; all 26 Web tests
+  and production build pass. Browser rendering acceptance remains open; the
+  immediately preceding Chrome startup failure is not treated as a GUI pass.

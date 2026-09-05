@@ -18,6 +18,7 @@ import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
 import { exportUsageCsv } from './export';
+import { runScopedRequest } from './shared/requestLifecycle';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -80,20 +81,19 @@ function App() {
     setError('');
     setLoading(true);
 
-    loadDashboardBundle(api, filters, controller.signal)
-      .then((nextBundle) => {
+    void runScopedRequest(controller.signal,
+      () => loadDashboardBundle(api, filters, controller.signal), {
+      success: (nextBundle) => {
         setBundle(nextBundle);
         setAppliedFilters(filters);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === 'AbortError') return;
+      },
+      failure: (reason: unknown) => {
         setError(reason instanceof Error ? reason.message : t('app.unknown_dashboard_error'));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setManualRefreshing(false);
-          setLoading(false);
-        }
+      },
+      settled: () => {
+        setManualRefreshing(false);
+        setLoading(false);
+      },
       });
 
     return () => controller.abort();
