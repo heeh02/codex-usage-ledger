@@ -602,3 +602,7 @@ No live data migration, installed-app replacement or release has occurred.
   bundle manifest hash recorded in batch 84. Final signature and checksums
   verified again. This protects build configuration; no application was
   launched/installed and no live ledger was touched.
+- Batch 86: a forced second-record backfill failure verifies atomic rollback
+  of the first retained row, origins, assignments and cursor. Removing the
+  synthetic fault then resumes normally across restart with conserved totals.
+  Targeted regression passes; this is not a live migration execution.

@@ -162,6 +162,31 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
     }
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER fail_second_backfill BEFORE INSERT ON retained_request_evidence
+             WHEN NEW.event_id='backfill-1'
+             BEGIN SELECT RAISE(ABORT,'synthetic mid-batch failure'); END;",
+            )
+            .unwrap();
+        assert!(store.backfill_request_evidence_chunk(2).is_err());
+        let rolled_back: (i64, i64, i64, i64) = store
+            .connection
+            .query_row(
+                "SELECT (SELECT last_rowid FROM request_backfill_state WHERE id=1),
+                    (SELECT COUNT(*) FROM retained_request_evidence),
+                    (SELECT COUNT(*) FROM retained_request_origins),
+                    (SELECT COUNT(*) FROM retained_request_assignments)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(rolled_back, (0, 0, 0, 0));
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_second_backfill;")
+            .unwrap();
         assert!(!store.backfill_request_evidence_chunk(1).unwrap());
     }
     let mut store = LedgerStore::open(&path).unwrap();
