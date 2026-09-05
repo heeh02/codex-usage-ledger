@@ -18,6 +18,8 @@ pub struct UsageQuery {
     pub session_sort: Option<String>,
     pub session_offset: Option<usize>,
     pub session_limit: Option<usize>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
 }
 
 impl UsageQuery {
@@ -35,6 +37,7 @@ impl UsageQuery {
                     "weeks12",
                     "months12",
                     "year",
+                    "custom",
                     "lifetime",
                 ][..],
             ),
@@ -65,6 +68,17 @@ impl UsageQuery {
         ] {
             if value.is_some_and(|value| !allowed.contains(&value)) {
                 return Err(ApiError::InvalidQuery(format!("unsupported {name}")));
+            }
+        }
+        if self.period.as_deref() == Some("custom") {
+            let parse = |value: Option<&str>| {
+                value.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+            };
+            let dates = parse(self.start_date.as_deref()).zip(parse(self.end_date.as_deref()));
+            if !dates.is_some_and(|(start, end)| start <= end && end.succ_opt().is_some()) {
+                return Err(ApiError::InvalidQuery(
+                    "custom requires ordered startDate and endDate (YYYY-MM-DD)".to_owned(),
+                ));
             }
         }
         if self

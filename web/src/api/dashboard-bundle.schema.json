@@ -2032,6 +2032,7 @@
         "weeks12",
         "months12",
         "year",
+        "custom",
         "lifetime"
       ]
     },

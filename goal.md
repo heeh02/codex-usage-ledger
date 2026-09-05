@@ -177,3 +177,6 @@ No live data migration, installed-app replacement or release has occurred.
   isConservativeFloor=false. UI no longer displays inferred missing-account
   project allocation/composition; bilingual explanatory text rejects that
   interpretation. This changes diagnostic semantics, not stored usage facts.
+- Batch 14: backend custom date windows include the final calendar day and
+  reject missing/reversed dates. Cross-month boundary regression passes.
+  Date-picker wiring and end-to-end custom-scope conservation remain open.

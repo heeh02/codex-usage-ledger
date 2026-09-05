@@ -132,6 +132,7 @@ pub enum PeriodKey {
     Weeks12,
     Months12,
     Year,
+    Custom,
     Lifetime,
 }
 

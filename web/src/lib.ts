@@ -125,6 +125,7 @@ export function periodLabel(period: PeriodKey): string {
     weeks12: ['12周', '12 weeks'],
     months12: ['12月', '12 months'],
     year: ['本年', 'This year'],
+    custom: ['自定义', 'Custom dates'],
     lifetime: ['至今', 'Lifetime'],
   };
   return labels[period][uiLanguage === 'zh-CN' ? 0 : 1];

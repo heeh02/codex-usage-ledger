@@ -358,6 +358,31 @@ fn calendar_year_uses_january_first_and_same_calendar_comparison() {
 }
 
 #[test]
+fn custom_dates_include_the_end_day_and_reject_reversed_ranges() {
+    let mut query = UsageQuery {
+        period: Some("custom".to_owned()),
+        start_date: Some("2026-01-31".to_owned()),
+        end_date: Some("2026-02-02".to_owned()),
+        ..Default::default()
+    };
+    assert!(query.validate().is_ok());
+    let period = resolve_period_at(&query, Utc.with_ymd_and_hms(2026, 3, 1, 0, 0, 0).unwrap()).2;
+    assert_eq!(
+        period.start,
+        Some(Utc.with_ymd_and_hms(2026, 1, 30, 16, 0, 0).unwrap())
+    );
+    assert_eq!(
+        period.end,
+        Some(Utc.with_ymd_and_hms(2026, 2, 2, 16, 0, 0).unwrap())
+    );
+    assert_eq!(period.default_grain, "day");
+    query.end_date = Some("2026-01-01".to_owned());
+    assert!(query.validate().is_err());
+    query.start_date = None;
+    assert!(query.validate().is_err());
+}
+
+#[test]
 fn september_first_exposes_a_cross_month_week_without_changing_month_semantics() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 17, 30, 0).unwrap();
     let resolve = |period: &str| {

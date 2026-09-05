@@ -22,6 +22,34 @@ pub(super) fn resolve_period_at(
     let timezone = Tz::from_str(timezone_name).unwrap_or(chrono_tz::Asia::Shanghai);
     let now_local = now_utc.with_timezone(&timezone);
     let period_label = query.period.as_deref().unwrap_or("rolling30");
+    if period_label == "custom" {
+        let parse = |value: Option<&str>| {
+            value.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        };
+        let start = parse(query.start_date.as_deref())
+            .and_then(|date| local_midnight_utc(date, timezone))
+            .unwrap_or(now_utc);
+        let end = parse(query.end_date.as_deref())
+            .and_then(|date| date.succ_opt())
+            .and_then(|date| local_midnight_utc(date, timezone))
+            .unwrap_or(start);
+        let period = PeriodDescriptor {
+            label: "custom".to_owned(),
+            start: Some(start),
+            end: Some(end),
+            timezone: timezone.name().to_owned(),
+            comparison_start: None,
+            comparison_end: None,
+            default_grain: if end - start > ChronoDuration::days(92) {
+                "month"
+            } else {
+                "day"
+            }
+            .to_owned(),
+            partial: end > now_utc,
+        };
+        return (Some(start), Some(end), period);
+    }
     let today = now_local.date_naive();
     let this_week = today - ChronoDuration::days(now_local.weekday().num_days_from_monday() as i64);
     let this_month = today.with_day(1).unwrap_or(today);

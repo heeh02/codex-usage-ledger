@@ -36,6 +36,12 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+`period=custom` accepts `startDate` and `endDate` as ordered YYYY-MM-DD dates
+in the selected timezone. The ending day is included, using an exclusive
+midnight boundary on the following day. Missing/reversed dates return 400.
+Custom windows do not assume a previous-period comparison. Future ending
+boundaries keep the result marked partial rather than claiming future zeroes.
+
 Unsupported period, grain, metric or session-sort values return HTTP 400 before
 storage access. Invalid IANA timezones, page sizes outside 1–100 and searches
 longer than 256 characters are also rejected. Invalid input must not silently
