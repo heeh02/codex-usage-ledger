@@ -1,5 +1,18 @@
 import type { RequestEvidenceCursor, RequestEvidenceResponse } from './request-evidence.generated';
 
+function validRequestUsage(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const usage = value as Record<string, unknown>;
+  const fields = ['input', 'cached', 'cacheWrite', 'cacheWriteObservedInput', 'uncached', 'output', 'reasoning', 'total'];
+  if (fields.some(field => typeof usage[field] !== 'number' || !Number.isSafeInteger(usage[field]) || Number(usage[field]) < 0)) return false;
+  const n = (field: string) => Number(usage[field]);
+  return n('input') + n('output') === n('total')
+    && n('cached') + n('cacheWrite') + n('uncached') === n('input')
+    && n('reasoning') <= n('output') && n('cacheWriteObservedInput') <= n('input')
+    && typeof usage.cacheWriteCoverage === 'number' && Number.isFinite(usage.cacheWriteCoverage)
+    && usage.cacheWriteCoverage >= 0 && usage.cacheWriteCoverage <= 1;
+}
+
 export interface RequestEvidenceQuery {
   threadId: string;
   start: string;
@@ -32,6 +45,9 @@ export async function fetchRequestEvidence(
     || Date.parse(value.end) !== Date.parse(query.end)
     || !Array.isArray(value.rows)) {
     throw new Error('Request evidence response scope mismatch');
+  }
+  if (value.rows.some(row => !validRequestUsage(row?.usage))) {
+    throw new Error('Request evidence contains invalid token dimensions');
   }
   return value;
 }

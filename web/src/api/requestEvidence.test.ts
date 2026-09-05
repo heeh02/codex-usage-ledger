@@ -29,3 +29,20 @@ it('does not turn server errors or wrong-scope data into an empty page', async (
   }) }));
   await expect(fetchRequestEvidence(query)).rejects.toThrow('scope mismatch');
 });
+
+it('rejects nonconserved and unsafe token numbers instead of displaying them', async () => {
+  const usage = { input: 100, cached: 40, cacheWrite: 10, cacheWriteObservedInput: 100,
+    uncached: 50, output: 20, reasoning: 5, total: 120, cacheWriteCoverage: 1 };
+  const response = (next: object) => ({ ok: true, json: async () => ({
+    scope: 'thread_own_retained_observations', attribution: 'ingest_observed',
+    threadId: query.threadId, start: query.start, end: query.end, rows: [{ usage: next }],
+  }) });
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(usage)));
+  await expect(fetchRequestEvidence(query)).resolves.toBeDefined();
+  for (const invalid of [{ ...usage, total: 121 }, { ...usage, cached: -1 },
+    { ...usage, input: Number.MAX_SAFE_INTEGER + 1 }, { ...usage, reasoning: 21 },
+    { ...usage, cacheWrite: 20 }, { ...usage, cacheWriteCoverage: 2 }]) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(invalid)));
+    await expect(fetchRequestEvidence(query)).rejects.toThrow('invalid token dimensions');
+  }
+});

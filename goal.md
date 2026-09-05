@@ -431,3 +431,8 @@ No live data migration, installed-app replacement or release has occurred.
   bytes; one warm in-memory 100-row deep read measured 1,449 microseconds.
   Measurements are printed by the regression and documented with exclusions
   (WAL, backup, cold disk, full ingest). No production budget is claimed.
+- Batch 58: request client rejects negative/unsafe integers, broken input/output
+  or cache-bucket conservation, out-of-range cache-write coverage and reasoning
+  exceeding output. Invalid successful responses become explicit errors, not
+  apparently precise table values. Web 37 tests/build pass. These checks validate
+  received dimensions; they do not prove source completeness or dedup accuracy.
