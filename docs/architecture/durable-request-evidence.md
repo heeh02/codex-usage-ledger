@@ -95,6 +95,13 @@ attribution and source-aware boundary selection use this evidence.
 
 ## Acceptance gates
 
+The store turn-page query groups explicit same-thread turn IDs after account,
+model and time filtering, before pagination. Null-turn requests remain separate
+groups. Usage is the confirmed-request subtotal; total and confirmed request
+counts distinguish unknown-only groups from recorded zero. This is scoped
+retained turn evidence, not proof that all requests of a turn were collected.
+HTTP/UI turn aggregation and stable pagination during mutations remain pending.
+
 Initial synthetic measurement: 100,000 same-time requests with 64-character
 hash/account fields and populated model/project/turn identifiers added
 39,022,592 SQLite page bytes (9,527 × 4,096). One warm in-memory last-page

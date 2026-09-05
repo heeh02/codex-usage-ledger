@@ -539,3 +539,9 @@ No live data migration, installed-app replacement or release has occurred.
   selects the new account while preserving the old observed account; model
   exclusion is covered. Full Rust 126 tests, Clippy, both API contracts, Web 38
   tests and build pass. Filtered browser/live-account acceptance remains open.
+- Batch 75: backend retained-turn pages aggregate the full filtered request
+  set before paging; null turn IDs stay independent. A 120-request turn spanning
+  request pages sums correctly, and two missing-ID requests do not merge.
+  Confirmed counts accompany usage subtotals so unknown-only groups are not
+  presented as measured zero. Targeted test and Clippy pass. HTTP/UI integration
+  and complete-turn coverage remain open.

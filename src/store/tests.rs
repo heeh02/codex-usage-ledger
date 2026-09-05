@@ -1379,6 +1379,52 @@ fn exact_retained_evidence_respects_reconstruction_source_selection() {
 }
 
 #[test]
+fn retained_turns_aggregate_before_paging_and_do_not_group_missing_ids() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for index in 0..122 {
+        let mut fact = event(
+            &format!("request-{index:03}"),
+            if index == 120 {
+                DataQuality::Unknown
+            } else {
+                DataQuality::Confirmed
+            },
+            index * 10,
+        );
+        if index < 120 {
+            fact.provenance.source_turn_id = Some("shared-turn".into());
+        }
+        store.upsert_event(&fact).unwrap();
+    }
+    let scope = || RetainedRequestScope {
+        thread_id: "thread",
+        start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+        end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+        account: None,
+        model: None,
+    };
+    let first = store.retained_turn_page(scope(), 0, 1).unwrap();
+    assert_eq!(
+        first.observations[0].turn_id.as_deref(),
+        Some("shared-turn")
+    );
+    assert_eq!(first.observations[0].request_count, 120);
+    assert_eq!(first.observations[0].usage.total_tokens, 14400);
+    assert_eq!(first.next_offset, Some(1));
+    let last = store.retained_turn_page(scope(), 1, 10).unwrap();
+    assert_eq!(last.observations.len(), 2);
+    assert!(
+        last.observations
+            .iter()
+            .all(|row| row.turn_id.is_none() && row.request_count == 1)
+    );
+    assert_eq!(last.observations[0].confirmed_request_count, 0);
+    assert_eq!(last.observations[0].usage.total_tokens, 0);
+    assert_eq!(last.observations[1].usage.total_tokens, 120);
+    assert_eq!(last.next_offset, None);
+}
+
+#[test]
 fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("schema25.sqlite");

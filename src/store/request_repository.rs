@@ -24,6 +24,76 @@ pub(super) fn request_page_sql(has_cursor: bool) -> String {
 }
 
 impl LedgerStore {
+    /// Scoped retained observations, not proof of a complete turn or total ledger.
+    /// Unidentified requests stay independent; aggregation precedes pagination.
+    pub fn retained_turn_page(
+        &self,
+        scope: RetainedRequestScope<'_>,
+        offset: usize,
+        limit: usize,
+    ) -> StoreResult<RetainedTurnPage> {
+        if scope.start >= scope.end || scope.thread_id.is_empty() || !(1..=500).contains(&limit) {
+            return Err(StoreError::InvalidRequestQuery(
+                "invalid turn scope or page size",
+            ));
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT turn_id,MIN(effective_at),MAX(effective_at),COUNT(*),
+                SUM(quality='confirmed'),
+                SUM(CASE WHEN quality='confirmed' THEN input_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN cached_input_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN cache_write_input_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN cache_write_observed_input_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN output_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN reasoning_output_tokens ELSE 0 END),
+                SUM(CASE WHEN quality='confirmed' THEN total_tokens ELSE 0 END)
+             FROM retained_request_evidence kept
+             WHERE thread_id=?1 AND effective_at>=?2 AND effective_at<?3
+               AND (?4 IS NULL OR EXISTS(SELECT 1 FROM retained_request_assignments assigned
+                   WHERE assigned.event_id=kept.event_id AND assigned.account_fingerprint=?4))
+               AND (?5 IS NULL OR model=?5)
+             GROUP BY turn_id,CASE WHEN turn_id IS NULL THEN event_id ELSE '' END
+             ORDER BY MIN(effective_at),MIN(event_id)
+             LIMIT ?6 OFFSET ?7"
+        )?;
+        let rows = statement.query_map(
+            params![
+                scope.thread_id,
+                timestamp(scope.start),
+                timestamp(scope.end),
+                scope.account,
+                scope.model,
+                (limit + 1) as i64,
+                sql_u64(offset as u64, "turn_offset")?
+            ],
+            |row| {
+                Ok(RetainedTurnObservation {
+                    turn_id: row.get(0)?,
+                    first_at: row.get(1)?,
+                    last_at: row.get(2)?,
+                    request_count: u64_from_sql(row.get(3)?, 3)?,
+                    confirmed_request_count: u64_from_sql(row.get(4)?, 4)?,
+                    usage: TokenUsage {
+                        input_tokens: u64_from_sql(row.get(5)?, 5)?,
+                        cached_input_tokens: u64_from_sql(row.get(6)?, 6)?,
+                        cache_write_input_tokens: u64_from_sql(row.get(7)?, 7)?,
+                        cache_write_observed_input_tokens: u64_from_sql(row.get(8)?, 8)?,
+                        output_tokens: u64_from_sql(row.get(9)?, 9)?,
+                        reasoning_output_tokens: u64_from_sql(row.get(10)?, 10)?,
+                        total_tokens: u64_from_sql(row.get(11)?, 11)?,
+                    },
+                })
+            },
+        )?;
+        let mut observations = rows.collect::<Result<Vec<_>, _>>()?;
+        let next_offset = (observations.len() > limit).then(|| offset.saturating_add(limit));
+        observations.truncate(limit);
+        Ok(RetainedTurnPage {
+            observations,
+            next_offset,
+        })
+    }
+
     /// Checks one source candidate without rewriting source choices or totals.
     pub fn request_candidate_overlap(&self, event_id: &str) -> StoreResult<CandidateOverlapStatus> {
         let evidence = self.connection.query_row(

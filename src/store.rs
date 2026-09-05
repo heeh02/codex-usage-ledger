@@ -52,6 +52,20 @@ pub struct RetainedRequestPage {
     pub next: Option<RetainedRequestCursor>,
 }
 
+pub struct RetainedTurnObservation {
+    pub turn_id: Option<String>,
+    pub first_at: String,
+    pub last_at: String,
+    pub request_count: u64,
+    pub confirmed_request_count: u64,
+    pub usage: TokenUsage,
+}
+
+pub struct RetainedTurnPage {
+    pub observations: Vec<RetainedTurnObservation>,
+    pub next_offset: Option<usize>,
+}
+
 pub struct RetainedRequestScope<'a> {
     pub thread_id: &'a str,
     pub start: DateTime<Utc>,
