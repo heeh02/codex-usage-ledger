@@ -11,6 +11,7 @@ import { OverviewPage, type OverviewDetailTab } from './features/overview/Overvi
 import { ProjectPage } from './features/projects/ProjectPage';
 import { QualityPage } from './features/quality/QualityPage';
 import { SessionPage } from './features/sessions/SessionPage';
+import { ConversationsPage } from './features/conversations/ConversationsPage';
 import { compactNumber, formatDateTime, formatPeriodRange } from './lib';
 import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
@@ -57,7 +58,7 @@ function App() {
   const [refreshFeedback, setRefreshFeedback] = useState('');
   const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => restoredSessionValue('ledger.overviewTab', { value: 'projects' as const }).value);
   const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => restoredSessionValue('ledger.projectTab', { value: 'overview' as const }).value);
-  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
+  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
   const [sessionView, setSessionView] = useState<SessionViewState>(() => restoredSessionValue('ledger.sessionView', INITIAL_SESSION_VIEW));
   const [privacyMode, setPrivacyMode] = useState(false);
   const [sessionTrail, setSessionTrail] = useState<Array<{ id: string; title: string }>>([]);
@@ -160,6 +161,11 @@ function App() {
     setPrimaryPage('overview');
     setFilters((value) => ({ ...value, project: 'all', session: 'all' }));
   };
+  const openChats = () => {
+    setPrimaryPage('chats');
+    setSessionTrail([]);
+    setFilters(value => ({ ...value, project: 'all', session: 'all', sessionSearch: '', sessionOffset: 0 }));
+  };
   const openAccounts = () => {
     setPrimaryPage('accounts');
     setFilters((value) => ({ ...value, project: 'all', model: 'all', session: 'all' }));
@@ -245,7 +251,7 @@ function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pageIdentity]);
-  const pageTitle = currentPage === 'accounts'
+  const pageTitle = currentPage === 'chats' ? t('chats.title') : currentPage === 'accounts'
     ? t('app.accounts_quota')
     : currentPage === 'quality'
       ? t('app.data_quality')
@@ -274,11 +280,12 @@ function App() {
     })
     : t('app.official_daily_coverage_tail', { date: bundle?.summary.official.commonCoverageThrough ?? t('app.unknown') });
   const viewClass = `view-${currentPage}`;
-  const mobilePageValue = currentPage === 'overview' || currentPage === 'accounts' || currentPage === 'quality'
+  const mobilePageValue = currentPage === 'overview' || currentPage === 'accounts' || currentPage === 'quality' || currentPage === 'chats'
     ? currentPage
     : selectedProject?.id ?? 'overview';
   const navigateMobile = (value: string) => {
     if (value === 'overview') openOverview();
+    else if (value === 'chats') openChats();
     else if (value === 'accounts') openAccounts();
     else if (value === 'quality') openQuality();
     else openProject(value);
@@ -305,6 +312,7 @@ function App() {
         page={currentPage}
         period={bundle?.summary.period ?? null}
         onOverview={openOverview}
+        onChats={openChats}
         onProject={openProject}
         onAccounts={openAccounts}
         onQuality={openQuality}
@@ -330,6 +338,7 @@ function App() {
           <div className="topbar-actions">
             <select className="mobile-page-select" aria-label={t('app.page_navigation')} value={mobilePageValue} onChange={(event) => navigateMobile(event.target.value)}>
               <option value="overview">{t('app.overview')}</option>
+              <option value="chats">{t('chats.title')}</option>
               <optgroup label={t('app.work')}>{bundle?.explorer.projects.filter((project) => project.kind !== 'unmatched_records').map((project) => <option key={project.id} value={project.id}>{project.kind === 'standalone_conversations' ? t('app.standalone_chats') : project.label}</option>)}</optgroup>
               <option value="accounts">{t('app.accounts_quota')}</option>
               <option value="quality">{t('app.data_quality')}</option>
@@ -383,6 +392,7 @@ function App() {
               {error && <div className="inline-error">{t('app.update_failed')}: {error}. {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
               {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
               {currentPage === 'accounts' && <AccountsPage bundle={bundle} onConfirmAccountCount={confirmAccountCount} />}
+              {currentPage === 'chats' && <ConversationsPage bundle={bundle} filters={appliedFilters} onChange={setFilters} onOpenSession={openSession} />}
               {currentPage === 'quality' && <QualityPage bundle={bundle} metric={appliedFilters.metric} />}
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
                 <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />

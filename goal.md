@@ -169,3 +169,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 11: narrow layouts retain conversation usage, agent own usage and export
   by wrapping/reflowing. Added a 560px interaction regression; browser execution
   remains pending the test-browser launch restriction. Build validation is local.
+- Batch 12: dedicated All conversations navigation is available in the sidebar
+  and compact navigation picker, with the shared search/order/pagination controls.
+  Account/model/time scope is preserved. Web build passes; interaction and
+  complete workflow acceptance remain open.

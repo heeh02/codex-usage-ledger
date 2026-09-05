@@ -56,6 +56,7 @@ export function LedgerSidebar({
   page,
   period,
   onOverview,
+  onChats,
   onProject,
   onAccounts,
   onQuality,
@@ -65,6 +66,7 @@ export function LedgerSidebar({
   page: AppPage;
   period: SummaryResponse['period'] | null;
   onOverview: () => void;
+  onChats: () => void;
   onProject: (projectId: string) => void;
   onAccounts: () => void;
   onQuality: () => void;
@@ -132,6 +134,7 @@ export function LedgerSidebar({
           <small>{explorer?.stats.projectCount ?? '—'}</small>
         </button>
 
+        <button className={page === 'chats' ? 'sidebar-item is-active' : 'sidebar-item'} onClick={onChats} type="button"><ConversationIcon /><span>{t('chats.title')}</span></button>
         <div className="sidebar-section-heading">
           <span>{t('components.explorer.local_work_evidence')} · {rankingLabel}</span>
           <small>{explorer ? `${projectFolders.length} ${t('components.explorer.projects_chats')} · ${compactNumber(displayedRankingTotal)}` : t('components.explorer.reading_trusted_snapshot')}</small>
@@ -285,7 +288,7 @@ export function OverviewSessions({ explorer, onOpenSession }: { explorer: Explor
   return (
     <section className="session-browser overview-session-browser panel">
       <header className="session-browser-heading">
-        <div><p className="eyebrow">Top sessions</p><h2>{t('components.explorer.session_subagent_sources')}</h2></div>
+        <div><p className="eyebrow">{t('chats.title')}</p><h2>{t('components.explorer.session_subagent_sources')}</h2></div>
         <div className="session-browser-summary"><span>{explorer.stats.sessionCount} {t('app.current_sessions')}</span><span>{explorer.stats.subagentCount} {t('components.explorer.current_subagents')}</span><span>{explorer.stats.historicalSessionCount + explorer.stats.historicalSubagentCount} {t('components.explorer.historical_nodes')}</span></div>
       </header>
       {explorer.sessions.length ? (

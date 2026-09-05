@@ -1,4 +1,5 @@
 export const zhCNMessages = {
+  "chats.title": "全部聊天",
   "overview.composition_details": "输入、缓存与输出明细",
   "overview.evidence_details": "数据覆盖与对账详情",
   "chats.back_parent": "返回上级聊天",
