@@ -1,8 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { fetchRequestEvidence } from './requestEvidence';
+import { fetchRequestEvidence, normalizedEvidenceSelection } from './requestEvidence';
 
 afterEach(() => vi.unstubAllGlobals());
 const query = { threadId: 'thread & one', start: '2026-08-01T00:00:00Z', end: '2026-08-02T00:00:00Z' };
+
+it('normalizes blank, all and padded selections consistently', () => {
+  for (const value of [undefined, '', '  ', 'all', ' all ']) expect(normalizedEvidenceSelection(value)).toBeNull();
+  expect(normalizedEvidenceSelection(' account-one ')).toBe('account-one');
+});
 
 it('encodes scope and cursor and propagates cancellation', async () => {
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
@@ -13,10 +18,13 @@ it('encodes scope and cursor and propagates cancellation', async () => {
   }) });
   vi.stubGlobal('fetch', fetch);
   const controller = new AbortController();
-  const result = await fetchRequestEvidence({ ...query, after: { afterId: 'a&b', afterTime: query.start } }, controller.signal);
+  const result = await fetchRequestEvidence({ ...query, account: ' all ', model: ' ',
+    after: { afterId: 'a&b', afterTime: query.start } }, controller.signal);
   const params = new URL(String(fetch.mock.calls[0][0]), 'http://localhost').searchParams;
   expect(params.get('threadId')).toBe(query.threadId);
   expect(params.get('afterId')).toBe('a&b');
+  expect(params.has('account')).toBe(false);
+  expect(params.has('model')).toBe(false);
   expect(fetch.mock.calls[0][1].signal).toBe(controller.signal);
   expect(result.historyComplete).toBe(false);
 });

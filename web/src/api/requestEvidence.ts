@@ -1,5 +1,10 @@
 import type { RequestEvidenceCursor, RequestEvidenceResponse } from './request-evidence.generated';
 
+export function normalizedEvidenceSelection(value?: string): string | null {
+  const normalized = value?.trim();
+  return normalized && normalized !== 'all' ? normalized : null;
+}
+
 export function validRequestUsage(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const usage = value as Record<string, unknown>;
@@ -27,6 +32,8 @@ export async function fetchRequestEvidence(
   query: RequestEvidenceQuery,
   signal?: AbortSignal,
 ): Promise<RequestEvidenceResponse> {
+  const account = normalizedEvidenceSelection(query.account);
+  const model = normalizedEvidenceSelection(query.model);
   const params = new URLSearchParams({
     threadId: query.threadId, start: query.start, end: query.end,
     limit: String(query.limit ?? 100),
@@ -35,8 +42,8 @@ export async function fetchRequestEvidence(
     params.set('afterTime', query.after.afterTime);
     params.set('afterId', query.after.afterId);
   }
-  if (query.account && query.account !== 'all') params.set('account', query.account);
-  if (query.model && query.model !== 'all') params.set('model', query.model);
+  if (account) params.set('account', account);
+  if (model) params.set('model', model);
   const base = (import.meta.env.VITE_LEDGER_API_BASE ?? '').replace(/\/$/, '');
   const response = await fetch(`${base}/v1/request-evidence?${params}`, {
     signal, headers: { Accept: 'application/json' },
@@ -45,8 +52,8 @@ export async function fetchRequestEvidence(
   const value = await response.json() as RequestEvidenceResponse;
   if (value.scope !== 'thread_own_retained_observations'
     || value.selectionAttribution !== 'current_ledger'
-    || value.selectedAccount !== (query.account && query.account !== 'all' ? query.account : null)
-    || value.selectedModel !== (query.model && query.model !== 'all' ? query.model : null)
+    || value.selectedAccount !== account
+    || value.selectedModel !== model
     || value.attribution !== 'ingest_observed' || value.threadId !== query.threadId
     || Date.parse(value.start) !== Date.parse(query.start)
     || Date.parse(value.end) !== Date.parse(query.end)

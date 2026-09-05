@@ -613,3 +613,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 88: request/turn query execution now normalizes account/model selections
   consistently with returned metadata. Blank/all/padded values no longer
   execute a different scope than they advertise. Both endpoint regressions pass.
+- Batch 89: frontend HTTP clients and synthetic fixtures share the same trimmed
+  selection normalization. Encoding and returned-scope checks now agree with
+  the backend for blank/all/padded inputs. Web 41-test suite/build, final
+  typecheck and targeted client/fixture regressions pass.
