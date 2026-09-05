@@ -14,7 +14,7 @@ impl LedgerStore {
             scope: "own_retained_request_page",
             group_totals_scope: "this_page_confirmed_observations_only",
             schema_version: self.schema_version()?,
-            audit_version: 1,
+            audit_version: 2,
             read_only: true,
             request_equality_proven: false,
             history_complete: false,
@@ -30,7 +30,12 @@ impl LedgerStore {
         let page = self.retained_request_page_for_scope(scope, after, limit)?;
         let mut groups = BTreeMap::<CandidateOverlapStatus, CandidateAuditGroup>::new();
         for observation in page.observations {
-            let status = self.request_candidate_overlap(&observation.cursor.event_id)?;
+            let comparison = self
+                .candidate_comparison(&observation.cursor.event_id)?
+                .ok_or(StoreError::InvalidRequestQuery(
+                    "retained observation disappeared inside audit snapshot",
+                ))?;
+            let status = comparison.status;
             let confirmed_usage =
                 (observation.quality == DataQuality::Confirmed).then_some(observation.usage);
             let group = groups.entry(status).or_insert(CandidateAuditGroup {
@@ -54,9 +59,11 @@ impl LedgerStore {
             }
             report.rows.push(CandidateAuditRow {
                 cursor: observation.cursor,
+                source_model: observation.model,
                 status,
                 quality: observation.quality,
                 confirmed_usage,
+                comparison,
             });
         }
         report.groups = groups.into_values().collect();

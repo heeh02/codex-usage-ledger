@@ -68,10 +68,13 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
     );
     let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["readOnly"], true);
+    assert_eq!(report["auditVersion"], 2);
     assert_eq!(report["requestEqualityProven"], false);
     assert_eq!(report["historyComplete"], false);
     assert_eq!(report["rows"].as_array().unwrap().len(), 1);
     assert_eq!(report["rows"][0]["status"], "not_linked");
+    assert!(report["rows"][0]["comparison"]["candidateId"].is_null());
+    assert!(report["rows"][0]["comparison"]["candidateUsage"].is_null());
     assert_eq!(report["rows"][0]["confirmedUsage"]["total_tokens"], 0);
     assert!(report["next"].is_null());
     assert_eq!(std::fs::read(&path).unwrap(), before);

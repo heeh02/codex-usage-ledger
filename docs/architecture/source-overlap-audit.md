@@ -36,6 +36,17 @@ union are added to the report. `requestEqualityProven` and `historyComplete`
 remain false. Existing source selection, retained facts and token totals are
 not modified; legacy evidence without links stays unclassified as unlinked.
 
+Audit format version 2 adds per-row `sourceModel` and `comparison`: candidate ID,
+timestamp, thread/model, raw token dimensions, validity, global link count and
+field-level mismatch labels. A dangling link retains its candidate ID but has
+null counterpart usage. Positive `candidateMinusSourceNanoseconds` means the
+candidate is later; null means an exact nanosecond delta is unavailable.
+Unknown source usage is not compared numerically against a candidate's usage.
+Shared links keep their shared-candidate status even when other differences
+also exist. Candidate amounts are diagnostic references and are never included
+in group totals. Consumers must check `auditVersion`; no HTTP schema or persisted
+data migration is introduced by this CLI diagnostic format change.
+
 Tests exercise mixed states across equal-time pages, account/model scope,
 confirmed-usage conservation, invalid bounds, no writes, missing-file refusal,
 unsupported-schema refusal and the actual CLI output/paired-cursor validation.

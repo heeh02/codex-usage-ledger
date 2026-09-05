@@ -98,55 +98,10 @@ impl LedgerStore {
 
     /// Checks one source candidate without rewriting source choices or totals.
     pub fn request_candidate_overlap(&self, event_id: &str) -> StoreResult<CandidateOverlapStatus> {
-        let evidence = self.connection.query_row(
-            "SELECT kept.effective_at, link.reconstruction_event_id,
-                COALESCE(rebuilt.source_timestamp, rebuilt.observed_at),
-                kept.quality='confirmed' AND kept.thread_id IS rebuilt.thread_id
-                AND kept.model IS rebuilt.model
-                AND kept.input_tokens=rebuilt.input_tokens
-                AND kept.cached_input_tokens=rebuilt.cached_input_tokens
-                AND kept.cache_write_input_tokens=rebuilt.cache_write_input_tokens
-                AND kept.cache_write_observed_input_tokens=rebuilt.cache_write_observed_input_tokens
-                AND kept.output_tokens=rebuilt.output_tokens
-                AND kept.reasoning_output_tokens=rebuilt.reasoning_output_tokens
-                AND kept.total_tokens=rebuilt.total_tokens,
-                EXISTS(SELECT 1 FROM sampling_candidate_links other
-                    WHERE other.reconstruction_event_id=link.reconstruction_event_id
-                    AND other.event_id != link.event_id)
-             FROM retained_request_evidence kept
-             LEFT JOIN sampling_candidate_links link ON link.event_id=kept.event_id
-             LEFT JOIN reconstruction_usage_events rebuilt ON rebuilt.event_id=link.reconstruction_event_id
-             WHERE kept.event_id=?1",
-            params![event_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?, row.get::<_, Option<bool>>(3)?, row.get::<_, bool>(4)?)),
-        ).optional()?;
-        let Some((sample_time, link, target_time, components_equal, shared)) = evidence else {
-            return Ok(CandidateOverlapStatus::RequestUnavailable);
-        };
-        if link.is_none() {
-            return Ok(CandidateOverlapStatus::NotLinked);
-        }
-        if shared {
-            return Ok(CandidateOverlapStatus::SharedCandidate);
-        }
-        let Some(target_time) = target_time else {
-            return Ok(CandidateOverlapStatus::TargetUnavailable);
-        };
-        let (Ok(sample), Ok(target)) = (
-            DateTime::parse_from_rfc3339(&sample_time),
-            DateTime::parse_from_rfc3339(&target_time),
-        ) else {
-            return Ok(CandidateOverlapStatus::UnverifiableTime);
-        };
-        let near = (sample - target)
-            .num_nanoseconds()
-            .is_some_and(|delta| delta.unsigned_abs() <= 250_000_000);
-        Ok(if near && components_equal == Some(true) {
-            CandidateOverlapStatus::ConsistentCandidate
-        } else {
-            CandidateOverlapStatus::DifferentEvidence
-        })
+        Ok(self
+            .candidate_comparison(event_id)?
+            .map(|comparison| comparison.status)
+            .unwrap_or(CandidateOverlapStatus::RequestUnavailable))
     }
 
     /// Retained local observations only, not a completeness claim or an

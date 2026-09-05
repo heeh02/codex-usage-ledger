@@ -1309,6 +1309,105 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn candidate_comparison_explains_dimensions_time_and_unknowns() {
+    type Mutation = fn(&mut UsageEvent);
+    let mutations: &[(CandidateMismatch, Mutation)] = &[
+        (CandidateMismatch::Input, |e| {
+            e.usage.input_tokens += 1;
+            e.usage.total_tokens += 1;
+        }),
+        (CandidateMismatch::CacheRead, |e| {
+            e.usage.cached_input_tokens += 1
+        }),
+        (CandidateMismatch::CacheWrite, |e| {
+            e.usage.cache_write_input_tokens += 1
+        }),
+        (CandidateMismatch::CacheWriteCoverage, |e| {
+            e.usage.cache_write_observed_input_tokens -= 1
+        }),
+        (CandidateMismatch::Output, |e| {
+            e.usage.output_tokens += 1;
+            e.usage.total_tokens += 1;
+        }),
+        (CandidateMismatch::Reasoning, |e| {
+            e.usage.reasoning_output_tokens += 1
+        }),
+        (CandidateMismatch::Thread, |e| {
+            e.thread_id = Some("different-thread".into())
+        }),
+        (CandidateMismatch::Model, |e| {
+            e.model = Some("different-model".into())
+        }),
+        (CandidateMismatch::TimeOutsideTolerance, |e| {
+            e.source_timestamp = Some(e.observed_at + ChronoDuration::nanoseconds(250_000_001))
+        }),
+    ];
+    for (expected, mutate) in mutations {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        let mut sample = event("source", DataQuality::Confirmed, 10);
+        sample.provenance.candidate_rollout_event_id = Some("target".into());
+        store.upsert_event(&sample).unwrap();
+        let mut target = sample.clone();
+        target.event_id = "target".into();
+        mutate(&mut target);
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: target.clone(),
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+        let writes = store.connection.total_changes();
+        let comparison = store.candidate_comparison("source").unwrap().unwrap();
+        assert_eq!(comparison.status, CandidateOverlapStatus::DifferentEvidence);
+        assert!(comparison.mismatches.contains(expected), "{expected:?}");
+        assert_eq!(comparison.candidate_usage, Some(target.usage));
+        assert_eq!(comparison.linked_records, 1);
+        assert_eq!(comparison.candidate_id.as_deref(), Some("target"));
+        assert_eq!(store.connection.total_changes(), writes);
+    }
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut sample = event("unknown", DataQuality::Unknown, 10);
+    sample.provenance.candidate_rollout_event_id = Some("target".into());
+    store.upsert_event(&sample).unwrap();
+    let mut target = sample.clone();
+    target.event_id = "target".into();
+    target.quality = DataQuality::Confirmed;
+    target.usage.input_tokens += 1;
+    target.usage.total_tokens += 1;
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: target,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    let comparison = store.candidate_comparison("unknown").unwrap().unwrap();
+    assert_eq!(
+        comparison.mismatches,
+        [CandidateMismatch::SourceUnconfirmed]
+    );
+    store.connection.execute("UPDATE reconstruction_usage_events SET source_timestamp='invalid' WHERE event_id='target'", []).unwrap();
+    let invalid_time = store.candidate_comparison("unknown").unwrap().unwrap();
+    assert_eq!(
+        invalid_time.status,
+        CandidateOverlapStatus::UnverifiableTime
+    );
+    assert!(
+        invalid_time
+            .mismatches
+            .contains(&CandidateMismatch::UnverifiableTime)
+    );
+    assert!(invalid_time.candidate_minus_source_nanoseconds.is_none());
+}
+
+#[test]
 fn candidate_audit_pages_classify_without_recounting_or_writes() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     for (index, (id, quality, target)) in [
@@ -1398,6 +1497,19 @@ fn candidate_audit_pages_classify_without_recounting_or_writes() {
         ]
     );
     assert!(rows[2].confirmed_usage.is_none());
+    assert_eq!(rows[0].comparison.candidate_usage_valid, Some(true));
+    assert_eq!(
+        rows[0].comparison.candidate_minus_source_nanoseconds,
+        Some(0)
+    );
+    assert_eq!(rows[1].comparison.candidate_id.as_deref(), Some("missing"));
+    assert!(rows[1].comparison.candidate_usage.is_none());
+    assert_eq!(
+        rows[4].comparison.mismatches,
+        [CandidateMismatch::Input, CandidateMismatch::Total]
+    );
+    assert_eq!(rows[5].comparison.linked_records, 2);
+    assert_eq!(rows[6].comparison.linked_records, 2);
     assert_eq!(
         rows.iter()
             .filter_map(|row| row.confirmed_usage)

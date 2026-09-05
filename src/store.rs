@@ -18,6 +18,7 @@ use crate::types::{
 };
 
 mod account_repository;
+mod candidate_comparison;
 mod core_repository;
 mod dashboard_repository;
 mod ingest_repository;
@@ -96,9 +97,45 @@ pub enum CandidateOverlapStatus {
 #[serde(rename_all = "camelCase")]
 pub struct CandidateAuditRow {
     pub cursor: RetainedRequestCursor,
+    pub source_model: Option<String>,
     pub status: CandidateOverlapStatus,
     pub quality: DataQuality,
     pub confirmed_usage: Option<TokenUsage>,
+    pub comparison: CandidateComparison,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateMismatch {
+    SourceUnconfirmed,
+    Thread,
+    Model,
+    Input,
+    CacheRead,
+    CacheWrite,
+    CacheWriteCoverage,
+    Output,
+    Reasoning,
+    Total,
+    TimeOutsideTolerance,
+    UnverifiableTime,
+    InvalidCandidateUsage,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateComparison {
+    pub status: CandidateOverlapStatus,
+    pub candidate_id: Option<String>,
+    pub candidate_at: Option<String>,
+    pub candidate_thread_id: Option<String>,
+    pub candidate_model: Option<String>,
+    pub candidate_usage: Option<TokenUsage>,
+    pub candidate_usage_valid: Option<bool>,
+    pub linked_records: u64,
+    /// Positive means the candidate is later than the retained observation.
+    pub candidate_minus_source_nanoseconds: Option<i64>,
+    pub mismatches: Vec<CandidateMismatch>,
 }
 
 #[derive(Debug, Serialize)]

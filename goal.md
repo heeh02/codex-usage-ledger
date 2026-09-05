@@ -814,3 +814,18 @@ No live data migration, installed-app replacement or release has occurred.
   three API contracts pass. No real ledger/source import or native installation
   occurred. Global overlap coverage, counterpart-level explanation, replacing
   max-per-thread/day source selection and historical repair receipts remain open.
+- Batch 106: previous turn added a read-only audit command. Audit format v2 now
+  includes counterpart ID/time/thread/model/token evidence, validity, global
+  link count and signed timestamp delta, plus field-level differences across
+  all token components and dimensions. Source models are explicit; dangling
+  links keep their ID without invented counterpart usage. Shared-candidate
+  classification remains distinct from numerical consistency, and unknown
+  source placeholders are not compared as measured token amounts. Single-row
+  and paged status logic now share one comparison implementation. Tests cover
+  component changes, >250ms timing, malformed timestamps, shared cross-page
+  links, nulls and CLI format v2. A synthetic invalid-total DB write was correctly
+  rejected by existing triggers; invalid-counterpart testing was moved into the
+  pure comparison function instead of weakening storage guards. Final full
+  Rust 151 tests, Clippy, API contracts and governance checks pass. No persisted
+  totals, source selection, real ledger or installed app were modified. Whole-
+  history overlap measurement and validated replacement accounting remain open.
