@@ -166,3 +166,6 @@ No live data migration, installed-app replacement or release has occurred.
   invalid timezone and oversized pagination/search parameters before storage.
   Targeted asynchronous regression verifies HTTP 400 and that storage is never
   called for invalid inputs; Clippy passes. Custom-range implementation remains.
+- Batch 11: narrow layouts retain conversation usage, agent own usage and export
+  by wrapping/reflowing. Added a 560px interaction regression; browser execution
+  remains pending the test-browser launch restriction. Build validation is local.

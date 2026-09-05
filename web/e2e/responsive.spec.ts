@@ -103,3 +103,14 @@ test('child navigation changes the detail and supports returning to its parent',
   await page.getByRole('button', { name: '返回上级聊天', exact: true }).click();
   await expect(page.locator('.workspace-heading h1')).toHaveText('Audit parser boundaries and fixtures');
 });
+
+test('narrow conversation list keeps usage and export visible', async ({ page }) => {
+  await page.setViewportSize({ width: 560, height: 820 });
+  await page.goto('/');
+  await page.locator('.mobile-page-select').selectOption('proj-atlas');
+  await page.locator('.project-view-tabs button').last().click();
+  await expect(page.locator('.session-usage').first()).toBeVisible();
+  await expect(page.locator('.export-menu > button')).toBeVisible();
+  await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
+  await expect(page.locator('.agent-own').first()).toBeVisible();
+});
