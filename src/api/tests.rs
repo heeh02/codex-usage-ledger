@@ -1,6 +1,6 @@
 use super::*;
 
-fn explorer_event(id: &str, thread_id: &str, parent: Option<&str>) -> crate::UsageEvent {
+pub(super) fn explorer_event(id: &str, thread_id: &str, parent: Option<&str>) -> crate::UsageEvent {
     crate::UsageEvent {
         event_id: id.to_owned(),
         observed_at: Utc::now(),

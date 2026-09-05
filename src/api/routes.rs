@@ -179,6 +179,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/breakdowns", get(breakdowns))
         .route("/v1/quality", get(quality))
         .route("/v1/explorer", get(explorer))
+        .route(
+            "/v1/request-evidence",
+            get(super::requests::request_evidence),
+        )
         .route("/v1/bundle", get(bundle))
         .route("/v1/quotas", get(quotas))
         .route("/v1/switches", get(switches))

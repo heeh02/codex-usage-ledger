@@ -346,3 +346,9 @@ No live data migration, installed-app replacement or release has occurred.
   retained request pages. The next integration must explicitly distinguish
   ingest-observed account attribution from the active effective-account filter
   and must not label partial retained observations as complete session usage.
+- Batch 45: dedicated request-evidence HTTP handler exposes thread-own retained
+  observations with explicit incomplete history and ingest-observed attribution.
+  Paired cursors and bounded pages are supported; unknown parameters and invalid
+  query scopes are rejected. Handler regression checks token totals, null turns
+  and invalid-cursor HTTP 400. Targeted test and Clippy pass. Frontend client,
+  typed browser DTO and visible request-table integration remain open.

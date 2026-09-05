@@ -98,6 +98,24 @@ instead. Official and local rows must never be added to each other.
 
 ## JSON export format
 
+## Retained request evidence
+
+`GET /v1/request-evidence` accepts required `threadId`, RFC3339 `start`
+and `end` (half-open), optional `limit` (1–500, default 100), and paired
+`afterTime`/`afterId` from the preceding response's `next` object.
+Unknown parameters are rejected; this endpoint does not silently apply an
+effective account/project filter to ingest-observed attribution.
+
+Responses identify `scope=thread_own_retained_observations`,
+`attribution=ingest_observed`, and `historyComplete=false`. Rows contain
+event ID, effective time, nullable turn/model/observed account/project, both
+attribution confidences, quality and standard token dimensions. `next=null`
+ends the retained page sequence, not evidence of complete lifetime collection.
+Invalid ranges, limits or cursors return 400. The existing loopback boundary
+applies. These observations must not be added to effective aggregate totals.
+
+## Scoped JSON export
+
 JSON exports use `format: codex-usage-ledger.scoped-usage`, `version: 1`,
 `generatedAt` and `rows`. Row field names and scope match the CSV contract.
 Unavailable CSV fields become JSON null, not numeric zero. Session own/tree
