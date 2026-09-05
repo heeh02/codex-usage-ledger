@@ -407,3 +407,10 @@ No live data migration, installed-app replacement or release has occurred.
   without proxying a live ledger; browser interaction remains to be executed.
   Build sequence: initial fixture literals widened enum fields to strings;
   an explicit row return type fixes the TypeScript error. The rebuild passes.
+- Batch 54: isolated production mock preview was exercised in the in-app
+  browser: All conversations to a root session, expand request evidence, advance
+  through 100/100/5-request pages, verify final next disabled, then return to the
+  second page with its expected timestamp bounds. The final return-to-first
+  readback was inconclusive after accessibility indexes changed, so it remains
+  unverified. This is interaction evidence, not full layout or live-account
+  validation. Owned tab/server closed; default production build restored.
