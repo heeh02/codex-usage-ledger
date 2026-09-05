@@ -96,6 +96,13 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
+Current source-identity correctness priority: the explicit
+`copied_log_sources_must_not_duplicate_sampling` regression fails with
+200 instead of 100 after a synthetic log database is copied into the migrated
+source directory. Path-dependent sampling namespaces count overlapping sources
+independently. The known-failing test is labeled ignored, not passed. Fix must
+preserve distinct requests and audit legacy identities, not simply drop a source.
+
 Resolved in batch 72: `exact_window_usage_must_survive_raw_compaction` now
 passes (120 before/after) and is no longer ignored. Exact boundary queries
 prefer raw events, supplement only raw-absent retained events with current
@@ -625,3 +632,8 @@ No live data migration, installed-app replacement or release has occurred.
   tests, full Rust 132 tests, Clippy, three contracts, Web 41 tests/build pass.
   Continuous interval coverage remains an open requirement, not solved by this
   correction. Initial date-prefix assertion was fixed to compare actual UTC time.
+- Batch 91: minimal copied-source fixture demonstrates duplicate counting:
+  one 100-token observation becomes 200 when root and migrated log databases
+  overlap. Explicit regression run FAILED and is preserved as a labeled known
+  failure. No production source or persisted usage was changed. This is a
+  source identity defect, not evidence for any particular real-world total.

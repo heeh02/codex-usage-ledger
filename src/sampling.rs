@@ -967,6 +967,64 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "known gap: copied log sources currently receive distinct sampling IDs"]
+    fn copied_log_sources_must_not_duplicate_sampling() {
+        let temporary = tempdir().unwrap();
+        let home = temporary.path();
+        let rollout = home.join("rollout.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(2);
+        fs::write(&rollout, format!("{}\n", token_line(at, 100))).unwrap();
+        {
+            let state = Connection::open(home.join("state_5.sqlite")).unwrap();
+            state.execute_batch(
+                "CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT NOT NULL);
+                 CREATE TABLE project_roots(project_id TEXT,path TEXT,position INTEGER);
+                 CREATE TABLE threads(id TEXT PRIMARY KEY,rollout_path TEXT,source TEXT,model TEXT,cwd TEXT,project_id TEXT);
+                 INSERT INTO projects VALUES ('project','Synthetic');"
+            ).unwrap();
+            state.execute("INSERT INTO threads VALUES ('thread-1',?1,'vscode','gpt-5.6-sol','/work','project')",
+                [rollout.to_string_lossy().as_ref()]).unwrap();
+            let logs = Connection::open(home.join("logs_2.sqlite")).unwrap();
+            logs.execute_batch(
+                "CREATE TABLE logs(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER,ts_nanos INTEGER,
+                 level TEXT,target TEXT,feedback_log_body TEXT,thread_id TEXT,process_uuid TEXT,estimated_bytes INTEGER);"
+            ).unwrap();
+            insert_log(&logs, at, "shared-turn");
+        }
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            100
+        );
+        fs::create_dir(home.join("sqlite")).unwrap();
+        fs::copy(
+            home.join("logs_2.sqlite"),
+            home.join("sqlite/logs_2.sqlite"),
+        )
+        .unwrap();
+        fs::copy(
+            home.join("state_5.sqlite"),
+            home.join("sqlite/state_5.sqlite"),
+        )
+        .unwrap();
+        ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            100,
+            "a copied source must not become a second model call"
+        );
+    }
+
+    #[test]
     fn verified_account_epoch_wins_over_overlapping_inferred_history() {
         let at = Utc::now();
         let epochs = vec![
