@@ -651,3 +651,7 @@ No live data migration, installed-app replacement or release has occurred.
   Full Rust 138 tests passed before final strengthened replay assertions;
   targeted receipt/replay/upgrade checks and Clippy pass afterward. No live
   migration or retrospective duplicate cleanup occurred.
+- Batch 94: copied-source regression now appends a genuinely new request only
+  to the migrated source. The duplicate stays excluded, the new 150 tokens are
+  counted once (total 250), and a subsequent idle pass reads no new evidence.
+  Targeted regression passes; source removal/reset continuity is still open.

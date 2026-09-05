@@ -1089,6 +1089,30 @@ mod tests {
             100,
             "a copied source must not become a second model call"
         );
+        let next_at = at + chrono::Duration::seconds(1);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 150)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(home.join("sqlite/logs_2.sqlite")).unwrap();
+            insert_log(&migrated, next_at, "new-migrated-turn");
+        }
+        let report = ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(report.inserted_events, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let idle = ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(idle.observations, 0);
+        assert_eq!(idle.bytes_read, 0);
     }
 
     #[test]
