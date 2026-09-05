@@ -705,3 +705,22 @@ No live data migration, installed-app replacement or release has occurred.
   recorded-zero semantics. Initial auth/catalog failures, HTTP task supervision,
   repeated warning-log volume, full viewport/bilingual interaction matrix and
   shadow/live migration acceptance remain open.
+- Batch 100: the previous turn made source-lifecycle progress and exposed an
+  empty-ledger 100% match rate in the actual browser. A synthetic regression
+  first reproduced that incorrect value. Summary match/cache rates and local
+  daily average now return null when their denominator/sample is absent;
+  the resolved local total is unknown/null without confirmed events. Recorded
+  zero-token events remain numeric zero. Quality states use the same selected
+  window aggregation path. Overview/recent token cards and composition avoid
+  presenting an empty sum as measured zero; recorded request counts stay counts.
+  Mock summary ratios now use actual fixture evidence counts rather than an
+  invented extra denominator. ADR 0002 records the paired-release compatibility
+  change. Full Rust 146 tests, Clippy, Web 43 tests/build and contracts/governance
+  pass. An initial incorrect request-metric literal was caught by typecheck and
+  corrected before the passing Web run. Isolated HTTP-daemon browser acceptance
+  confirmed Chinese/English dashes and no false 100%; English metric notes were
+  then changed from ellipsis to wrapping and visually read back in the rebuilt
+  page. Browser and daemon were stopped; no real ledger or installed app changed.
+  Remaining: propagate/verify no-evidence semantics across all detail/export
+  surfaces, fix crowded English filter layout, full responsive/zoom acceptance,
+  continuous coverage, legacy/source shadow accounting and safe live migration.

@@ -66,7 +66,7 @@ export function OverviewPage({
       }} />
       <details className="overview-secondary panel">
         <summary>{t('overview.composition_details')}</summary>
-        <LocalComposition usage={bundle.summary.usage.confirmed} />
+        <LocalComposition usage={bundle.summary.usage.confirmed} eventCount={bundle.summary.confirmedEvents} />
       </details>
       <details className="overview-secondary panel">
         <summary>{t('overview.evidence_details')}</summary>

@@ -197,12 +197,15 @@ function PulseMetric({ label, value, detail, tone = 'default' }: { label: string
 export function LocalUsagePulse({ explorer, summary, metric }: { explorer: ExplorerResponse; summary: SummaryResponse; metric: MetricKey }) {
   const { t } = useI18n();
   const usage = summary.usage.confirmed;
+  const hasEvidence = summary.confirmedEvents > 0;
+  const amount = (value: number) => hasEvidence ? compactNumber(value) : '—';
+  const detail = hasEvidence ? t('components.explorer.selected_period') : t('usage.no_confirmed_records');
   return <section className="explorer-pulse" aria-label={t('app.local_attribution')}>
-    <PulseMetric label={metricLabel(metric)} value={compactNumber(metricValue(usage, metric, summary.confirmedEvents))} detail={t('app.local_attribution')} tone="blue" />
-    <PulseMetric label={t('components.explorer.cache_read')} value={compactNumber(usage.cached)} detail={formatPercent(summary.cacheRate)} tone="green" />
-    <PulseMetric label={t('components.explorer.output')} value={compactNumber(usage.output)} detail={t('components.explorer.selected_period')} tone="purple" />
-    <PulseMetric label={t('components.ui.requests')} value={compactNumber(summary.confirmedEvents)} detail={t('components.explorer.selected_period')} tone="green" />
-    <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={compactNumber(explorer.stats.localRecent15Minutes.total)} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
+    <PulseMetric label={metricLabel(metric)} value={metric === 'requests' ? compactNumber(summary.confirmedEvents) : amount(metricValue(usage, metric, summary.confirmedEvents))} detail={detail} tone="blue" />
+    <PulseMetric label={t('components.explorer.cache_read')} value={amount(usage.cached)} detail={hasEvidence ? formatPercent(summary.cacheRate) : detail} tone="green" />
+    <PulseMetric label={t('components.explorer.output')} value={amount(usage.output)} detail={detail} tone="purple" />
+    <PulseMetric label={t('components.ui.requests')} value={compactNumber(summary.confirmedEvents)} detail={detail} tone="green" />
+    <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={explorer.stats.localRecent15Events > 0 ? compactNumber(explorer.stats.localRecent15Minutes.total) : '—'} detail={explorer.stats.localRecent15Events > 0 ? t('components.explorer.local_attributed_activity_not_quota_burn_rate') : t('usage.no_confirmed_records')} tone="orange" />
   </section>;
 }
 
@@ -242,8 +245,8 @@ export function ExplorerPulse({ explorer, summary, metric }: { explorer: Explore
       <PulseMetric label={t('components.attribution-coverage-panel.account_total')} value={selected === null ? '—' : `${isLowerBound ? '≥ ' : ''}${compactNumber(selected)}`} detail={displayDetail} tone="blue" />
       <PulseMetric label={t('components.explorer.vs_previous_period')} value={delta === null ? '—' : `${delta >= 0 ? '+' : ''}${formatPercent(delta)}`} detail={previous === null ? t('components.explorer.no_comparable_coverage') : summary.official.previousDisplayIsLowerBound || isLowerBound ? t('components.explorer.current_or_previous_period_is_only_a') : `${t('components.explorer.previous')} ${compactNumber(previous)}`} tone={delta !== null && delta > 0 ? 'orange' : 'green'} />
       <PulseMetric label={averageLabel} value={averageAvailable && selected !== null ? `${isLowerBound ? '≥ ' : ''}${compactNumber(selected / averageDivisor)}` : '—'} detail={averageAvailable ? `${t('components.explorer.across')} ${officialPointCount} ${t('components.explorer.covered_tail')} ${averageGrain === 'week' ? t('components.explorer.weeks') : averageGrain === 'month' ? t('components.explorer.months') : t('components.explorer.days')}` : t('components.explorer.account_coverage_is_insufficient_for_a_comparable')} tone="green" />
-      <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={compactNumber(recent)} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
-      <PulseMetric label={t('components.explorer.local_composition_sample')} value={compactNumber(summary.usage.confirmed.total)} detail={t('components.explorer.four_bucket_composition_covers_matched_local_events')} tone="purple" />
+      <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={stats.localRecent15Events > 0 ? compactNumber(recent) : '—'} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
+      <PulseMetric label={t('components.explorer.local_composition_sample')} value={summary.confirmedEvents > 0 ? compactNumber(summary.usage.confirmed.total) : '—'} detail={summary.confirmedEvents > 0 ? t('components.explorer.four_bucket_composition_covers_matched_local_events') : t('usage.no_confirmed_records')} tone="purple" />
     </section>
   );
 }

@@ -2,8 +2,9 @@ import type { TokenUsage } from '../api/types';
 import { compactNumber, formatPercent } from '../lib';
 import { useI18n } from '../i18n';
 
-export function LocalComposition({ usage }: { usage: TokenUsage }) {
+export function LocalComposition({ usage, eventCount }: { usage: TokenUsage; eventCount: number }) {
   const { t } = useI18n();
+  if (eventCount === 0) return <section className="local-composition"><p>{t('usage.no_confirmed_records')}</p></section>;
   const rows = [
     { label: t(usage.cacheWriteCoverage >= 0.999 ? 'components.ui.input_uncached' : 'components.explorer.input_unsplit'), value: usage.uncached, color: 'var(--orange)' },
     { label: t('components.explorer.cache_read'), value: usage.cached, color: 'var(--accent)' },

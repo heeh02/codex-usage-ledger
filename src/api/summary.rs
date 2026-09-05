@@ -6,8 +6,11 @@ pub(super) fn http_summary(
 ) -> Result<serde_json::Value, StoreError> {
     let (base, period) = filter_and_period(query, DataQuality::Confirmed);
     let confirmed = aggregate_selected_period(store, query, &base, &period)?;
-    let quarantined = aggregate_for_quality(store, &base, DataQuality::Quarantined)?;
-    let unknown = aggregate_for_quality(store, &base, DataQuality::Unknown)?;
+    let mut quality_filter = base.clone();
+    quality_filter.quality = Some(DataQuality::Quarantined);
+    let quarantined = aggregate_selected_period(store, query, &quality_filter, &period)?;
+    quality_filter.quality = Some(DataQuality::Unknown);
+    let unknown = aggregate_selected_period(store, query, &quality_filter, &period)?;
     let previous =
         if let (Some(start), Some(end)) = (period.comparison_start, period.comparison_end) {
             let mut previous_filter = base.clone();
@@ -17,11 +20,8 @@ pub(super) fn http_summary(
         } else {
             None
         };
-    let cache_rate = if confirmed.usage.input_tokens == 0 {
-        0.0
-    } else {
-        confirmed.usage.cached_input_tokens as f64 / confirmed.usage.input_tokens as f64
-    };
+    let cache_rate = (confirmed.usage.input_tokens > 0)
+        .then(|| confirmed.usage.cached_input_tokens as f64 / confirmed.usage.input_tokens as f64);
     let previous_total = previous
         .as_ref()
         .map(|aggregate| aggregate.usage.total_tokens)
@@ -45,11 +45,8 @@ pub(super) fn http_summary(
         .event_count
         .saturating_add(quarantined.event_count)
         .saturating_add(unknown.event_count);
-    let match_rate = if evidence_events == 0 {
-        1.0
-    } else {
-        confirmed.event_count as f64 / evidence_events as f64
-    };
+    let match_rate =
+        (evidence_events > 0).then(|| confirmed.event_count as f64 / evidence_events as f64);
     // Account totals are a stable account/time metric. Project, model, session,
     // and selected local token dimensions must never change their definition.
     let mut account_query = query.clone();
@@ -80,9 +77,13 @@ pub(super) fn http_summary(
     });
     let account_total_metric = resolved_account_total_metric(query, &period, &official);
     let local_attributed_metric = ResolvedMetric {
-        value: Some(confirmed.usage.total_tokens),
+        value: (confirmed.event_count > 0).then_some(confirmed.usage.total_tokens),
         source: MetricSource::Local,
-        status: MetricStatus::LocalSample,
+        status: if confirmed.event_count > 0 {
+            MetricStatus::LocalSample
+        } else {
+            MetricStatus::Unknown
+        },
         window_start: period.start,
         window_end: period.end,
         timezone: period.timezone.clone(),
@@ -132,7 +133,7 @@ pub(super) fn http_summary(
             "deltaPercent": delta_percent,
             "available": period.comparison_start.is_some(),
         },
-        "averagePerDay": confirmed.usage.total_tokens as f64 / elapsed_days,
+        "averagePerDay": (confirmed.event_count > 0).then_some(confirmed.usage.total_tokens as f64 / elapsed_days),
         "matchRate": match_rate,
         "unmatchedEvents": unknown.event_count,
         "latestConfirmedAt": latest_confirmed_at(store)?,

@@ -2922,11 +2922,17 @@
           "$ref": "#/$defs/AttributionCoverage"
         },
         "averagePerDay": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "cacheRate": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "comparison": {
@@ -2949,7 +2955,10 @@
           ]
         },
         "matchRate": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "metrics": {

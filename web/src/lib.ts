@@ -23,7 +23,8 @@ export function exactNumber(value: number): string {
   return new Intl.NumberFormat(locale()).format(Math.round(value));
 }
 
-export function formatPercent(value: number): string {
+export function formatPercent(value: number | null): string {
+  if (value === null) return '—';
   return new Intl.NumberFormat(locale(), { style: 'percent', maximumFractionDigits: 1 }).format(value);
 }
 

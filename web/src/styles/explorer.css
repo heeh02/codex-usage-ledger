@@ -304,11 +304,12 @@
 }
 
 .pulse-metric small {
-  overflow: hidden;
+  overflow: visible;
   color: var(--faint);
   font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 .tone-green i { background: var(--accent); }

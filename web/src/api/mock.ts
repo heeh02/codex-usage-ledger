@@ -927,9 +927,9 @@ export class MockLedgerApi implements LedgerApi {
           definitionId: 'account_total_v1',
         },
         localAttributedTotal: {
-          value: usage.confirmed.total,
+          value: confirmedEvents > 0 ? usage.confirmed.total : null,
           source: 'local',
-          status: 'local_sample',
+          status: confirmedEvents > 0 ? 'local_sample' : 'unknown',
           windowStart: period.start,
           windowEnd: period.end,
           timezone: period.timezone,
@@ -945,7 +945,7 @@ export class MockLedgerApi implements LedgerApi {
         },
       },
       confirmedEvents,
-      cacheRate: usage.confirmed.input ? usage.confirmed.cached / usage.confirmed.input : 0,
+      cacheRate: usage.confirmed.input ? usage.confirmed.cached / usage.confirmed.input : null,
       latestConfirmedAt: confirmedDates.length ? `${confirmedDates.sort().at(-1)}T10:00:00.000Z` : null,
       quotaPools: buildQuotaPools(this.anchor, filters),
       quotaCycles: buildQuotaPools(this.anchor, filters).map((pool) => ({
@@ -979,8 +979,8 @@ export class MockLedgerApi implements LedgerApi {
         available: false,
         previousEvents: 0,
       },
-      averagePerDay: usage.confirmed.total / Math.max(periodDays(filters.period), 1),
-      matchRate: confirmedEvents ? confirmedEvents / Math.max(confirmedEvents + 2, 1) : 1,
+      averagePerDay: confirmedEvents > 0 ? usage.confirmed.total / Math.max(periodDays(filters.period), 1) : null,
+      matchRate: facts.some(fact => fact.events > 0) ? confirmedEvents / facts.reduce((sum, fact) => sum + fact.events, 0) : null,
       unmatchedEvents: facts.filter((fact) => fact.quality === 'unknown').reduce((sum, fact) => sum + fact.events, 0),
       reconciliation: {
         comparable: false,

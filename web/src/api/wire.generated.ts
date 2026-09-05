@@ -342,14 +342,14 @@ export interface QualityStateSummary {
 }
 export interface SummaryResponse {
   attributionCoverage: AttributionCoverage;
-  averagePerDay: number;
-  cacheRate: number;
+  averagePerDay: number | null;
+  cacheRate: number | null;
   comparison: SummaryComparison;
   confirmedEvents: number;
   filters: FilterCatalog;
   generatedAt: string;
   latestConfirmedAt: string | null;
-  matchRate: number;
+  matchRate: number | null;
   metrics: SummaryMetrics;
   missingAccountEstimate: MissingAccountEstimate;
   mode: DataMode;

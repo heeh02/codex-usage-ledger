@@ -36,6 +36,14 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+Summary `matchRate`, `cacheRate`, and `averagePerDay` are required nullable
+numbers. Empty denominators or absent confirmed samples return null, not a
+fabricated rate or average. `metrics.localAttributedTotal` is unknown/null
+without confirmed events; recorded zero events retain a numeric zero sample.
+Additive usage/count structures remain available for conservation, not as proof
+of observed zero activity. Deploy this contract with its matching dashboard;
+see [empty evidence semantics](../adr/0002-empty-evidence-metrics.md).
+
 Collection phase `degraded` indicates that at least one local sampling, quota
 or reconstruction step failed and will retry. Existing ledger facts remain
 available; missing updates are not zero usage. `message` contains stable source

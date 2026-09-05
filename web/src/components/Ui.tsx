@@ -230,7 +230,7 @@ export function DataStatusStrip({ summary, page }: { summary: SummaryResponse; p
   return (
     <aside className="data-status-strip" aria-label={t('components.ui.data_status')}>
       <span className="period-window-label" title={`${t('components.ui.exact_local_window')} ${formatPeriodRange(summary.period)}; ${scopeRange}`}><strong>{globalPage ? periodLabel(summary.period.key) : compactScope}</strong>{globalPage ? ` ${scopeRange}` : ''}{summary.period.crossesMonth && <b>{t('app.cross_month')}</b>}{summary.period.partial && <em>{t('components.ui.in_progress')}</em>}</span>
-      <span title={t('components.ui.calculated_by_request_count_confirmed_confirmed_quaranti')}><i className={summary.matchRate >= 0.98 ? 'is-good' : 'is-warning'} />{t('components.ui.request_match')} <strong>{formatPercent(summary.matchRate)}</strong></span>
+      <span title={t('components.ui.calculated_by_request_count_confirmed_confirmed_quaranti')}><i className={summary.matchRate === null ? '' : summary.matchRate >= 0.98 ? 'is-good' : 'is-warning'} />{t('components.ui.request_match')} <strong>{formatPercent(summary.matchRate)}</strong></span>
       <span>{t('components.ui.unmatched')} <strong>{exactNumber(summary.unmatchedEvents)}</strong></span>
       {globalPage && <span title={`${t('components.ui.common_coverage')} ${summary.official.commonCoverageStart ?? '—'} → ${summary.official.commonCoverageThrough ?? '—'}; ${t('components.ui.latest_account')} ${summary.official.latestCoverageThrough ?? '—'}`}>{t('components.ui.official_accounts')} <strong>{summary.official.accountCount}/{summary.official.knownAccountCount}</strong></span>}
       <span>{t('components.ui.last_sync')} <strong>{formatDateTime(summary.official.observedAt)}</strong></span>

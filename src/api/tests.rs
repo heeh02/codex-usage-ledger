@@ -1,6 +1,48 @@
 use super::*;
 
 #[test]
+fn empty_unknown_and_recorded_zero_summary_have_distinct_meanings() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let query = UsageQuery {
+        period: Some("lifetime".into()),
+        ..Default::default()
+    };
+    let empty = http_summary(&store, &query).unwrap();
+    assert!(empty["matchRate"].is_null());
+    assert!(empty["cacheRate"].is_null());
+    assert!(empty["averagePerDay"].is_null());
+    assert!(empty["metrics"]["localAttributedTotal"]["value"].is_null());
+    assert_eq!(
+        empty["metrics"]["localAttributedTotal"]["status"],
+        "unknown"
+    );
+    let mut unknown = explorer_event("unknown-sample", "unknown-thread", None);
+    unknown.quality = DataQuality::Unknown;
+    store.upsert_event(&unknown).unwrap();
+    let unconfirmed = http_summary(&store, &query).unwrap();
+    assert_eq!(unconfirmed["matchRate"], 0.0);
+    assert!(unconfirmed["metrics"]["localAttributedTotal"]["value"].is_null());
+    let mut zero = explorer_event("recorded-zero", "zero-thread", None);
+    zero.usage = TokenUsage::default();
+    zero.model = Some("zero-model".into());
+    store.upsert_event(&zero).unwrap();
+    let zero_query = UsageQuery {
+        model: Some("zero-model".into()),
+        ..query
+    };
+    let recorded = http_summary(&store, &zero_query).unwrap();
+    assert_eq!(recorded["confirmedEvents"], 1);
+    assert_eq!(recorded["matchRate"], 1.0);
+    assert!(recorded["cacheRate"].is_null());
+    assert_eq!(recorded["metrics"]["localAttributedTotal"]["value"], 0);
+    assert_eq!(
+        recorded["metrics"]["localAttributedTotal"]["status"],
+        "local_sample"
+    );
+    assert_eq!(recorded["averagePerDay"], 0.0);
+}
+
+#[test]
 fn local_period_coverage_is_unknown_and_first_record_is_scope_specific() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let query = UsageQuery {
