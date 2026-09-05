@@ -60,6 +60,7 @@ function App() {
   const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
   const [sessionView, setSessionView] = useState<SessionViewState>(() => restoredSessionValue('ledger.sessionView', INITIAL_SESSION_VIEW));
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [sessionTrail, setSessionTrail] = useState<Array<{ id: string; title: string }>>([]);
   const lastRevision = useRef<string | null>(null);
   const backgroundRefreshTimer = useRef<number | null>(null);
   const savedScrollTop = useRef(0);
@@ -168,11 +169,16 @@ function App() {
     setFilters((value) => ({ ...value, account: 'all', project: 'all', model: 'all', session: 'all' }));
   };
   const openProject = (project: string) => {
+    setSessionTrail([]);
     setPrimaryPage('overview');
     setProjectDetailTab('overview');
-    setFilters((value) => ({ ...value, project, session: 'all' }));
+    setFilters((value) => ({ ...value, project, session: 'all', sessionOffset: 0, sessionSearch: '' }));
   };
   const openSession = (session: string) => {
+    const current = bundle?.explorer.selectedSession;
+    if (current && current.id !== session) {
+      setSessionTrail(trail => [...trail, { id: current.id, title: current.title }]);
+    }
     setFilters((value) => ({ ...value, session }));
     api.refreshOfficialThread(session)
       .then(() => setRefreshKey((value) => value + 1))
@@ -311,6 +317,10 @@ function App() {
               <button onClick={openOverview} type="button">Usage</button>
               {selectedProject && <><span>›</span><button onClick={() => openProject(selectedProject.id)} type="button">{selectedProject.label}</button></>}
               {selectedSession && <><span>›</span><strong>Session</strong></>}
+              {selectedSession && sessionTrail.map((ancestor, index) => <button key={`${ancestor.id}-${index}`} onClick={() => {
+                setSessionTrail(trail => trail.slice(0, index));
+                setFilters(value => ({ ...value, session: ancestor.id }));
+              }} type="button">{ancestor.title}</button>)}
               {currentPage === 'accounts' && <><span>›</span><strong>{t('app.accounts_quota')}</strong></>}
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
             </div>
@@ -371,13 +381,17 @@ function App() {
           {bundle && (
             <>
               {error && <div className="inline-error">{t('app.update_failed')}: {error}. {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
-              {currentPage === 'overview' && <OverviewPage bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
+              {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
               {currentPage === 'accounts' && <AccountsPage bundle={bundle} onConfirmAccountCount={confirmAccountCount} />}
               {currentPage === 'quality' && <QualityPage bundle={bundle} metric={appliedFilters.metric} />}
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
-                <ProjectPage bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
+                <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
               )}
-              {currentPage === 'session' && <SessionPage bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} />}
+              {currentPage === 'session' && <SessionPage bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
+                const parent = sessionTrail.at(-1)!;
+                setSessionTrail(trail => trail.slice(0, -1));
+                setFilters(value => ({ ...value, session: parent.id }));
+              } : undefined} />}
             </>
           )}
 

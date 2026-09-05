@@ -34,7 +34,22 @@ because they are inputs rather than bundle response data. A new response field
 must be added to the Rust DTO first; an incompatible removal or enum change
 requires an ADR and release boundary.
 
-## CSV export
+## Conversation pagination
+
+`/v1/explorer` and `/v1/bundle` accept `sessionSearch`, `sessionSort` (tokens,
+output, requests, recent), `sessionOffset` and `sessionLimit` (1–100, default 30).
+The additive optional `explorer.sessionPage` object reports total matches,
+offset, limit, hasMore, search and applied sort. Clients must follow pagination
+to enumerate all roots; the old fixed project cap is no longer a completeness
+boundary. Search is literal substring search, not a SQL wildcard expression.
+
+Scope filtering and usage sorting happen before the page limit. Page/search
+controls do not change summary/chart denominators. Account/model filters only
+include roots with matching usage in the selected period. Existing clients can
+still read `sessions`; updated clients use the page metadata to load the rest.
+No stored event or catalog membership is modified by pagination.
+
+## CSV export format
 
 The dashboard CSV is a source-tagged table, not a join driven by official dates.
 Each local bucket is exported even if official daily activity is unavailable.

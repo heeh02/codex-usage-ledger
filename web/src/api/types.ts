@@ -23,6 +23,10 @@ export interface DashboardFilters {
   session: string;
   metric: MetricKey;
   grain: GrainKey;
+  sessionSearch?: string;
+  sessionSort?: 'tokens' | 'output' | 'requests' | 'recent';
+  sessionOffset?: number;
+  sessionLimit?: number;
 }
 
 export interface LedgerApi {

@@ -1171,3 +1171,9 @@
   background: var(--orange-soft);
   font-size: 8px;
 }
+.conversation-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; }
+.conversation-controls input { min-width: 140px; flex: 1 1 180px; }
+.conversation-controls input, .conversation-controls select, .conversation-controls button { min-height: 32px; border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; color: var(--ink); background: var(--surface-strong); font: inherit; font-size: 13px; }
+.conversation-controls span { font-size: 12px; color: var(--ink-secondary); }
+.conversation-controls button:disabled { opacity: 0.45; }
+.session-parent-back { min-height: 32px; margin: 8px 0; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-strong); color: var(--ink); font-size: 13px; }

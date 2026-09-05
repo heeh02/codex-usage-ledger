@@ -658,6 +658,16 @@
             }
           ]
         },
+        "sessionPage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorerSessionPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "sessions": {
           "type": "array",
           "items": {
@@ -963,6 +973,40 @@
         "subtreeUsage",
         "eventCount",
         "subtreeEventCount"
+      ]
+    },
+    "ExplorerSessionPage": {
+      "type": "object",
+      "properties": {
+        "hasMore": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "number",
+          "format": "double"
+        },
+        "offset": {
+          "type": "number",
+          "format": "double"
+        },
+        "search": {
+          "type": "string"
+        },
+        "sort": {
+          "type": "string"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "total",
+        "offset",
+        "limit",
+        "hasMore",
+        "search",
+        "sort"
       ]
     },
     "ExplorerStandaloneStats": {

@@ -99,8 +99,14 @@ account/model navigation continuity and source-tagged CSV export are implemented
 Scoped interval completeness still remains under A04. Calendar chart coordinates,
 gap breaks, date-aligned comparison and source grain labels are implemented;
 full scoped coverage/comparison validation remains open. Quota sample boundaries
-are fixed. Next: complete conversation pagination/search and actual child
-navigation, followed by the trend-first page layout. Current screenshots still
+are fixed. Conversation pagination/search is implemented with server-side scoped
+ordering, tested against 513 roots; UI controls and a browser regression are
+added. Next: rerun that browser regression when localhost binding is permitted,
+then validate child navigation and implement the trend-first layout. Child clicks
+now request that node's own detail and preserve a return trail; a narrow-screen
+parent button is included. Synthetic child fixtures now conserve descendant
+totals; the in-app browser verified child title/usage/curve switching. Full
+automated navigation and return verification remains open. Current screenshots still
 show excessive page chrome and cramped auxiliary titles; overall GUI acceptance
 is not complete.
 No live data migration, installed-app replacement or release has occurred.
@@ -131,3 +137,21 @@ No live data migration, installed-app replacement or release has occurred.
   build and 7 browser tests pass. A synthetic-data browser visual inspection
   verified readable plot axes, local source legend and persistent values. Its
   temporary browser and dev server were closed. No installed app was replaced.
+- Batch 5: additive sessionPage API and sessionSearch/sessionSort/offset/limit
+  query fields remove the 30/500-root enumeration caps. Search/pagination does
+  not change summary totals. Rust 97 library + 3 binary + 1 schema tests and
+  Clippy pass; Web 19 unit tests, typecheck and build pass. New browser test is
+  unverified: the current sandbox rejects binding the test server to localhost
+  (EPERM). This is an environment restriction, not a passed GUI acceptance.
+- Batch 6: child navigation is wired to the backend session query rather than
+  merely filtering the tree. A parent/child/leaf/sibling fixture verifies child
+  own=120, subtree=240, timeline=240 and exclusion of parent/sibling. Targeted
+  Rust test and schema consistency pass; Web 19 unit tests and build pass.
+  Browser acceptance and mock descendant support remain open.
+- Batch 7: conversation trajectories now use the shared dated, keyboard-readable
+  chart instead of 45px bars. Synthetic child fixtures and a unit conservation
+  check pass. Web 20 unit tests and build pass. Network permission restored
+  localhost serving, but test Chrome exits with SIGABRT before assertions; the
+  automated browser suite remains unverified. In-app browser inspection
+  confirmed child context and exposed/fixed a synthetic tree subtotal mismatch.
+  Temporary preview and test service were closed; installed app unchanged.

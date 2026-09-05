@@ -77,3 +77,29 @@ test('dated chart values stay accessible by keyboard in a narrow window', async 
   await expect(svg.locator('.chart-axis-label').first()).toHaveCSS('font-size', '12px');
   await expect(chart).toBeVisible();
 });
+
+test('conversation search updates the list without changing the project total', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  const total = await page.locator('.scope-metric.is-primary-scope strong').textContent();
+  await page.locator('.project-view-tabs button').last().click();
+  await page.getByRole('textbox', { name: '搜索全部聊天' }).fill('release');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await expect(page.locator('.session-row')).toHaveCount(1);
+  await expect(page.locator('.session-row')).toContainText('Prepare release evidence');
+  await expect(page.locator('.scope-metric.is-primary-scope strong')).toHaveText(total ?? '');
+});
+
+test('child navigation changes the detail and supports returning to its parent', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  await page.locator('.project-view-tabs button').last().click();
+  await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
+  await expect(page.locator('.session-detail-page')).toBeVisible();
+  await page.getByRole('treeitem', { name: /^runtime review,/ }).click();
+  await expect(page.locator('.workspace-heading h1')).toHaveText('runtime review');
+  await expect(page.getByRole('treeitem')).toHaveCount(2);
+  await expect(page.locator('.usage-time-chart')).toBeVisible();
+  await page.getByRole('button', { name: '返回上级聊天', exact: true }).click();
+  await expect(page.locator('.workspace-heading h1')).toHaveText('Audit parser boundaries and fixtures');
+});

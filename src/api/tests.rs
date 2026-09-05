@@ -163,6 +163,124 @@ fn history_coverage_does_not_begin_at_unconfirmed_evidence() {
 }
 
 #[test]
+fn conversation_pages_search_and_rank_the_complete_catalog() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut event = explorer_event("needle-event", "root-0000", None);
+    event.account_fingerprint = Some("account-a".to_owned());
+    store.upsert_event(&event).unwrap();
+    let mut records = Vec::new();
+    for index in 0..513 {
+        let mut record = native_catalog_thread(
+            &format!("root-{index:04}"),
+            None,
+            Some("project"),
+            0,
+            if index == 0 {
+                "Needle conversation"
+            } else {
+                "Ordinary conversation"
+            },
+        );
+        record.updated_at = Utc::now() + ChronoDuration::days(1);
+        records.push(record);
+    }
+    store.upsert_thread_catalog_batch(&records).unwrap();
+    let query = UsageQuery {
+        period: Some("lifetime".to_owned()),
+        ..Default::default()
+    };
+    let first = http_explorer(&store, &query).unwrap();
+    assert_eq!(first["sessionPage"]["total"], 513);
+    assert_eq!(first["sessions"].as_array().unwrap().len(), 30);
+    assert_eq!(first["sessions"][0]["id"], "root-0000");
+    assert_eq!(first["sessionPage"]["hasMore"], true);
+    let last = http_explorer(
+        &store,
+        &UsageQuery {
+            session_offset: Some(510),
+            ..query.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(last["sessions"].as_array().unwrap().len(), 3);
+    assert_eq!(last["sessionPage"]["hasMore"], false);
+    assert_eq!(
+        last["stats"]["selectedPeriod"]["total"],
+        first["stats"]["selectedPeriod"]["total"]
+    );
+    let search = http_explorer(
+        &store,
+        &UsageQuery {
+            session_search: Some("Needle".to_owned()),
+            ..query.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(search["sessionPage"]["total"], 1);
+    assert_eq!(search["sessions"][0]["id"], "root-0000");
+    let absent = http_explorer(
+        &store,
+        &UsageQuery {
+            session_search: Some("%".to_owned()),
+            ..query.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(absent["sessionPage"]["total"], 0);
+    let account = http_explorer(
+        &store,
+        &UsageQuery {
+            account: Some("account-a".to_owned()),
+            ..query
+        },
+    )
+    .unwrap();
+    assert_eq!(account["sessionPage"]["total"], 1);
+}
+
+#[test]
+fn child_detail_recomputes_usage_and_timeline_for_only_its_descendants() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (id, parent) in [
+        ("parent", None),
+        ("child", Some("parent")),
+        ("leaf", Some("child")),
+        ("sibling", Some("parent")),
+    ] {
+        store
+            .upsert_event(&explorer_event(&format!("event-{id}"), id, parent))
+            .unwrap();
+    }
+    let value = http_explorer(
+        &store,
+        &UsageQuery {
+            session: Some("child".to_owned()),
+            period: Some("lifetime".to_owned()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let child = &value["selectedSession"];
+    assert_eq!(child["id"], "child");
+    assert_eq!(child["ownUsage"]["total"], 120);
+    assert_eq!(child["treeUsage"]["total"], 240);
+    let nodes = child["nodes"].as_array().unwrap();
+    assert_eq!(nodes.len(), 2);
+    assert!(
+        nodes
+            .iter()
+            .all(|node| node["id"] != "sibling" && node["id"] != "parent")
+    );
+    let timeline: u64 = child["samplingTimeline"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| point["usage"]["total"].as_u64().unwrap())
+        .sum();
+    assert_eq!(timeline, 240);
+}
+
+#[test]
 fn calendar_and_rolling_periods_have_distinct_shanghai_boundaries() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 8, 0, 0).unwrap();
     let resolve = |period: &str| {

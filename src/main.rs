@@ -185,6 +185,7 @@ async fn main() -> Result<()> {
                     metric: None,
                     ranking_period: None,
                     ranking_sort: None,
+                    ..UsageQuery::default()
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);

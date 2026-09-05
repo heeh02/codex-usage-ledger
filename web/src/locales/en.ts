@@ -1,6 +1,13 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "chats.back_parent": "Back to parent conversation",
+  "chats.search": "Search all conversations",
+  "chats.search_action": "Search",
+  "chats.sort": "Conversation order",
+  "chats.page_count": "{start}–{end} of {total}",
+  "chats.previous": "Previous page",
+  "chats.next": "Next page",
   "components.quota-panel.pool_attribution_unavailable": "The source does not link requests to this pool; account activity is not pool usage",
   "chart.keyboard_hint": "Use arrow keys to inspect values; Home/End for first/last",
   "chart.gaps_unknown": "Missing dates break the line; — means unavailable",

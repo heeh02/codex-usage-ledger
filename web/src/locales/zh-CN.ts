@@ -1,4 +1,11 @@
 export const zhCNMessages = {
+  "chats.back_parent": "返回上级聊天",
+  "chats.search": "搜索全部聊天",
+  "chats.search_action": "搜索",
+  "chats.sort": "聊天排序",
+  "chats.page_count": "第 {start}–{end} 条，共 {total} 条",
+  "chats.previous": "上一页",
+  "chats.next": "下一页",
   "components.quota-panel.pool_attribution_unavailable": "来源未提供请求所属额度池；同期账号活动不能当作该池消耗",
   "chart.keyboard_hint": "左右方向键查看数据，Home/End 跳到首尾",
   "chart.gaps_unknown": "缺失日期不连线；— 表示无可用数据",

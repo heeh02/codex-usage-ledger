@@ -1,7 +1,7 @@
 use super::*;
 
 impl LedgerStore {
-    fn refresh_effective_source_selection(&self) -> StoreResult<()> {
+    pub(super) fn refresh_effective_source_selection(&self) -> StoreResult<()> {
         let dirty: bool = self.connection.query_row(
             "SELECT dirty FROM effective_source_selection_state WHERE id = 1",
             [],

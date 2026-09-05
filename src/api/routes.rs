@@ -14,6 +14,10 @@ pub struct UsageQuery {
     pub metric: Option<String>,
     pub ranking_period: Option<String>,
     pub ranking_sort: Option<String>,
+    pub session_search: Option<String>,
+    pub session_sort: Option<String>,
+    pub session_offset: Option<usize>,
+    pub session_limit: Option<usize>,
 }
 
 #[derive(Debug, thiserror::Error)]

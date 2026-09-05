@@ -323,6 +323,15 @@ pub struct DashboardCatalogThread {
     pub present_in_codex: bool,
 }
 
+pub(crate) struct ConversationPageRequest<'a> {
+    pub project_id: Option<&'a str>,
+    pub filter: &'a AggregateFilter,
+    pub search: &'a str,
+    pub sort: &'a str,
+    pub offset: usize,
+    pub limit: usize,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DashboardCatalogCounts {
     pub current_sessions: usize,

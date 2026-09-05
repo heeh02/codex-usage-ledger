@@ -908,7 +908,19 @@ pub struct ExplorerResponse {
     pub stats: ExplorerStats,
     pub projects: Vec<ExplorerProject>,
     pub sessions: Vec<ExplorerSession>,
+    pub session_page: Option<ExplorerSessionPage>,
     pub selected_session: Option<ExplorerSessionDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerSessionPage {
+    pub total: f64,
+    pub offset: f64,
+    pub limit: f64,
+    pub has_more: bool,
+    pub search: String,
+    pub sort: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

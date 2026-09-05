@@ -796,7 +796,18 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
       latestConfirmedAt: now.toISOString(),
     },
     projects,
-    sessions,
+    sessions: sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase()))
+      .sort((a, b) => filters.sessionSort === 'recent' ? b.updatedAt.localeCompare(a.updatedAt)
+        : filters.sessionSort === 'output' ? b.treeUsage.output - a.treeUsage.output
+          : filters.sessionSort === 'requests' ? b.eventCount - a.eventCount : b.treeUsage.total - a.treeUsage.total)
+      .slice(filters.sessionOffset ?? 0, (filters.sessionOffset ?? 0) + (filters.sessionLimit ?? 30)),
+    sessionPage: {
+      total: sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase())).length,
+      offset: filters.sessionOffset ?? 0,
+      limit: filters.sessionLimit ?? 30,
+      hasMore: (filters.sessionOffset ?? 0) + (filters.sessionLimit ?? 30) < sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase())).length,
+      search: filters.sessionSearch ?? '', sort: filters.sessionSort ?? 'tokens',
+    },
     selectedSession,
   };
 }
@@ -1075,6 +1086,32 @@ export class MockLedgerApi implements LedgerApi {
 
   async getExplorer(filters: DashboardFilters, signal?: AbortSignal): Promise<ExplorerResponse> {
     await delayed(signal);
+    const owner = MOCK_SESSIONS.find(session => session.agents.some(agent => agent.id === filters.session));
+    if (owner) {
+      const result = explorerFor(this.facts, { ...filters, project: owner.projectId, session: owner.id }, this.anchor);
+      const root = result.selectedSession!;
+      const included = new Set([filters.session]);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const node of root.nodes) {
+          if (node.parentId && included.has(node.parentId) && !included.has(node.id)) { included.add(node.id); changed = true; }
+        }
+      }
+      const selected = root.nodes.find(node => node.id === filters.session)!;
+      const nodes = root.nodes.filter(node => included.has(node.id)).map(node => ({ ...node, relativeDepth: node.relativeDepth - selected.relativeDepth }));
+      const total = emptyUsage();
+      nodes.forEach(node => addUsage(total, node.ownUsage));
+      const events = nodes.reduce((sum, node) => sum + node.eventCount, 0);
+      nodes[0].subtreeUsage = total;
+      nodes[0].subtreeEventCount = events;
+      // Synthetic fixtures use one explicit bucket, not fabricated real history.
+      const bucket = root.samplingTimeline[0]?.bucket ?? new Date().toISOString().slice(0, 10);
+      result.selectedSession = { ...root, id: selected.id, title: selected.title, model: selected.model,
+        ownUsage: selected.ownUsage, treeUsage: total, nodes, subagentCount: nodes.length - 1,
+        samplingTimeline: [{ bucket, usage: total, events }],
+        ownSamplingTimeline: [{ bucket, usage: selected.ownUsage, events: selected.eventCount }] };
+      return result;
+    }
     return explorerFor(this.facts, filters, this.anchor);
   }
 

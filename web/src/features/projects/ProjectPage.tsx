@@ -4,8 +4,11 @@ import { ProjectExplorer } from '../../components/Explorer';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
 import { useI18n } from '../../i18n';
 import type { AppPage } from '../../page';
+import { ConversationControls } from '../../components/ConversationControls';
 
 interface ProjectPageProps {
+  filters: DashboardFilters;
+  onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
   page: Extract<AppPage, 'project' | 'conversation' | 'unmatched'>;
   projectId: string;
@@ -18,6 +21,8 @@ interface ProjectPageProps {
 }
 
 export function ProjectPage({
+  filters,
+  onFiltersChange,
   bundle,
   page,
   projectId,
@@ -48,6 +53,7 @@ export function ProjectPage({
       trend={<UsageTrendPanel data={bundle.timeseries} metric={metric} title={title} allowProjectCompare={false} className="project-usage-trend" />}
       modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
       onOpenSession={onOpenSession}
+      conversationControls={<ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} />}
     />
   );
 }

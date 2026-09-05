@@ -338,6 +338,85 @@ impl LedgerStore {
             .map_err(StoreError::from)
     }
 
+    /// Filter and order the whole root catalog by scoped usage before limiting
+    /// rows. Page boundaries never restrict the usage denominator.
+    pub(crate) fn conversation_page(
+        &self,
+        request: &ConversationPageRequest<'_>,
+    ) -> StoreResult<(Vec<DashboardCatalogThread>, u64)> {
+        self.refresh_effective_source_selection()?;
+        let (usage_where, mut values) = build_rollup_filter(request.filter);
+        let mut predicates = vec!["catalog.parent_thread_id IS NULL".to_owned()];
+        if request.filter.account_fingerprint.is_some() || request.filter.model.is_some() {
+            predicates.push("usage.root_thread_id IS NOT NULL".to_owned());
+        }
+        if let Some(project) = request.project_id.filter(|value| *value != "all") {
+            if project == STANDALONE_CONVERSATIONS_PROJECT_ID {
+                predicates.extend([
+                    "COALESCE(catalog.depth, 0) = 0".to_owned(),
+                    "catalog.project_id IS NULL".to_owned(),
+                    "catalog.source_kind = 'state_5'".to_owned(),
+                ]);
+            } else if project == UNASSIGNED_PROJECT_ID {
+                predicates.push("0 = 1".to_owned());
+            } else {
+                predicates.push("catalog.project_id = ?".to_owned());
+                values.push(SqlValue::Text(project.to_owned()));
+            }
+        }
+        if !request.search.trim().is_empty() {
+            predicates.push("(COALESCE(catalog.title, '') LIKE ? ESCAPE '\\' OR catalog.thread_id LIKE ? ESCAPE '\\')".to_owned());
+            let search = format!(
+                "%{}%",
+                request
+                    .search
+                    .trim()
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            );
+            values.extend([SqlValue::Text(search.clone()), SqlValue::Text(search)]);
+        }
+        let order = match request.sort {
+            "recent" => "catalog.updated_at DESC",
+            "output" => "COALESCE(usage.output, 0) DESC",
+            "requests" => "COALESCE(usage.requests, 0) DESC",
+            _ => "COALESCE(usage.tokens, 0) DESC",
+        };
+        let relation = format!(
+            "WITH usage AS (
+                SELECT membership.root_thread_id, SUM(total_tokens) AS tokens,
+                       SUM(output_tokens) AS output, SUM(event_count) AS requests
+                FROM effective_daily_usage_rollups AS daily_usage_rollups
+                JOIN thread_root_membership membership ON membership.thread_id = daily_usage_rollups.thread_key
+                {usage_where} GROUP BY membership.root_thread_id
+             )
+             SELECT {{columns}} FROM thread_catalog catalog
+             LEFT JOIN usage ON usage.root_thread_id = catalog.thread_id
+             WHERE {}", predicates.join(" AND ")
+        );
+        let transaction = self.connection.unchecked_transaction()?;
+        let total: i64 = transaction.query_row(
+            &relation.replace("{columns}", "COUNT(*)"),
+            params_from_iter(values.iter()),
+            |row| row.get(0),
+        )?;
+        let sql = format!("{} ORDER BY {order}, catalog.thread_id ASC LIMIT ? OFFSET ?", relation.replace("{columns}",
+            "catalog.thread_id, catalog.parent_thread_id, catalog.project_id, catalog.project_name, catalog.title, catalog.model,
+             catalog.agent_nickname, catalog.agent_role, catalog.agent_path, COALESCE(catalog.depth, 0), catalog.created_at,
+             catalog.updated_at, catalog.archived, catalog.has_user_event, catalog.source_kind, catalog.present_in_codex"));
+        values.push(SqlValue::Integer(request.limit.clamp(1, 100) as i64));
+        values.push(SqlValue::Integer(
+            i64::try_from(request.offset).unwrap_or(i64::MAX),
+        ));
+        let rows = transaction
+            .prepare(&sql)?
+            .query_map(params_from_iter(values), dashboard_catalog_thread_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        transaction.commit()?;
+        Ok((rows, u64_from_sql(total, 0)?))
+    }
+
     pub fn dashboard_catalog_descendants(
         &self,
         thread_id: &str,

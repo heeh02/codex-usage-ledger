@@ -34,7 +34,7 @@ pub(super) fn http_explorer(
     let project_count = store.project_count()?;
 
     let projects = explorer_projects(store, query)?;
-    let sessions = explorer_sessions(store, query)?;
+    let (sessions, session_page) = explorer_sessions(store, query)?;
     let selected_session = query
         .session
         .as_deref()
@@ -107,6 +107,7 @@ pub(super) fn http_explorer(
         },
         "projects": projects,
         "sessions": sessions,
+        "sessionPage": session_page,
         "selectedSession": selected_session,
     }))
 }
@@ -382,21 +383,30 @@ fn explorer_projects(
 fn explorer_sessions(
     store: &LedgerStore,
     query: &UsageQuery,
-) -> Result<Vec<serde_json::Value>, StoreError> {
-    let roots = catalog_roots(
-        store,
-        query.project.as_deref(),
-        if selected(&query.project).is_some() {
-            500
-        } else {
-            30
-        },
-    )?;
+) -> Result<(Vec<serde_json::Value>, serde_json::Value), StoreError> {
     let mut filter = period_filter(query, query.period.as_deref().unwrap_or("week"));
     filter.project_id = None;
+    let offset = query.session_offset.unwrap_or(0);
+    let limit = query.session_limit.unwrap_or(30).clamp(1, 100);
+    let search = query.session_search.as_deref().unwrap_or("");
+    let sort = query
+        .session_sort
+        .as_deref()
+        .filter(|value| ["tokens", "output", "requests", "recent"].contains(value))
+        .unwrap_or("tokens");
+    let (roots, total) = store.conversation_page(&crate::store::ConversationPageRequest {
+        project_id: query.project.as_deref(),
+        filter: &filter,
+        search,
+        sort,
+        offset,
+        limit,
+    })?;
+    let page = serde_json::json!({ "total": total, "offset": offset, "limit": limit,
+        "hasMore": (offset as u64).saturating_add(roots.len() as u64) < total, "search": search, "sort": sort });
     let now = Utc::now();
     if roots.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), page));
     }
     let root_ids = roots
         .iter()
@@ -409,7 +419,7 @@ fn explorer_sessions(
         .collect::<HashMap<_, _>>();
     let node_counts = store.root_thread_member_counts(&root_ids)?;
 
-    roots
+    let sessions = roots
         .into_iter()
         .map(|root| {
             let usage = usage_by_root
@@ -437,7 +447,8 @@ fn explorer_sessions(
                 "active": root.present_in_codex && updated.is_some_and(|value| now - value < ChronoDuration::minutes(5)),
             }))
         })
-        .collect()
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    Ok((sessions, page))
 }
 
 fn explorer_session_detail(
@@ -608,14 +619,6 @@ fn explorer_session_detail(
         "nodes": nodes,
         "truncated": total_nodes > 800,
     }))
-}
-
-fn catalog_roots(
-    store: &LedgerStore,
-    project_id: Option<&str>,
-    limit: usize,
-) -> Result<Vec<CatalogThread>, StoreError> {
-    store.dashboard_catalog_roots(project_id, limit)
 }
 
 fn catalog_descendants(

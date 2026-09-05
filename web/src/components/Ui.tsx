@@ -97,7 +97,7 @@ export function FilterBar({
             label={t('components.ui.account')}
             value={value.account}
             options={accountOptions}
-            onChange={(account) => onChange({ ...value, account })}
+            onChange={(account) => onChange({ ...value, account, sessionOffset: 0 })}
           />
         </div>
         <div className="period-control" role="group" aria-label={t('components.ui.reporting_period')}>
@@ -106,7 +106,7 @@ export function FilterBar({
               aria-pressed={value.period === period.id}
               className={value.period === period.id ? 'period-option is-selected' : 'period-option'}
               key={period.id}
-              onClick={() => onChange({ ...value, period: period.id })}
+              onClick={() => onChange({ ...value, period: period.id, sessionOffset: 0 })}
               type="button"
             >
               {periodLabel(period.id)}
@@ -128,7 +128,7 @@ export function FilterBar({
             label={t('components.explorer.model')}
             value={value.model}
             options={modelOptions}
-            onChange={(model) => onChange({ ...value, model })}
+            onChange={(model) => onChange({ ...value, model, sessionOffset: 0 })}
           />}
           {showMetric && <FilterSelect
             label={t('components.ui.metric')}

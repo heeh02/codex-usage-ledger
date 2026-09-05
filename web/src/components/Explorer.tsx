@@ -305,6 +305,7 @@ export function ProjectExplorer({
   trend,
   modelBreakdown,
   onOpenSession,
+  conversationControls,
 }: {
   explorer: ExplorerResponse;
   period: PeriodKey;
@@ -315,13 +316,13 @@ export function ProjectExplorer({
   trend?: ReactNode;
   modelBreakdown?: ReactNode;
   onOpenSession: (sessionId: string) => void;
+  conversationControls?: ReactNode;
 }) {
   const { t } = useI18n();
   const { stats } = explorer;
   const standalone = scopeKind === 'standalone_conversations';
   const unmatched = scopeKind === 'unmatched_records';
   const scopeLabel = standalone ? t('app.standalone_chats') : unmatched ? t('components.explorer.unassigned_tokens') : t('components.explorer.project');
-  const periodSessions = explorer.sessions.filter((session) => session.treeUsage.total > 0 || session.active);
   return (
     <div className="explorer-page">
       <section className="scope-metric-grid">
@@ -383,9 +384,10 @@ export function ProjectExplorer({
             <span>{periodLabel(period)}</span>
           </div>
         </header>
-        {periodSessions.length ? (
+        {conversationControls}
+        {explorer.sessions.length ? (
           <div className="session-list">
-            {periodSessions.map((session) => <SessionRow key={session.id} session={session} onOpen={() => onOpenSession(session.id)} />)}
+            {explorer.sessions.map((session) => <SessionRow key={session.id} session={session} onOpen={() => onOpenSession(session.id)} />)}
           </div>
         ) : (
           <EmptyState text={standalone ? t('components.explorer.no_standalone_chats_have_usage_or_activity') : t('components.explorer.no_root_sessions_have_usage_or_activity')} />
@@ -432,11 +434,13 @@ export interface SessionViewState {
   scope: SessionScope;
 }
 
-export function SessionExplorer({ detail, metric, view, onViewChange }: {
+export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSession, trend }: {
   detail: ExplorerSessionDetail | null;
   metric: MetricKey;
   view: SessionViewState;
   onViewChange: (next: SessionViewState) => void;
+  onOpenSession: (session: string) => void;
+  trend?: ReactNode;
 }) {
   const { t } = useI18n();
   const { search, sort, selectedNode, scope } = view;
@@ -522,7 +526,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange }: {
         </section>
       )}
       {!detail.officialThreadUsage && <div className="session-calibration-note">{t('components.explorer.the_official_account_total_remains_valid_the')}</div>}
-      <section className="session-sampling-panel panel" aria-labelledby="sampling-trajectory-heading">
+      {trend ?? <section className="session-sampling-panel panel" aria-labelledby="sampling-trajectory-heading">
         <header><div><p className="eyebrow">{t('components.explorer.valid_usage')}</p><h2 id="sampling-trajectory-heading">{t('components.explorer.usage_trajectory')}</h2></div><span>{scope === 'own' ? t('components.explorer.own') : t('components.explorer.subtree')} · {detail.samplingGrain === 'hour' ? t('components.explorer.hour') : detail.samplingGrain === 'day' ? t('components.explorer.day') : detail.samplingGrain === 'week' ? t('components.explorer.week') : t('components.explorer.month')} · {metricLabel(metric)}</span></header>
         {focusedTimeline.length ? (
           <div className="session-sampling-bars" aria-label={`${scope === 'own' ? t('components.explorer.session_own') : t('components.explorer.session_with_subtree')} ${t('components.explorer.usage_trajectory_9fe0cc')}`}>
@@ -533,7 +537,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange }: {
           </div>
         ) : <EmptyState text={t('components.explorer.no_valid_attributed_usage_trajectory_exists_for')} />}
         {focusedTimeline.length > 0 && <table className="sr-only"><caption>{scope === 'own' ? t('components.explorer.session_own') : t('components.explorer.session_with_subtree')} {t('components.explorer.valid_usage_trajectory_data')}</caption><thead><tr><th>{t('components.explorer.time')}</th><th>{t('components.explorer.usage')}</th><th>{t('components.explorer.requests')}</th></tr></thead><tbody>{focusedTimeline.map((point) => <tr key={point.bucket}><td>{point.bucket}</td><td>{exactNumber(metricValue(point.usage, metric, point.events))}</td><td>{point.events}</td></tr>)}</tbody></table>}
-      </section>
+      </section>}
       <section className="agent-tree-panel panel" aria-labelledby="agent-tree-heading">
         <header className="agent-tree-heading">
           <div><p className="eyebrow">{t('components.explorer.hierarchy')}</p><h2 id="agent-tree-heading">{t('components.explorer.session_subagent_usage')}</h2></div>
@@ -547,7 +551,7 @@ export function SessionExplorer({ detail, metric, view, onViewChange }: {
           <div className="agent-column-labels"><span>{t('components.explorer.cache')}</span><span>{t('components.explorer.own')}</span><span>{t('components.explorer.subtree')}</span></div>
         </header>
         <div className="agent-tree-list" role="tree" aria-label={t('components.explorer.session_and_subagent_hierarchy')} aria-live="polite">
-          {visibleNodes.map((node) => <AgentNodeRow key={node.id} node={node} isRoot={node.id === detail.id} isSelected={node.id === selectedNode} metric={metric} onSelect={() => patchView({ selectedNode: node.id === selectedNode ? null : node.id })} />)}
+          {visibleNodes.map((node) => <AgentNodeRow key={node.id} node={node} isRoot={node.id === detail.id} isSelected={node.id === detail.id} metric={metric} onSelect={() => { if (node.id !== detail.id) onOpenSession(node.id); }} />)}
         </div>
         {visibleNodes.length === 0 && <EmptyState text={t('components.explorer.no_matching_sessions_or_subagents_were_found')} />}
         {visibleNodes.length > 0 && <table className="sr-only"><caption>{t('components.explorer.session_and_subagent_usage_table')}</caption><thead><tr><th>{t('components.explorer.level')}</th><th>{t('components.explorer.name')}</th><th>{t('components.explorer.model')}</th><th>{t('components.explorer.own_usage')}</th><th>{t('components.explorer.subtree')}</th></tr></thead><tbody>{visibleNodes.map((node) => <tr key={node.id}><td>{node.relativeDepth + 1}</td><td>{node.title}</td><td>{node.model ?? t('app.model_unknown')}</td><td>{exactNumber(metricValue(node.ownUsage, metric, node.eventCount))}</td><td>{exactNumber(metricValue(node.subtreeUsage, metric, node.subtreeEventCount))}</td></tr>)}</tbody></table>}

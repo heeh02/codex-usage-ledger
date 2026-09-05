@@ -128,6 +128,7 @@ export interface ExplorerResponse {
   projects: ExplorerProject[];
   rankingWindows: ExplorerRankingWindows;
   selectedSession?: ExplorerSessionDetail | null;
+  sessionPage?: ExplorerSessionPage | null;
   sessions: ExplorerSession[];
   stats: ExplorerStats;
 }
@@ -224,6 +225,14 @@ export interface SamplingTimelinePoint {
   bucket: string;
   events: number;
   usage: TokenUsage;
+}
+export interface ExplorerSessionPage {
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+  search: string;
+  sort: string;
+  total: number;
 }
 export interface ExplorerSession {
   active: boolean;

@@ -1,4 +1,5 @@
-import type { DashboardBundle, MetricKey } from '../../api/types';
+import type { DashboardBundle, DashboardFilters, MetricKey } from '../../api/types';
+import { ConversationControls } from '../../components/ConversationControls';
 import { AttributionCoveragePanel } from '../../components/AttributionCoveragePanel';
 import { BreakdownPanel } from '../../components/BreakdownPanel';
 import { OverviewSessions } from '../../components/Explorer';
@@ -12,6 +13,8 @@ import { useI18n } from '../../i18n';
 export type OverviewDetailTab = 'projects' | 'models' | 'sessions';
 
 interface OverviewPageProps {
+  filters: DashboardFilters;
+  onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
   metric: MetricKey;
   detailTab: OverviewDetailTab;
@@ -22,6 +25,8 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({
+  filters,
+  onFiltersChange,
   bundle,
   metric,
   detailTab,
@@ -63,7 +68,7 @@ export function OverviewPage({
             </>
           )}
           {detailTab === 'models' && <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
-          {detailTab === 'sessions' && <OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} />}
+          {detailTab === 'sessions' && <><ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} /><OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} /></>}
         </div>
       </section>
     </>
