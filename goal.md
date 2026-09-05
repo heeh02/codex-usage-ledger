@@ -293,3 +293,9 @@ No live data migration, installed-app replacement or release has occurred.
   and failure states. Official-sync feedback stays on Accounts, and error
   styling no longer depends on the language of the message. Web 30 tests and
   build pass; button interaction and narrow-layout acceptance remain open.
+- Batch 37: in-app browser reached the synthetic Accounts page and the separate
+  sync action returned a completion message. Inspection found the local-refresh
+  accessibility name still claimed official sync; source now has dedicated
+  bilingual local labels. Web 30 tests and build pass. A subsequent browser read
+  still reported the old label, so runtime delivery/cache validation remains
+  unresolved and is not claimed passed. Owned preview tabs and server closed.

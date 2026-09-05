@@ -523,6 +523,8 @@ export const enMessages = {
   "components.ui.page_scope_is_fixed": "Page scope is fixed",
   "components.ui.reading_summary_timeseries_breakdown_and_quality_contrac": "Reading summary, timeseries, breakdown, and quality contracts.",
   "components.ui.refresh": "Refresh",
+  "components.ui.refresh_local_usage": "Refresh local usage",
+  "components.ui.refreshing_local_usage": "Refreshing local usage",
   "components.ui.refresh_official_account_usage": "Refresh official account usage",
   "components.ui.refreshing_official_account_usage": "Refreshing official account usage",
   "components.ui.reporting_period": "Reporting period",

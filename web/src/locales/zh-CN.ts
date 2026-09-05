@@ -521,6 +521,8 @@ export const zhCNMessages = {
   "components.ui.page_scope_is_fixed": "页面范围已固定",
   "components.ui.reading_summary_timeseries_breakdown_and_quality_contrac": "读取 summary、timeseries、breakdowns 与 quality 契约。",
   "components.ui.refresh": "刷新",
+  "components.ui.refresh_local_usage": "刷新本机用量",
+  "components.ui.refreshing_local_usage": "正在刷新本机用量",
   "components.ui.refresh_official_account_usage": "刷新官方账号用量",
   "components.ui.refreshing_official_account_usage": "正在刷新官方账号用量",
   "components.ui.reporting_period": "统计周期",
