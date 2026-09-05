@@ -1,7 +1,8 @@
-.request-evidence-panel { padding: 16px; border: 1px solid var(--border, #ddd); border-radius: 12px; margin-block: 16px; min-width: 0; }
+.request-evidence-panel { padding: 16px; border: 1px solid var(--border, #ddd); border-radius: 12px; margin-block: 16px; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .request-evidence-panel p { font-size: 14px; line-height: 1.5; }
 .request-evidence-panel > button { margin: 4px 8px 4px 0; }
-.request-evidence-scroll { max-width: 100%; overflow: auto; max-height: 420px; margin-block: 12px; }
-.request-evidence-scroll table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.request-evidence-scroll { max-width: 100%; overflow: auto; max-height: 420px; margin-block: 12px; overscroll-behavior-x: contain; scrollbar-gutter: stable; }
+.request-evidence-scroll:focus-visible { outline: 2px solid var(--accent, #3973db); outline-offset: 2px; }
+.request-evidence-scroll table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 14px; font-variant-numeric: tabular-nums; }
 .request-evidence-scroll th, .request-evidence-scroll td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border, #ddd); white-space: nowrap; }
-.request-evidence-scroll th { font-weight: 600; }
+.request-evidence-scroll th { position: sticky; top: 0; z-index: 1; background: var(--surface-strong, #fff); font-weight: 600; }

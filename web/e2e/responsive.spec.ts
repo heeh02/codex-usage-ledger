@@ -139,4 +139,11 @@ test('request evidence traverses three pages and returns to the exact first row'
   await panel.getByRole('button', { name: '首页', exact: true }).click();
   await expect(rows.first()).toHaveText(first);
   await expect(panel.getByRole('button', { name: '上一页', exact: true })).toBeDisabled();
+  await page.setViewportSize({ width: 560, height: 820 });
+  const scroller = panel.getByRole('region', { name: '可滚动请求表，使用方向键查看其余列' });
+  await scroller.focus();
+  await expect(scroller).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+  await scroller.press('ArrowRight');
+  await expect.poll(() => scroller.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
 });

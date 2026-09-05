@@ -470,3 +470,7 @@ No live data migration, installed-app replacement or release has occurred.
   reasoning-within-output, preserving unavailable values for unknown evidence.
   Display assertions and all 38 Web tests/build pass. Narrow table layout
   with these added columns still requires visual acceptance.
+- Batch 64: request table keeps 14px type, bounded internal horizontal scrolling,
+  sticky column headings and a keyboard-focusable labeled scroll region. Browser
+  regression now specifies 560px page-overflow and keyboard-scroll checks.
+  Web 38 unit tests/build pass; new browser assertions are not executed proof.

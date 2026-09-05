@@ -43,7 +43,7 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
         {page && <><p role="status">{t('requests.page_summary', {
           count: String(page.rows.length), start: page.rows[0]?.at ?? '—', end: page.rows.at(-1)?.at ?? '—',
-        })}</p><div className="request-evidence-scroll"><table aria-label={t('requests.title')}>
+        })}</p><div className="request-evidence-scroll" tabIndex={0} role="region" aria-label={t('requests.scroll_region')}><table aria-label={t('requests.title')}>
           <thead><tr>{(['time', 'turn', 'model', 'total', 'input', 'read', 'write', 'output', 'reasoning', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
           <tbody>{page.rows.map(row => <tr key={row.id}>
             <td><time dateTime={row.at}>{row.at}</time></td>

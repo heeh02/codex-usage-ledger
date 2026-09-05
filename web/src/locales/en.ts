@@ -2,6 +2,7 @@ import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
   "requests.title": "Request evidence",
+  "requests.scroll_region": "Scrollable request table; use arrow keys to inspect more columns",
   "requests.scope": "Own retained observations only; excludes child agents. History is incomplete and these rows are not additional usage. Account/project attribution is ingest-observed.",
   "requests.unavailable_scope": "Select All accounts and All models. Filtered request attribution is not supported yet.",
   "requests.demo": "Synthetic request fixture for pagination testing; not actual usage or a breakdown of the demo chart.",
