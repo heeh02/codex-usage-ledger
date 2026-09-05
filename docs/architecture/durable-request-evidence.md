@@ -60,6 +60,13 @@ neither that overloaded field nor one event per timestamp proves a turn boundary
 
 ## Transaction and upgrade order
 
+Schema 30 separates current request account/project assignments from retained
+observations. New event writes and pre-delete compaction populate assignments;
+metadata-only matching replay does not overwrite a revised assignment.
+Existing compacted records without a recoverable assignment are not assigned
+from a guessed historical observation. Account/project mutation integration
+and exact-boundary consumption of this projection are still pending.
+
 Schema 29 stores the source machine identity separately with retained requests,
 including the pre-delete compaction path. This is required to apply machine-
 scoped historical account epochs to retained detail. Already compacted records

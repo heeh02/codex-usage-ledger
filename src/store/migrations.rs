@@ -3,7 +3,15 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 29;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 30;
+
+const MIGRATION_30: &str = r#"
+CREATE TABLE IF NOT EXISTS retained_request_assignments (
+    event_id TEXT PRIMARY KEY,
+    account_fingerprint TEXT,
+    project_id TEXT
+) WITHOUT ROWID;
+"#;
 
 const MIGRATION_29: &str = r#"
 CREATE TABLE IF NOT EXISTS retained_request_origins (
@@ -175,6 +183,7 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
             27 => transaction.execute_batch(MIGRATION_27)?,
             28 => transaction.execute_batch(MIGRATION_28)?,
             29 => transaction.execute_batch(MIGRATION_29)?,
+            30 => transaction.execute_batch(MIGRATION_30)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

@@ -510,3 +510,9 @@ No live data migration, installed-app replacement or release has occurred.
   before compaction; previous-schema raw records are covered by an upgrade test.
   Targeted retention/upgrade tests and Clippy pass. This is a prerequisite,
   not a fix claim for the still-failing exact-window regression. No live upgrade.
+- Batch 70: schema 30 introduces a distinct current-assignment projection for
+  retained requests. Raw ingestion and compaction populate it; supplemental
+  turn/link replay cannot overwrite revised assignments. Previous-schema raw
+  capture and replay-preservation tests plus Clippy pass. Account/project
+  mutation hooks and source-aware exact queries remain pending, so the known
+  boundary-compaction regression remains unresolved.

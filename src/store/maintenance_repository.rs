@@ -375,7 +375,12 @@ impl LedgerStore {
             params![timestamp(Utc::now())],
         )?;
         transaction.execute_batch(
-            "INSERT INTO retained_request_origins(event_id,machine_id)
+            "INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+             SELECT usage.event_id,usage.account_fingerprint,usage.project_id FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+             WHERE true ON CONFLICT(event_id) DO UPDATE SET
+             account_fingerprint=excluded.account_fingerprint,project_id=excluded.project_id;
+             INSERT INTO retained_request_origins(event_id,machine_id)
              SELECT usage.event_id,usage.machine_id FROM usage_events usage
              JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
              WHERE true ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id;

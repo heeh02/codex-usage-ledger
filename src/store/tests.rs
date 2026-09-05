@@ -897,6 +897,9 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
     let mut fact = event("turn-request", DataQuality::Confirmed, 10);
     let legacy_hash = event_hash(&fact).unwrap();
     store.upsert_event(&fact).unwrap();
+    store.connection.execute(
+        "UPDATE retained_request_assignments SET project_id='revised-project' WHERE event_id='turn-request'", []
+    ).unwrap();
     fact.provenance.source_turn_id = Some("explicit-turn".into());
     fact.provenance.candidate_rollout_event_id = Some("reconstruction:synthetic".into());
     assert_eq!(event_hash(&fact).unwrap(), legacy_hash);
@@ -910,6 +913,18 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
         )
         .unwrap();
     assert_eq!(turn, "explicit-turn");
+    let assignment: String = store
+        .connection
+        .query_row(
+            "SELECT project_id FROM retained_request_assignments WHERE event_id='turn-request'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        assignment, "revised-project",
+        "metadata-only replay must not reset current assignment"
+    );
     let mut another = fact.clone();
     another.event_id = "second-request-same-turn".into();
     another.provenance.byte_offset = 20;
@@ -1101,6 +1116,46 @@ fn schema_29_captures_existing_raw_origins_before_compaction() {
         .unwrap();
     assert_eq!(machine, "machine");
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn schema_30_captures_raw_assignments_without_inventing_compacted_history() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema29.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("assignment-upgrade", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_assignments;
+             DELETE FROM schema_migrations WHERE version=30;
+             PRAGMA user_version=29;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    let before: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_assignments",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(before, 0);
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let assignment: (String,String) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id FROM retained_request_assignments WHERE event_id='assignment-upgrade'",
+        [], |row| Ok((row.get(0)?,row.get(1)?))
+    ).unwrap();
+    assert_eq!(assignment, ("acct-fp".into(), "project-1".into()));
 }
 
 #[test]

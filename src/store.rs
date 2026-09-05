@@ -697,7 +697,7 @@ fn upsert_event_in(
         if event.provenance.source_turn_id.is_some()
             || event.provenance.candidate_rollout_event_id.is_some()
         {
-            retain_request_evidence_in(transaction, event)?;
+            retain_request_evidence_in(transaction, event, false)?;
         }
         return Ok(UpsertOutcome::Unchanged);
     }
@@ -784,7 +784,7 @@ fn upsert_event_in(
             sql_u64(event.provenance.line_number, "line_number")?,
         ],
     )?;
-    retain_request_evidence_in(transaction, event)?;
+    retain_request_evidence_in(transaction, event, true)?;
     Ok(if old_hash.is_some() {
         UpsertOutcome::Updated
     } else {
@@ -850,7 +850,7 @@ fn upsert_compact_event_in(
             if event.provenance.source_turn_id.is_some()
                 || event.provenance.candidate_rollout_event_id.is_some()
             {
-                retain_request_evidence_in(transaction, event)?;
+                retain_request_evidence_in(transaction, event, false)?;
             }
             return Ok(UpsertOutcome::Unchanged);
         }
@@ -873,7 +873,7 @@ fn upsert_compact_event_in(
         params![event.event_id, new_hash, timestamp(Utc::now())],
     )?;
     upsert_rollup_delta_in(transaction, event)?;
-    retain_request_evidence_in(transaction, event)?;
+    retain_request_evidence_in(transaction, event, true)?;
     Ok(UpsertOutcome::Inserted)
 }
 
@@ -882,7 +882,19 @@ fn upsert_compact_event_in(
 fn retain_request_evidence_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
+    update_assignment: bool,
 ) -> StoreResult<()> {
+    transaction.execute(
+        "INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+         VALUES (?1,?2,?3) ON CONFLICT(event_id) DO UPDATE SET
+         account_fingerprint=excluded.account_fingerprint, project_id=excluded.project_id WHERE ?4",
+        params![
+            event.event_id,
+            event.account_fingerprint,
+            event.project.project_id,
+            update_assignment
+        ],
+    )?;
     transaction.execute(
         "INSERT INTO retained_request_origins(event_id,machine_id) VALUES (?1,?2)
          ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id",
