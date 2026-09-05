@@ -21,6 +21,10 @@ function queryString(filters: DashboardFilters): string {
   });
   if (filters.grain !== 'auto') params.set('grain', filters.grain);
   if (filters.session !== 'all') params.set('session', filters.session);
+  if (filters.period === 'custom') {
+    if (filters.startDate) params.set('startDate', filters.startDate);
+    if (filters.endDate) params.set('endDate', filters.endDate);
+  }
   if (filters.sessionSearch) params.set('sessionSearch', filters.sessionSearch);
   if (filters.sessionSort) params.set('sessionSort', filters.sessionSort);
   if (filters.sessionOffset) params.set('sessionOffset', String(filters.sessionOffset));

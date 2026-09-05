@@ -1,4 +1,8 @@
 export const zhCNMessages = {
+  "dates.custom": "自定义日期",
+  "dates.start": "开始日期",
+  "dates.end": "结束日期（含当天）",
+  "dates.apply": "应用日期",
   "diagnostics.account_difference": "待解释的账号差额",
   "diagnostics.difference_explanation": "全项目可比日期中的本机正差，仅用于排查来源、时间与归属问题；不能认定为缺失账号用量，也不分摊给项目。",
   "chats.title": "全部聊天",

@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { CollectionStatus, DashboardFilters, FilterCatalog, SummaryResponse } from '../api/types';
 import { exactNumber, formatDateTime, formatPercent, formatPeriodRange } from '../lib';
@@ -75,6 +75,9 @@ export function FilterBar({
   onRefresh: () => void;
 }) {
   const { language, t } = useI18n();
+  const [startDate, setStartDate] = useState(value.startDate ?? '');
+  const [endDate, setEndDate] = useState(value.endDate ?? '');
+  useEffect(() => { setStartDate(value.startDate ?? ''); setEndDate(value.endDate ?? ''); }, [value.startDate, value.endDate]);
   const localScope = isWorkDetailPage(page);
   const showModel = page !== 'accounts' && page !== 'quality';
   const showMetric = page !== 'accounts';
@@ -159,6 +162,14 @@ export function FilterBar({
           />}
         </div>
       </div>}
+      <details className="custom-date-picker" open={value.period === 'custom' ? true : undefined}>
+        <summary>{t('dates.custom')}</summary>
+        <form onSubmit={event => { event.preventDefault(); if (startDate && endDate && startDate <= endDate) onChange({ ...value, period: 'custom', startDate, endDate, sessionOffset: 0 }); }}>
+          <label>{t('dates.start')}<input type="date" required value={startDate} max={endDate || undefined} onChange={event => setStartDate(event.target.value)} /></label>
+          <label>{t('dates.end')}<input type="date" required value={endDate} min={startDate || undefined} onChange={event => setEndDate(event.target.value)} /></label>
+          <button type="submit">{t('dates.apply')}</button>
+        </form>
+      </details>
     </section>
   );
 }

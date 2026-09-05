@@ -180,3 +180,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 14: backend custom date windows include the final calendar day and
   reject missing/reversed dates. Cross-month boundary regression passes.
   Date-picker wiring and end-to-end custom-scope conservation remain open.
+- Batch 15: bilingual custom-date picker wired through client query parameters;
+  date filters survive navigation and reset conversation pagination. Demo scope
+  filtering honors the requested dates. Web 20 unit tests and build pass;
+  full custom-range browser and accounting acceptance remain required.

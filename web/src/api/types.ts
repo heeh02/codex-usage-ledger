@@ -23,6 +23,8 @@ export interface DashboardFilters {
   session: string;
   metric: MetricKey;
   grain: GrainKey;
+  startDate?: string;
+  endDate?: string;
   sessionSearch?: string;
   sessionSort?: 'tokens' | 'output' | 'requests' | 'recent';
   sessionOffset?: number;

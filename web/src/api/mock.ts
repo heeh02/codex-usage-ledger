@@ -255,11 +255,11 @@ function periodDays(period: PeriodKey): number {
   return DEMO_DAYS;
 }
 
-function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
+function periodWindow(anchor: Date, period: PeriodKey, filters?: DashboardFilters): PeriodWindow {
   const days = Math.min(periodDays(period), DEMO_DAYS);
   const option = PERIODS.find((item) => item.id === period) ?? PERIODS[2];
-  const start = period === 'year' ? `${anchor.getUTCFullYear()}-01-01` : dateFromOffset(anchor, days - 1);
-  const end = isoDate(anchor);
+  const start = period === 'custom' && filters?.startDate ? filters.startDate : period === 'year' ? `${anchor.getUTCFullYear()}-01-01` : dateFromOffset(anchor, days - 1);
+  const end = period === 'custom' && filters?.endDate ? filters.endDate : isoDate(anchor);
   const windowKind = period === 'rolling7' || period === 'rolling30'
     ? 'rolling'
     : period === 'lifetime'
@@ -267,7 +267,7 @@ function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
       : 'calendar';
   return {
     key: period,
-    label: option.label,
+    label: period === 'custom' ? 'Custom dates' : option.label,
     start,
     end,
     timezone: 'Asia/Shanghai',
@@ -278,7 +278,7 @@ function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
 }
 
 function filterFacts(facts: MockFact[], filters: DashboardFilters, anchor: Date): MockFact[] {
-  const window = periodWindow(anchor, filters.period);
+  const window = periodWindow(anchor, filters.period, filters);
   return facts.filter((fact) => {
     if (fact.date < window.start || fact.date > window.end) return false;
     if (filters.account !== ALL && fact.accountId !== filters.account) return false;
@@ -568,7 +568,7 @@ function buildTimeline(anchor: Date, filters: DashboardFilters): TimelineEvent[]
       confidence: 'verified',
     },
   ];
-  const window = periodWindow(anchor, filters.period);
+  const window = periodWindow(anchor, filters.period, filters);
   return rows.filter((row) => {
     const date = row.at.slice(0, 10);
     if (date < window.start || date > window.end) return false;
@@ -834,7 +834,7 @@ export class MockLedgerApi implements LedgerApi {
     await delayed(signal);
     const facts = filterFacts(this.facts, filters, this.anchor);
     const usage = aggregateByQuality(facts);
-    const period = periodWindow(this.anchor, filters.period);
+    const period = periodWindow(this.anchor, filters.period, filters);
     const accountFacts = filterFacts(this.facts, { ...filters, project: ALL, model: ALL, session: ALL }, this.anchor);
     const official = mockOfficial(buildTimeseries(accountFacts), aggregateByQuality(accountFacts).confirmed.total);
     const confirmedEvents = facts
@@ -945,7 +945,7 @@ export class MockLedgerApi implements LedgerApi {
     official.primaryScope = filters.project === ALL && filters.model === ALL && filters.session === ALL;
     return {
       generatedAt: new Date().toISOString(),
-      period: periodWindow(this.anchor, filters.period),
+      period: periodWindow(this.anchor, filters.period, filters),
       grain: 'day',
       points,
       comparisonPoints: [],
@@ -968,7 +968,7 @@ export class MockLedgerApi implements LedgerApi {
     const facts = filterFacts(this.facts, filters, this.anchor);
     return {
       generatedAt: new Date().toISOString(),
-      period: periodWindow(this.anchor, filters.period),
+      period: periodWindow(this.anchor, filters.period, filters),
       account: buildBreakdown(facts, 'account'),
       project: buildBreakdown(facts, 'project'),
       model: buildBreakdown(facts, 'model'),
@@ -1023,7 +1023,7 @@ export class MockLedgerApi implements LedgerApi {
         description: 'Excluded until attribution or schema evidence becomes sufficient.',
       },
     ];
-    const window = periodWindow(this.anchor, filters.period);
+    const window = periodWindow(this.anchor, filters.period, filters);
     const issues: QualityIssue[] = [
       {
         id: 'foreign-session-meta',

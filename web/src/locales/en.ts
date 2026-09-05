@@ -1,6 +1,10 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "dates.custom": "Custom dates",
+  "dates.start": "Start date",
+  "dates.end": "End date (inclusive)",
+  "dates.apply": "Apply dates",
   "diagnostics.account_difference": "Unexplained account difference",
   "diagnostics.difference_explanation": "Positive local differences across comparable dates and all projects are diagnostic only. They do not identify missing-account usage or allocate usage to projects.",
   "chats.title": "All conversations",
