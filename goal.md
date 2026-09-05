@@ -282,3 +282,9 @@ No live data migration, installed-app replacement or release has occurred.
   scope conservation, unavailable fields, catalog exclusion and stale detail.
   Web 28 tests and build pass. Downloads still carry selected scope identifiers;
   anonymous sharing and browser download acceptance remain open.
+- Batch 35: malformed change-stream notifications no longer throw from the
+  dashboard listener or advance its revision. Only nonempty string revisions
+  and safe nonnegative integer revisions are accepted; unsupported payloads
+  are ignored without clearing current data. Two parser tests cover malformed
+  JSON, null/array/object/boolean values and unsafe numbers. Web 30 tests and
+  production build pass; real stream reconnection acceptance remains open.

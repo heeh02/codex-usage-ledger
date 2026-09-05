@@ -19,6 +19,7 @@ import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
 import { exportUsageCsv, exportUsageJson } from './export';
 import { runScopedRequest } from './shared/requestLifecycle';
+import { parseChangeRevision } from './shared/changeRevision';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -103,8 +104,8 @@ function App() {
     if (api.mode !== 'http') return;
     const source = new EventSource('/v1/changes');
     source.addEventListener('ledger-change', (event) => {
-      const payload = JSON.parse((event as MessageEvent<string>).data) as { revision?: string | number };
-      const revision = String(payload.revision ?? '');
+      const revision = parseChangeRevision((event as MessageEvent<string>).data);
+      if (revision === null) return;
       if (lastRevision.current === null) {
         lastRevision.current = revision;
       } else if (revision && revision !== lastRevision.current) {
