@@ -235,3 +235,5 @@ No live data migration, installed-app replacement or release has occurred.
   and date-to-conversation filtering. Unavailable/out-of-scope days stay distinct
   from recorded zero. Web build passes; calendar interaction/visual acceptance
   and complete coverage semantics remain open.
+- Batch 29: custom-window conservation now also asserts the independent daily
+  calendar series equals summary/project/conversation totals at the boundaries.

@@ -480,6 +480,13 @@ fn custom_window_bundle_conserves_usage_at_both_boundaries() {
         .sum();
     assert_eq!(series, 240);
     assert_eq!(projects, 240);
+    let daily: u64 = bundle["timeseries"]["dailyPoints"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|point| point["confirmed"]["total"].as_u64().unwrap())
+        .sum();
+    assert_eq!(daily, 240);
     for dimension in ["modelSeries", "accountSeries"] {
         let total: u64 = bundle["timeseries"][dimension]
             .as_array()
