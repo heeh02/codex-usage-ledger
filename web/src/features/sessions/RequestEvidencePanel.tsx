@@ -44,13 +44,14 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
         {page && <><p role="status">{t('requests.page_summary', {
           count: String(page.rows.length), start: page.rows[0]?.at ?? '—', end: page.rows.at(-1)?.at ?? '—',
         })}</p><div className="request-evidence-scroll"><table aria-label={t('requests.title')}>
-          <thead><tr>{(['time', 'turn', 'model', 'input', 'read', 'write', 'output', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
+          <thead><tr>{(['time', 'turn', 'model', 'total', 'input', 'read', 'write', 'output', 'reasoning', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
           <tbody>{page.rows.map(row => <tr key={row.id}>
             <td><time dateTime={row.at}>{row.at}</time></td>
             <td title={row.turnId ?? undefined}>{row.turnId ?? t('requests.unknown_turn')}</td><td>{row.model ?? '—'}</td>
+            <td><strong>{requestTokenDisplay(row, 'total')}</strong></td>
             <td>{requestTokenDisplay(row, 'uncached')}</td><td>{requestTokenDisplay(row, 'cached')}</td>
             <td>{requestTokenDisplay(row, 'cacheWrite')}</td>
-            <td>{requestTokenDisplay(row, 'output')}</td><td>{t(`requests.${row.quality}`)}</td>
+            <td>{requestTokenDisplay(row, 'output')}</td><td>{requestTokenDisplay(row, 'reasoning')}</td><td>{t(`requests.${row.quality}`)}</td>
           </tr>)}</tbody>
         </table></div>
         {!page.rows.length && <p>{t('requests.empty')}</p>}

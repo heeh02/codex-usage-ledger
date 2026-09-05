@@ -15,6 +15,8 @@ export const enMessages = {
   "requests.read": "Cache read",
   "requests.write": "Observed cache write",
   "requests.output": "Output",
+  "requests.total": "Total tokens",
+  "requests.reasoning": "Reasoning (within output)",
   "requests.quality": "Evidence quality",
   "requests.empty": "No retained requests in this window; this does not prove zero usage.",
   "requests.first": "First page",

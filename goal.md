@@ -466,3 +466,7 @@ No live data migration, installed-app replacement or release has occurred.
   total, persisted turn membership, and conflicting membership rejection.
   The subsequent cursor assertion verifies failed transactions leave the
   cursor at the last successful replay. Targeted regression passes.
+- Batch 63: each request row includes total tokens and separately labeled
+  reasoning-within-output, preserving unavailable values for unknown evidence.
+  Display assertions and all 38 Web tests/build pass. Narrow table layout
+  with these added columns still requires visual acceptance.

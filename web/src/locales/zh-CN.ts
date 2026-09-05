@@ -13,6 +13,8 @@ export const zhCNMessages = {
   "requests.read": "缓存读取",
   "requests.write": "已观测缓存写入",
   "requests.output": "输出",
+  "requests.total": "Token 总量",
+  "requests.reasoning": "推理（输出内）",
   "requests.quality": "证据质量",
   "requests.empty": "该时段没有保留的请求明细，不代表用量为零。",
   "requests.first": "首页",
