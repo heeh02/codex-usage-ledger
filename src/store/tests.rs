@@ -746,7 +746,22 @@ fn retained_request_evidence_covers_direct_old_ingest_and_atomic_failure() {
         [], |row| Ok((row.get(0)?, row.get(1)?))
     ).unwrap();
     assert_eq!(kept, (100, 20));
-    store.upsert_events_and_cursor(&[old], &cursor(20)).unwrap();
+    old.provenance.source_turn_id = Some("late-explicit-turn".into());
+    let replay = store
+        .upsert_events_and_cursor(&[old.clone()], &cursor(20))
+        .unwrap();
+    assert_eq!(replay.unchanged, 1);
+    assert_eq!(replay.inserted, 0);
+    let retained: (String, i64) = store.connection.query_row(
+        "SELECT turn_id, total_tokens FROM retained_request_evidence WHERE event_id='historic-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(retained, ("late-explicit-turn".into(), 120));
+    old.provenance.source_turn_id = Some("conflicting-explicit-turn".into());
+    assert!(matches!(
+        store.upsert_events_and_cursor(&[old], &cursor(25)),
+        Err(StoreError::TurnEvidenceConflict(_))
+    ));
     store
         .connection
         .execute_batch(

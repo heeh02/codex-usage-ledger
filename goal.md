@@ -461,3 +461,8 @@ No live data migration, installed-app replacement or release has occurred.
   from the storage placeholder. Observed zero remains zero and unavailable
   cache-write detail remains a dash. Display regression and all 38 Web tests
   plus production build pass; no stored amounts are changed.
+- Batch 62: direct historical-compaction replay now has explicit regression
+  coverage for late turn enrichment: zero inserted events, unchanged token
+  total, persisted turn membership, and conflicting membership rejection.
+  The subsequent cursor assertion verifies failed transactions leave the
+  cursor at the last successful replay. Targeted regression passes.
