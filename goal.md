@@ -566,3 +566,9 @@ No live data migration, installed-app replacement or release has occurred.
   controls now use consistent typography, spacing, surfaces and focus styling.
   Web 40 tests/build pass. Updated styling itself still needs visual readback;
   full narrow/zoom/live-data acceptance remains open. Owned preview resources closed.
+- Batch 80: read-only installed base-file metadata confirms the published
+  schema-24 upgrade starting point. Private size metadata remains outside the
+  public repository. Writer-state inspection was denied, so no consistent live
+  snapshot or live migration is claimed. Upgrade acceptance requires verified
+  writer state, consistent backup, free-space headroom and isolated migration
+  comparison. The installed application remains unchanged.
