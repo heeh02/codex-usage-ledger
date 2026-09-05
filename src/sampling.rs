@@ -87,12 +87,25 @@ pub fn ingest_post_sampling(
         return Err(anyhow!("Codex logs_2.sqlite is unavailable"));
     }
     let mut combined = SamplingImportReport::default();
+    let legacy_binding = store
+        .get_cursor(machine_id, POST_SAMPLING_SOURCE_ID)?
+        .and_then(|cursor| cursor.parser_state_json)
+        .and_then(|state| serde_json::from_str::<Value>(&state).ok())
+        .and_then(|state| {
+            state
+                .get("relativePath")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
     for (index, logs_path) in sources.iter().enumerate() {
         let relative = relative_source(codex_home, logs_path);
         let named_source = format!("{POST_SAMPLING_SOURCE_ID}:{relative}");
         // A previously namespaced source must not inherit another source's
         // high-water mark merely because an earlier path disappeared.
-        let namespaced = index > 0 || store.get_cursor(machine_id, &named_source)?.is_some();
+        let namespaced = store.get_cursor(machine_id, &named_source)?.is_some()
+            || legacy_binding
+                .as_ref()
+                .map_or(index > 0, |bound| bound != &relative);
         let source_id = if namespaced {
             named_source
         } else {
@@ -312,7 +325,9 @@ fn ingest_post_sampling_source(
                 byte_offset: batch_end,
                 line_number: batch_end,
                 parser_state_json: Some(
-                    r#"{"source":"logs_2_post_sampling","version":1}"#.to_owned(),
+                    serde_json::json!({"source":"logs_2_post_sampling","version":2,
+                        "relativePath":relative_source(codex_home,logs_path)})
+                    .to_string(),
                 ),
                 updated_at: Utc::now(),
             },
@@ -326,7 +341,11 @@ fn ingest_post_sampling_source(
             file_identity,
             byte_offset: max_log_id,
             line_number: max_log_id,
-            parser_state_json: Some(r#"{"source":"logs_2_post_sampling","version":1}"#.to_owned()),
+            parser_state_json: Some(
+                serde_json::json!({"source":"logs_2_post_sampling","version":2,
+                "relativePath":relative_source(codex_home,logs_path)})
+                .to_string(),
+            ),
             updated_at: Utc::now(),
         })?;
     }
@@ -1169,6 +1188,58 @@ mod tests {
                 .usage
                 .total_tokens,
             630
+        );
+    }
+
+    #[test]
+    fn initially_migrated_source_keeps_binding_when_primary_appears() {
+        let (temporary, _previous_store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        fs::rename(
+            root.join("logs_2.sqlite"),
+            root.join("paused-primary.sqlite"),
+        )
+        .unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        fs::rename(
+            root.join("paused-primary.sqlite"),
+            root.join("logs_2.sqlite"),
+        )
+        .unwrap();
+        let next_at = at + chrono::Duration::seconds(3);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 200)
+        )
+        .unwrap();
+        {
+            let primary = Connection::open(root.join("logs_2.sqlite")).unwrap();
+            insert_log(&primary, next_at, "new-primary-request");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            450
+        );
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
         );
     }
 

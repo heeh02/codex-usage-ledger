@@ -90,6 +90,11 @@ another source path disappears. Source list position must not replace an
 established independent high-water mark. Legacy unnamespaced first-source
 bindings and physical database replacement still require separate continuity
 validation; this rule does not infer a binding for those cases.
+Newly committed sampling cursors record their actual relative source path.
+That binding preserves the first source's identity when another higher-priority
+path later appears. Existing namespaced cursors remain authoritative for their
+own paths. Unbound legacy cursors and physical replacement are not retroactively
+proven by this metadata.
 
 Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
 matching immutable request fields and dimensions become receipt aliases without

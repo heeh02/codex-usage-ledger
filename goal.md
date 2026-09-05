@@ -660,3 +660,9 @@ No live data migration, installed-app replacement or release has occurred.
   own cursor regardless of list position; the regression is unignored and
   passes, alongside copied-source dedup and Clippy. Legacy first-source binding
   ambiguity and physical source replacement remain open, not implicitly fixed.
+- Batch 96: newly committed cursors preserve their actual relative path binding.
+  A migrated-first fixture then introduces a primary source with independent
+  requests; the original binding stays put and the new source gets its own
+  namespace. Both source-appearance/removal regressions and Clippy pass.
+  Old cursors without binding metadata and physical replacement still need
+  continuity audit; no legacy history is claimed repaired.
