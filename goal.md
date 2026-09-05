@@ -550,3 +550,7 @@ No live data migration, installed-app replacement or release has occurred.
   usage for unknown-only groups. Handler null-usage regression and Clippy pass.
   Generated browser contract, frontend integration and complete-turn coverage
   remain open; no totals are rewritten or added.
+- Batch 77: retained-turn JSON Schema/TypeScript contracts are generated and
+  included in the API gate. Frontend client validates scope, selected account/
+  model, time window, request counts and nullable confirmed usage. Web 39 tests,
+  build and three-contract comparison pass. Visible turn UI remains pending.

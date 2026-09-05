@@ -1,6 +1,6 @@
 import type { RequestEvidenceCursor, RequestEvidenceResponse } from './request-evidence.generated';
 
-function validRequestUsage(value: unknown): boolean {
+export function validRequestUsage(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const usage = value as Record<string, unknown>;
   const fields = ['input', 'cached', 'cacheWrite', 'cacheWriteObservedInput', 'uncached', 'output', 'reasoning', 'total'];

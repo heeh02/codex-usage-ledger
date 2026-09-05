@@ -119,9 +119,10 @@ ends the retained page sequence, not evidence of complete lifetime collection.
 Invalid ranges, limits or cursors return 400. The existing loopback boundary
 applies. These observations must not be added to effective aggregate totals.
 
-## Scoped JSON export
-
 ## Retained turn evidence
+
+Rust wire DTOs generate `turn-evidence.schema.json` and
+`turn-evidence.generated.ts`; the shared contract gate validates both.
 
 `GET /v1/turn-evidence` uses required threadId/start/end, optional account/model,
 limit (1–500, default 100) and offset (default 0). It returns typed turn rows

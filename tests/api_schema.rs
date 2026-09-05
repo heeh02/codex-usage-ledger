@@ -1,4 +1,15 @@
 #[test]
+fn checked_in_turn_evidence_schema_matches_rust_dtos() {
+    let generated = serde_json::to_value(schemars::schema_for!(
+        codex_usage_ledger::api::wire::TurnEvidenceResponse
+    ))
+    .unwrap();
+    let checked_in: serde_json::Value =
+        serde_json::from_str(include_str!("../web/src/api/turn-evidence.schema.json")).unwrap();
+    assert_eq!(generated, checked_in);
+}
+
+#[test]
 fn checked_in_request_evidence_schema_matches_rust_dtos() {
     let generated = serde_json::to_value(schemars::schema_for!(
         codex_usage_ledger::api::wire::RequestEvidenceResponse

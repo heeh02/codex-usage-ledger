@@ -35,3 +35,14 @@ cmp "$temporary_directory/request-evidence.schema.json" "$repo_root/web/src/api/
 )
 cmp "$temporary_directory/request-evidence.generated.ts" "$repo_root/web/src/api/request-evidence.generated.ts"
 echo "Retained-request API contract is current."
+
+cargo run --quiet --manifest-path "$repo_root/Cargo.toml" --example export_request_evidence_schema -- --turns \
+  > "$temporary_directory/turn-evidence.schema.json"
+cmp "$temporary_directory/turn-evidence.schema.json" "$repo_root/web/src/api/turn-evidence.schema.json"
+(
+  cd "$repo_root/web"
+  npx json2ts --input src/api/turn-evidence.schema.json \
+    --output "$temporary_directory/turn-evidence.generated.ts" --no-additionalProperties
+)
+cmp "$temporary_directory/turn-evidence.generated.ts" "$repo_root/web/src/api/turn-evidence.generated.ts"
+echo "Retained-turn API contract is current."
