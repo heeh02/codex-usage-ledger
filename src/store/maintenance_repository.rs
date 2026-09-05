@@ -196,6 +196,19 @@ impl LedgerStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(
+            "UPDATE retained_request_assignments
+             SET project_id=(
+                 SELECT catalog.project_id FROM retained_request_evidence kept
+                 JOIN thread_catalog catalog ON catalog.thread_id=kept.thread_id
+                 WHERE kept.event_id=retained_request_assignments.event_id)
+             WHERE EXISTS(
+                 SELECT 1 FROM retained_request_evidence kept
+                 JOIN thread_catalog catalog ON catalog.thread_id=kept.thread_id
+                 WHERE kept.event_id=retained_request_assignments.event_id
+                   AND catalog.project_id IS NOT NULL
+                   AND catalog.project_id <> COALESCE(retained_request_assignments.project_id,''));"
+        )?;
         transaction.execute(
             "UPDATE usage_events
              SET project_id = (

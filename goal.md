@@ -516,3 +516,9 @@ No live data migration, installed-app replacement or release has occurred.
   capture and replay-preservation tests plus Clippy pass. Account/project
   mutation hooks and source-aware exact queries remain pending, so the known
   boundary-compaction regression remains unresolved.
+- Batch 71: account remap and catalog project rebind update retained current
+  assignments transactionally without changing observed attribution or tokens.
+  Historical epochs update machine-matching unassigned complete-hour records,
+  preserving the existing unresolved switch-boundary policy. Compacted remap/
+  reproject and historical-epoch regressions pass. Exact query integration is
+  still the next step; no claim that the failing boundary test is fixed.

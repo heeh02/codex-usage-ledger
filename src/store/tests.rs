@@ -1159,6 +1159,48 @@ fn schema_30_captures_raw_assignments_without_inventing_compacted_history() {
 }
 
 #[test]
+fn compacted_request_assignments_follow_account_and_project_changes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("assigned-request", DataQuality::Confirmed, 10))
+        .unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    store
+        .remap_account_fingerprint("acct-fp", "new-account")
+        .unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE thread_catalog SET project_id='new-project' WHERE thread_id='thread'",
+            [],
+        )
+        .unwrap();
+    store.reproject_usage_from_catalog().unwrap();
+    let assignment: (String,String) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id FROM retained_request_assignments WHERE event_id='assigned-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(assignment, ("new-account".into(), "new-project".into()));
+    let observed: (String,String,i64) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id,total_tokens FROM retained_request_evidence WHERE event_id='assigned-request'",
+        [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))
+    ).unwrap();
+    assert_eq!(observed, ("acct-fp".into(), "project-1".into(), 120));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
 fn deep_request_page_seeks_by_compound_index() {
     let store = LedgerStore::open_in_memory().unwrap();
     let pages_before: i64 = store
@@ -1319,6 +1361,11 @@ fn historical_account_reassignment_preserves_compacted_totals() {
         })
         .unwrap();
     assert_eq!(attributed, before);
+    let assignment: String = store.connection.query_row(
+        "SELECT account_fingerprint FROM retained_request_assignments WHERE event_id='historical-unknown'",
+        [], |row| row.get(0)
+    ).unwrap();
+    assert_eq!(assignment, "historical-account");
 }
 
 #[test]

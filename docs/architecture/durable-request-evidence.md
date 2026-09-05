@@ -67,6 +67,12 @@ Existing compacted records without a recoverable assignment are not assigned
 from a guessed historical observation. Account/project mutation integration
 and exact-boundary consumption of this projection are still pending.
 
+Current assignment mutation hooks now follow explicit account remapping,
+catalog project rebinding and machine-scoped historical account epochs.
+Historical compacted assignments follow the existing complete-hour rule;
+switch-boundary hours remain unresolved. These hooks update assignments,
+not ingest-observed attribution or token components.
+
 Schema 29 stores the source machine identity separately with retained requests,
 including the pre-delete compaction path. This is required to apply machine-
 scoped historical account epochs to retained detail. Already compacted records
