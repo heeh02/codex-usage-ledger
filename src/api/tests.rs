@@ -432,6 +432,15 @@ fn custom_window_bundle_conserves_usage_at_both_boundaries() {
         .sum();
     assert_eq!(series, 240);
     assert_eq!(projects, 240);
+    for dimension in ["modelSeries", "accountSeries"] {
+        let total: u64 = bundle["timeseries"][dimension]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|series| series["totalTokens"].as_u64().unwrap())
+            .sum();
+        assert_eq!(total, 240);
+    }
     assert_eq!(bundle["explorer"]["sessions"][0]["treeUsage"]["total"], 240);
 }
 

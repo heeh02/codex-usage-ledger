@@ -1,6 +1,10 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "comparison.title": "Usage comparison",
+  "comparison.choose": "Choose 1–5 series to compare",
+  "comparison.limit": "Up to 5 series on one time axis",
+  "models.compare": "Compare models · local activity",
   "accounts.trend": "Account usage over time",
   "models.title": "Models",
   "models.trend": "Model usage over time",

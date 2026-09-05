@@ -36,6 +36,11 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+The additive `timeseries.modelSeries` and `timeseries.accountSeries` collections
+contain local source aggregates on the same requested window/grain as the
+project series. They are not derived from official totals or proportional
+allocation. Each dimension conserves the corresponding local time series.
+
 `period=custom` accepts `startDate` and `endDate` as ordered YYYY-MM-DD dates
 in the selected timezone. The ending day is included, using an exclusive
 midnight boundary on the following day. Missing/reversed dates return 400.

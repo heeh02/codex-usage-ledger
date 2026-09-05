@@ -3100,6 +3100,15 @@
     "TimeseriesResponse": {
       "type": "object",
       "properties": {
+        "accountSeries": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ProjectSeries"
+          }
+        },
         "comparisonPoints": {
           "type": "array",
           "items": {
@@ -3111,6 +3120,15 @@
         },
         "grain": {
           "$ref": "#/$defs/TimeGrain"
+        },
+        "modelSeries": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ProjectSeries"
+          }
         },
         "official": {
           "$ref": "#/$defs/OfficialUsageView"

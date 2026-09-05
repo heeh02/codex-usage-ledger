@@ -289,8 +289,14 @@ pub(super) fn http_timeseries(
         } else {
             Vec::new()
         };
-    let project_series =
-        local_project_series(store, &base, grain, exact_rolling_window, &period.timezone)?;
+    let project_series = local_dimension_series(
+        store,
+        &base,
+        grain,
+        exact_rolling_window,
+        &period.timezone,
+        AggregateDimension::Project,
+    )?;
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
         "period": period_value(store, &period),
@@ -298,17 +304,20 @@ pub(super) fn http_timeseries(
         "points": points,
         "comparisonPoints": comparison_points,
         "projectSeries": project_series,
+        "modelSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Model)?,
+        "accountSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Account)?,
         "official": official_usage_view(store, query, &period)?,
         "timeline": timeline_views(store, query)?,
     }))
 }
 
-fn local_project_series(
+fn local_dimension_series(
     store: &LedgerStore,
     filter: &AggregateFilter,
     grain: &str,
     exact_window: bool,
     timezone: &str,
+    dimension: AggregateDimension,
 ) -> Result<Vec<serde_json::Value>, StoreError> {
     let source_grain = if grain == "hour" {
         TimeGrain::Hour
@@ -317,19 +326,18 @@ fn local_project_series(
     };
     let mut grouped = HashMap::<String, BTreeMap<String, (u64, TokenUsage)>>::new();
     let buckets = if exact_window {
-        aggregate_exact_hour_window_series(
-            store,
-            Some(AggregateDimension::Project),
-            filter,
-            timezone,
-        )?
+        aggregate_exact_hour_window_series(store, Some(dimension), filter, timezone)?
     } else {
-        store.aggregate_time_series(source_grain, Some(AggregateDimension::Project), filter)?
+        store.aggregate_time_series(source_grain, Some(dimension), filter)?
     };
     for bucket in buckets {
-        let project = bucket
-            .dimension_key
-            .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned());
+        let project = bucket.dimension_key.unwrap_or_else(|| {
+            if matches!(dimension, AggregateDimension::Project) {
+                UNASSIGNED_PROJECT_ID.to_owned()
+            } else {
+                "unknown".to_owned()
+            }
+        });
         let time = if source_grain == TimeGrain::Day {
             aggregate_date_key(&bucket.time_key, grain).unwrap_or(bucket.time_key)
         } else {
@@ -353,7 +361,11 @@ fn local_project_series(
                 .fold(0_u64, u64::saturating_add);
             serde_json::json!({
                 "id": project,
-                "label": if project == STANDALONE_PROJECT_ID { STANDALONE_PROJECT_LABEL.to_owned() } else if project == UNASSIGNED_PROJECT_ID { UNASSIGNED_PROJECT_LABEL.to_owned() } else { names.get(&project).cloned().unwrap_or_else(|| project.clone()) },
+                "label": match dimension {
+                    AggregateDimension::Account => account_label(&project),
+                    AggregateDimension::Model => project.clone(),
+                    _ => if project == STANDALONE_PROJECT_ID { STANDALONE_PROJECT_LABEL.to_owned() } else if project == UNASSIGNED_PROJECT_ID { UNASSIGNED_PROJECT_LABEL.to_owned() } else { names.get(&project).cloned().unwrap_or_else(|| project.clone()) },
+                },
                 "totalTokens": total,
                 "points": points.into_iter().map(|(bucket, (events, usage))| serde_json::json!({
                     "date": bucket,

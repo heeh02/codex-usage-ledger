@@ -1,4 +1,8 @@
 export const zhCNMessages = {
+  "comparison.title": "用量对比",
+  "comparison.choose": "选择 1–5 条曲线进行对比",
+  "comparison.limit": "同一时间轴最多显示 5 条曲线",
+  "models.compare": "模型对比 · 本机活动",
   "accounts.trend": "账号用量趋势",
   "models.title": "模型分析",
   "models.trend": "模型用量趋势",

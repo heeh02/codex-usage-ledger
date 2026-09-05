@@ -592,6 +592,8 @@ pub struct TimeseriesResponse {
     pub points: Vec<TimeseriesPoint>,
     pub comparison_points: Vec<TimeseriesComparisonPoint>,
     pub project_series: Vec<ProjectSeries>,
+    pub model_series: Option<Vec<ProjectSeries>>,
+    pub account_series: Option<Vec<ProjectSeries>>,
     pub official: OfficialUsageView,
     pub timeline: Vec<TimelineEvent>,
 }

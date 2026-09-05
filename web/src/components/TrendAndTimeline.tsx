@@ -81,7 +81,7 @@ function CompositionChart({ data }: { data: TimeseriesResponse }) {
 
 const PROJECT_COLORS = ['#168f70', '#5886e8', '#8b64d3', '#d77a28', '#7b858c'];
 
-function ProjectCompareChart({ data, metric }: { data: TimeseriesResponse; metric: MetricKey }) {
+export function DimensionCompareChart({ data, metric }: { data: TimeseriesResponse; metric: MetricKey }) {
   const { t } = useI18n();
   const geometry = useChartGeometry();
   const { width, height, padding } = geometry;
@@ -99,15 +99,15 @@ function ProjectCompareChart({ data, metric }: { data: TimeseriesResponse; metri
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 5 ? [...current, id] : current);
   return (
     <div className="project-compare-wrap usage-time-chart" ref={geometry.ref}>
-      <div className="project-series-picker">{ranked.slice(0, 10).map((series) => <button className={selected.includes(series.id) ? 'is-selected' : ''} key={series.id} onClick={() => toggle(series.id)} type="button">{dimensionLabel(series.id, series.label)}</button>)}</div>
-      {visible.length ? <svg className="trend-chart project-compare-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={t('components.trend-and-timeline.project_usage_comparison')}>
+      <div className="project-series-picker">{ranked.map((series) => <button className={selected.includes(series.id) ? 'is-selected' : ''} key={series.id} onClick={() => toggle(series.id)} type="button">{dimensionLabel(series.id, series.label)}</button>)}</div>
+      {visible.length ? <svg className="trend-chart project-compare-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={t('comparison.title')}>
         <ChartAxes geometry={geometry} domain={domain} max={max} />
         {visible.map((series, seriesIndex) => contiguous(series.points, data.grain, () => true).map((segment, index) => <g key={`${series.id}-${index}`}>
           <polyline points={segment.map(point => `${pointXAtRatio(timeRatio(point.date, domain), geometry)},${pointY(metricValue(point.confirmed, metric, point.confirmedEvents), max, geometry)}`).join(' ')} className="trend-line project-compare-line" style={{ stroke: PROJECT_COLORS[seriesIndex] }} />
           {segment.length === 1 && <circle cx={pointXAtRatio(timeRatio(segment[0].date, domain), geometry)} cy={pointY(metricValue(segment[0].confirmed, metric, segment[0].confirmedEvents), max, geometry)} r={3} fill={PROJECT_COLORS[seriesIndex]} />}
         </g>))}
-      </svg> : <EmptyState text={t('components.trend-and-timeline.select_1_5_projects_to_compare')} />}
-      <div className="chart-footer"><div className="chart-legend">{visible.map((series, index) => <span key={series.id}><i style={{ background: PROJECT_COLORS[index] }} />{dimensionLabel(series.id, series.label)}</span>)}</div><span className="hover-hint">{t('components.trend-and-timeline.up_to_5_projects')}</span></div>
+      </svg> : <EmptyState text={t('comparison.choose')} />}
+      <div className="chart-footer"><div className="chart-legend">{visible.map((series, index) => <span key={series.id}><i style={{ background: PROJECT_COLORS[index] }} />{dimensionLabel(series.id, series.label)}</span>)}</div><span className="hover-hint">{t('comparison.limit')}</span></div>
     </div>
   );
 }
@@ -177,7 +177,7 @@ export function UsageTrendPanel({ data, metric, className = '', title = '用量�
     >
       {view === 'total' && <UsageTrendChart data={data} metric={metric} />}
       {view === 'composition' && <CompositionChart data={data} />}
-      {view === 'projects' && <ProjectCompareChart data={data} metric={metric} />}
+      {view === 'projects' && <DimensionCompareChart data={data} metric={metric} />}
     </Panel>
   );
 }

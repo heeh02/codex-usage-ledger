@@ -192,3 +192,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 17: account page now leads with its scoped time trend and filters its
   account cards to the applied account selection. All-account mode retains the
   full list. Multi-account overlay comparison and usability acceptance remain.
+- Batch 18: backend returns model/account time series from local facts, with
+  custom-window conservation checked. Model page exposes multi-series comparison
+  on the shared calendar axis; demo fixtures include both dimensions. Browser
+  acceptance and account comparison presentation remain open.

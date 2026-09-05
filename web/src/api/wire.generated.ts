@@ -606,14 +606,22 @@ export interface SummaryReconciliation {
   reason: string;
 }
 export interface TimeseriesResponse {
+  accountSeries?: ProjectSeries[] | null;
   comparisonPoints: TimeseriesComparisonPoint[];
   generatedAt: string;
   grain: TimeGrain;
+  modelSeries?: ProjectSeries[] | null;
   official: OfficialUsageView;
   period: PeriodWindow;
   points: TimeseriesPoint[];
   projectSeries: ProjectSeries[];
   timeline: TimelineEvent[];
+}
+export interface ProjectSeries {
+  id: string;
+  label: string;
+  points: TimeseriesComparisonPoint[];
+  totalTokens: number;
 }
 export interface TimeseriesComparisonPoint {
   confirmed: TokenUsage;
@@ -628,12 +636,6 @@ export interface TimeseriesPoint {
   quarantinedEvents: number;
   unknown: TokenUsage;
   unknownEvents: number;
-}
-export interface ProjectSeries {
-  id: string;
-  label: string;
-  points: TimeseriesComparisonPoint[];
-  totalTokens: number;
 }
 export interface TimelineEvent {
   accountId: string | null;
