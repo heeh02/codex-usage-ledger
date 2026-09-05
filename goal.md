@@ -405,3 +405,5 @@ No live data migration, installed-app replacement or release has occurred.
   aggregate chart. Its three-page identity/count/token conservation test passes;
   Web 36 tests and build pass. This enables isolated table interaction acceptance
   without proxying a live ledger; browser interaction remains to be executed.
+  Build sequence: initial fixture literals widened enum fields to strings;
+  an explicit row return type fixes the TypeScript error. The rebuild passes.

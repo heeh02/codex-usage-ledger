@@ -4,7 +4,7 @@ import type { RequestEvidenceResponse, RequestEvidenceRow } from './request-evid
 /** Explicit synthetic requests for UI acceptance, never real attribution. */
 export function mockRequestEvidence(query: RequestEvidenceQuery): RequestEvidenceResponse {
   const start = Date.parse(query.start), end = Date.parse(query.end);
-  const rows: RequestEvidenceRow[] = Array.from({ length: 205 }, (_, index) => ({
+  const rows: RequestEvidenceRow[] = Array.from({ length: 205 }, (_, index): RequestEvidenceRow => ({
     id: `demo-request-${String(index).padStart(4, '0')}`,
     at: new Date(start + index * 1000).toISOString(),
     turnId: index % 10 === 0 ? null : `demo-turn-${Math.floor(index / 3)}`,
