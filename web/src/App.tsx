@@ -379,7 +379,7 @@ function App() {
           </div>
         </header>
 
-        <div className={`workspace-scroll ${viewClass}`}>
+        <div className={`workspace-scroll ${viewClass}`} tabIndex={0} role="region" aria-label={t('app.usage_workspace')}>
           {api.mode === 'mock' && (
             <aside className="demo-notice"><strong>{t('app.interactive_demo_mode')}</strong><span>{t('app.projects_sessions_and_subagents_use_demo_data')}</span></aside>
           )}

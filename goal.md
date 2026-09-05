@@ -762,3 +762,21 @@ No live data migration, installed-app replacement or release has occurred.
   substantial vertical space. Test tabs/server closed and viewport reset.
   Production build excludes the harness; no real ledger, installed app or old
   audit environments changed. Full goal remains ACTIVE.
+- Batch 103: browser workflow acceptance found a real root-scroll escape:
+  opening retained evidence and paging at 560px moved the outer document by
+  369px and hid the top navigation, despite a working inner workspace scroller.
+  HTML/body/root now constrain the viewport, body is fixed to its bounds, and
+  obsolete narrow-screen body-overflow overrides were removed. The first clip-
+  only attempt did not fix it because those overrides still created a hidden
+  but programmatically scrollable body; actual ancestor offsets exposed this.
+  The workspace is now an explicitly labeled, keyboard-focusable region with a
+  visible focus outline. Final in-app browser checks at five widths showed
+  window/body offsets zero, header top zero and workspace bottom gap <= 0.5px.
+  Retained-turn paging reached its 40-row last page, and End on its independent
+  table scroller exposed the final row inside the viewport. New Playwright
+  regression records the workflow but remains unexecuted under the existing
+  Chrome launch restriction; manual in-app evidence is separate. Web 44 tests
+  and final production build pass. Browser viewport reset, tabs and isolated
+  dev server closed; no live ledger or installed application changed. Native
+  zoom, full language/large-tree acceptance and the remaining accounting goal
+  are still open, not certified by this scrolling fix.

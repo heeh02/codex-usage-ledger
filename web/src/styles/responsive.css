@@ -170,10 +170,6 @@
 }
 
 @media (max-width: 620px) {
-  body {
-    overflow: auto;
-  }
-
   .app-shell {
     height: auto;
     min-height: 100vh;
@@ -416,11 +412,6 @@
 }
 
 @media (max-width: 900px) {
-  body {
-    min-height: 0;
-    overflow: hidden;
-  }
-
   .app-shell {
     height: 100vh;
     height: 100dvh;

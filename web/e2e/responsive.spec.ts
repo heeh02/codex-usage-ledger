@@ -2,6 +2,34 @@ import { expect, test } from '@playwright/test';
 
 const widths = [560, 700, 900, 1280];
 
+test('deep evidence pagination keeps the root document and navigation fixed', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/');
+  await page.locator('.filter-bar').waitFor();
+  await page.locator('.language-select select').selectOption('en');
+  await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  await page.getByRole('button', { name: 'Sessions · 2', exact: true }).click();
+  await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
+  await page.getByRole('button', { name: 'Request evidence', exact: true }).click();
+  await page.getByRole('button', { name: 'Retained turn usage', exact: true }).click();
+  await page.setViewportSize({ width: 560, height: 900 });
+  await page.locator('section[aria-label="Retained turn usage"]').getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('section[aria-label="Retained turn usage"] tbody tr')).toHaveCount(40);
+  await expect(page.locator('.workspace-heading h1')).toBeVisible();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  expect(await page.evaluate(() => document.body.scrollTop)).toBe(0);
+  expect(await page.locator('.workspace-topbar').evaluate(el => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(0);
+  await page.getByRole('region', { name: 'Scrollable usage workspace', exact: true }).focus();
+  await page.keyboard.press('Control+End');
+  await expect.poll(() => page.locator('.workspace-scroll').evaluate(el =>
+    el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(2);
+  const tableScroller = page.locator('section[aria-label="Retained turn usage"] .request-evidence-scroll');
+  await tableScroller.press('End');
+  await expect.poll(() => tableScroller.evaluate(el =>
+    el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThanOrEqual(2);
+  expect(await page.evaluate(() => document.body.scrollTop)).toBe(0);
+});
+
 for (const width of [560, 700, 900, 1280, 1440]) {
   test(`English filter controls do not overlap at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
