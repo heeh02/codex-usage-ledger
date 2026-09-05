@@ -488,3 +488,7 @@ No live data migration, installed-app replacement or release has occurred.
   Regression checks matching boundary, component/time mismatches and zero DB
   writes; targeted test and Clippy pass. It does not establish one-to-one
   identity or change source selection; aggregate shadow reporting remains open.
+- Batch 67: candidate audit flags many-to-one source links as shared candidates
+  rather than consistent independent matches. Schema 28 indexes the reverse
+  lookup; previous-schema upgrade preserves existing links. Shared-target and
+  migration tests plus Clippy pass. No historical accounting selection changed.

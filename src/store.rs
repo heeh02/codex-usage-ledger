@@ -61,6 +61,7 @@ pub enum CandidateOverlapStatus {
     UnverifiableTime,
     DifferentEvidence,
     ConsistentCandidate,
+    SharedCandidate,
 }
 #[cfg(test)]
 use migrations::{

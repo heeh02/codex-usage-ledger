@@ -81,6 +81,9 @@ candidate. Consistency requires same thread/model, confirmed sampling quality,
 all token components equal, and timestamps within 250 milliseconds using integer
 duration comparison. It does not prove one-to-one mapping, complete coverage,
 or independent request equality, and never changes effective source selection.
+Schema 28 indexes candidate targets. Multiple sampling links to one target are
+reported as shared candidates before consistency is considered; they are not
+treated as independent one-to-one matches. The index does not rewrite evidence.
 
 Post-sampling timestamp matching must have a unique nearest unused candidate
 within its tolerance. Equally near candidates are unknown with an explicit

@@ -993,6 +993,27 @@ fn candidate_overlap_checks_time_and_components_without_writes() {
         CandidateOverlapStatus::ConsistentCandidate
     );
     assert_eq!(store.connection.total_changes(), changes);
+    let mut duplicate = sample.clone();
+    duplicate.event_id = "shared-sample-link".into();
+    duplicate.provenance.byte_offset = 20;
+    store.upsert_event(&duplicate).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::SharedCandidate
+    );
+    assert_eq!(
+        store
+            .request_candidate_overlap("shared-sample-link")
+            .unwrap(),
+        CandidateOverlapStatus::SharedCandidate
+    );
+    store
+        .connection
+        .execute(
+            "DELETE FROM sampling_candidate_links WHERE event_id='shared-sample-link'",
+            [],
+        )
+        .unwrap();
     store.connection.execute_batch(
         "UPDATE reconstruction_usage_events SET input_tokens=101,total_tokens=121 WHERE event_id='rebuilt-link';"
     ).unwrap();
@@ -1008,6 +1029,33 @@ fn candidate_overlap_checks_time_and_components_without_writes() {
         store.request_candidate_overlap("sample-link").unwrap(),
         CandidateOverlapStatus::DifferentEvidence
     );
+}
+
+#[test]
+fn schema_28_indexes_existing_candidate_links_without_rewriting_them() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema27.sqlite");
+    {
+        let store = LedgerStore::open(&path).unwrap();
+        store.connection.execute_batch(
+            "INSERT INTO sampling_candidate_links VALUES ('sample','candidate','unique_nearest_timestamp');
+             DROP INDEX sampling_candidate_target_idx;
+             DELETE FROM schema_migrations WHERE version=28;
+             PRAGMA user_version=27;"
+        ).unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let count: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sampling_candidate_links INDEXED BY sampling_candidate_target_idx
+         WHERE reconstruction_event_id='candidate'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
 }
 
 #[test]
