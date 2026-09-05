@@ -228,3 +228,6 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 26: demo regression verifies node pages and full-tree search retain
   root totals and request counts even when the root is not on the visible
   page. Web 22 unit tests pass; this does not substitute for browser acceptance.
+- Batch 27: returning to a parent clears child-specific node search/offset so
+  a later child page cannot make the parent appear empty. Account/model/date
+  scope remains intact; typecheck verifies the navigation update.

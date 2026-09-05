@@ -337,7 +337,7 @@ function App() {
               {selectedSession && <><span>›</span><strong>Session</strong></>}
               {selectedSession && sessionTrail.map((ancestor, index) => <button key={`${ancestor.id}-${index}`} onClick={() => {
                 setSessionTrail(trail => trail.slice(0, index));
-                setFilters(value => ({ ...value, session: ancestor.id }));
+                setFilters(value => ({ ...value, session: ancestor.id, nodeOffset: 0, nodeSearch: '' }));
               }} type="button">{ancestor.title}</button>)}
               {currentPage === 'accounts' && <><span>›</span><strong>{t('app.accounts_quota')}</strong></>}
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
@@ -412,7 +412,7 @@ function App() {
               {currentPage === 'session' && <SessionPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
                 const parent = sessionTrail.at(-1)!;
                 setSessionTrail(trail => trail.slice(0, -1));
-                setFilters(value => ({ ...value, session: parent.id }));
+                setFilters(value => ({ ...value, session: parent.id, nodeOffset: 0, nodeSearch: '' }));
               } : undefined} />}
             </>
           )}
