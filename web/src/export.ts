@@ -20,7 +20,7 @@ export function usageExportRows(bundle: DashboardBundle, filters: DashboardFilte
   ];
   const detail = bundle.explorer.selectedSession;
   const rows = filters.session !== 'all'
-    ? (detail ? (scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline)
+    ? (detail?.id === filters.session ? (scope === 'own' ? detail.ownSamplingTimeline : detail.samplingTimeline)
       .map(point => localRow(point.bucket, detail.samplingGrain, point.usage, point.events)) : [])
     : bundle.timeseries.points.map(point => localRow(point.date, bundle.timeseries.grain, point.confirmed, point.confirmedEvents));
 
@@ -44,4 +44,16 @@ export function csvCell(value: string | number): string {
 export function exportUsageCsv(bundle: DashboardBundle, filters: DashboardFilters, scope: 'own' | 'tree' = 'tree'): string {
   return [USAGE_CSV_COLUMNS, ...usageExportRows(bundle, filters, scope)]
     .map(row => row.map(csvCell).join(',')).join('\r\n');
+}
+
+/** Export selected usage, not the API bundle's catalogs and diagnostic payloads. */
+export function exportUsageJson(bundle: DashboardBundle, filters: DashboardFilters, scope: 'own' | 'tree' = 'tree'): string {
+  return JSON.stringify({
+    format: 'codex-usage-ledger.scoped-usage',
+    version: 1,
+    generatedAt: bundle.summary.generatedAt,
+    rows: usageExportRows(bundle, filters, scope).map(row =>
+      Object.fromEntries(USAGE_CSV_COLUMNS.map((column, index) =>
+        [column, row[index] === '' ? null : row[index]]))),
+  }, null, 2);
 }

@@ -95,3 +95,16 @@ model, period boundaries and timezone. Cache-write observations and coverage
 are separate columns; no coverage yields a blank observation, not zero.
 Consumers of the original two-total-column CSV must use `source` and `total`
 instead. Official and local rows must never be added to each other.
+
+## JSON export format
+
+JSON exports use `format: codex-usage-ledger.scoped-usage`, `version: 1`,
+`generatedAt` and `rows`. Row field names and scope match the CSV contract.
+Unavailable CSV fields become JSON null, not numeric zero. Session own/tree
+selection applies equally to both formats; a mismatched selected-session
+response yields no rows rather than exporting another conversation.
+
+This replaces the previous raw bundle dump. Consumers must not expect embedded
+catalogs, account registries, diagnostic payloads or unrelated conversation
+titles. Exports still contain the explicitly selected scope identifiers and
+are not anonymous sharing artifacts. Official and local rows remain independent.

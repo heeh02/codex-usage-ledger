@@ -275,3 +275,10 @@ No live data migration, installed-app replacement or release has occurred.
   cover late success, late failure and current success/failure; all 26 Web tests
   and production build pass. Browser rendering acceptance remains open; the
   immediately preceding Chrome startup failure is not treated as a GUI pass.
+- Batch 34: versioned scoped JSON replaces raw dashboard-bundle export. JSON
+  and CSV share source/date/session-own-or-tree selection, omit unrelated
+  catalogs and diagnostics, and retain unavailable components as null/blank.
+  Session ID mismatches fail closed with no rows. Eight exporter tests include
+  scope conservation, unavailable fields, catalog exclusion and stale detail.
+  Web 28 tests and build pass. Downloads still carry selected scope identifiers;
+  anonymous sharing and browser download acceptance remain open.

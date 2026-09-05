@@ -17,7 +17,7 @@ import { compactNumber, formatDateTime, formatPeriodRange } from './lib';
 import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
-import { exportUsageCsv } from './export';
+import { exportUsageCsv, exportUsageJson } from './export';
 import { runScopedRequest } from './shared/requestLifecycle';
 
 const INITIAL_FILTERS: DashboardFilters = {
@@ -223,7 +223,7 @@ function App() {
     if (!bundle) return;
     const stamp = new Date().toISOString().slice(0, 10);
     if (format === 'json') {
-      download(`codex-usage-${stamp}.json`, 'application/json', JSON.stringify({ filters: appliedFilters, bundle }, null, 2));
+      download(`codex-usage-${stamp}.json`, 'application/json', exportUsageJson(bundle, appliedFilters, sessionView.scope));
       return;
     }
     if (format === 'csv') {
