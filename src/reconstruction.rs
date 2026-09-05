@@ -649,6 +649,7 @@ fn process_line(
         provenance: EventProvenance {
             source_turn_id: None,
             candidate_rollout_event_id: None,
+            sampling_receipt_key: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: target.thread_id.clone(),
@@ -1007,6 +1008,7 @@ mod tests {
             provenance: EventProvenance {
                 source_turn_id: None,
                 candidate_rollout_event_id: None,
+                sampling_receipt_key: None,
                 machine_id: "m".to_owned(),
                 source_id: "sampling".to_owned(),
                 rollout_id: "thread".to_owned(),

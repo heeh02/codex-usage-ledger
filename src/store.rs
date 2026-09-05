@@ -121,6 +121,8 @@ pub enum StoreError {
     TurnEvidenceConflict(String),
     #[error("conflicting sampling candidate link for event {0}")]
     CandidateLinkConflict(String),
+    #[error("conflicting sampling receipt identity for event {0}")]
+    SamplingReceiptConflict(String),
     #[error("usage aggregate overflowed u64")]
     AggregateOverflow,
     #[error("daily rollup does not reconcile with raw event totals")]
@@ -506,6 +508,7 @@ fn event_hash(event: &UsageEvent) -> StoreResult<String> {
     let mut identity = event.clone();
     identity.provenance.source_turn_id = None;
     identity.provenance.candidate_rollout_event_id = None;
+    identity.provenance.sampling_receipt_key = None;
     let encoded = serde_json::to_vec(&identity)?;
     Ok(hex::encode(Sha256::digest(encoded)))
 }
@@ -719,6 +722,7 @@ fn upsert_event_in(
     if old_hash.as_deref() == Some(new_hash.as_str()) {
         if event.provenance.source_turn_id.is_some()
             || event.provenance.candidate_rollout_event_id.is_some()
+            || event.provenance.sampling_receipt_key.is_some()
         {
             retain_request_evidence_in(transaction, event, false)?;
         }
@@ -872,6 +876,7 @@ fn upsert_compact_event_in(
         if existing_hash == new_hash {
             if event.provenance.source_turn_id.is_some()
                 || event.provenance.candidate_rollout_event_id.is_some()
+                || event.provenance.sampling_receipt_key.is_some()
             {
                 retain_request_evidence_in(transaction, event, false)?;
             }
@@ -907,6 +912,26 @@ fn retain_request_evidence_in(
     event: &UsageEvent,
     update_assignment: bool,
 ) -> StoreResult<()> {
+    if let Some(receipt) = event.provenance.sampling_receipt_key.as_deref() {
+        let existing: Option<String> = transaction
+            .query_row(
+                "SELECT receipt_key FROM sampling_source_receipts WHERE event_id=?1",
+                params![event.event_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing
+            .as_deref()
+            .is_some_and(|existing| existing != receipt)
+        {
+            return Err(StoreError::SamplingReceiptConflict(event.event_id.clone()));
+        }
+        transaction.execute(
+            "INSERT INTO sampling_source_receipts(event_id,receipt_key) VALUES (?1,?2)
+             ON CONFLICT(event_id) DO NOTHING",
+            params![event.event_id, receipt],
+        )?;
+    }
     transaction.execute(
         "INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
          VALUES (?1,?2,?3) ON CONFLICT(event_id) DO UPDATE SET
@@ -1544,6 +1569,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageEvent> {
         provenance: EventProvenance {
             source_turn_id: None,
             candidate_rollout_event_id: None,
+            sampling_receipt_key: None,
             machine_id: row.get(22)?,
             source_id: row.get(23)?,
             rollout_id: row.get(24)?,

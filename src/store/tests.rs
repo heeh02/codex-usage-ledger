@@ -37,6 +37,7 @@ fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
         provenance: EventProvenance {
             source_turn_id: None,
             candidate_rollout_event_id: None,
+            sampling_receipt_key: None,
             machine_id: "machine".to_owned(),
             source_id: "rollout-path".to_owned(),
             rollout_id: "rollout".to_owned(),
@@ -213,6 +214,36 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
             .usage
             .total_tokens,
         360
+    );
+}
+
+#[test]
+fn schema_32_does_not_invent_receipts_for_legacy_events() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema31.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 31).unwrap();
+        let mut store = LedgerStore { connection };
+        store
+            .upsert_event(&event("legacy-no-receipt", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let receipts: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM sampling_source_receipts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(receipts, 0);
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
     );
 }
 
@@ -1047,6 +1078,7 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
     ).unwrap();
     fact.provenance.source_turn_id = Some("explicit-turn".into());
     fact.provenance.candidate_rollout_event_id = Some("reconstruction:synthetic".into());
+    fact.provenance.sampling_receipt_key = Some("synthetic-receipt-one".into());
     assert_eq!(event_hash(&fact).unwrap(), legacy_hash);
     assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
     let turn: String = store
@@ -1072,6 +1104,7 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
     );
     let mut another = fact.clone();
     another.event_id = "second-request-same-turn".into();
+    another.provenance.sampling_receipt_key = Some("synthetic-receipt-two".into());
     another.provenance.byte_offset = 20;
     store.upsert_event(&another).unwrap();
     let count: i64 = store

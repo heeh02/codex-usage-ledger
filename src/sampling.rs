@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags, params};
 use serde::Serialize;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::{
     ingest::physical_file_identity,
@@ -42,6 +43,7 @@ pub struct SamplingImportReport {
 
 #[derive(Debug, Clone)]
 struct Observation {
+    receipt_key: Option<String>,
     log_id: u64,
     observed_at: DateTime<Utc>,
     thread_id: String,
@@ -122,7 +124,7 @@ fn ingest_post_sampling_source(
         .unwrap_or_default();
     let bootstrap = last_log_id == 0;
     let safe_before = Utc::now() - chrono::Duration::seconds(5);
-    let observations = read_observations(logs_path, last_log_id, safe_before)?;
+    let observations = read_observations(logs_path, last_log_id, safe_before, machine_id)?;
     if observations.is_empty() {
         return Ok(SamplingImportReport::default());
     }
@@ -360,22 +362,32 @@ fn read_observations(
     path: &Path,
     after_id: u64,
     safe_before: DateTime<Utc>,
+    machine_id: &str,
 ) -> Result<Vec<Observation>> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )?;
     connection.pragma_update(None, "query_only", "ON")?;
-    let mut statement = connection.prepare(
-        "SELECT id, ts, ts_nanos, thread_id, feedback_log_body
+    let columns = connection
+        .prepare("PRAGMA table_info(logs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let process_column = if columns.iter().any(|column| column == "process_uuid") {
+        "process_uuid"
+    } else {
+        "NULL"
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT id, ts, ts_nanos, thread_id, feedback_log_body, {process_column}
          FROM logs
          WHERE id > ?1
            AND ts <= ?2
            AND target = 'codex_core::session::turn'
            AND instr(feedback_log_body, ' post sampling token usage ') > 0
            AND thread_id IS NOT NULL
-         ORDER BY id",
-    )?;
+         ORDER BY id"
+    ))?;
     let rows = statement.query_map(
         params![
             i64::try_from(after_id).unwrap_or(i64::MAX),
@@ -386,20 +398,48 @@ fn read_observations(
             let seconds: i64 = row.get(1)?;
             let nanos: i64 = row.get(2)?;
             let body: String = row.get(4)?;
+            let thread_id: String = row.get(3)?;
+            let process: Option<String> = row.get(5)?;
             Ok(Observation {
+                receipt_key: source_receipt_key(
+                    machine_id,
+                    process.as_deref(),
+                    id,
+                    seconds,
+                    nanos,
+                    &thread_id,
+                    &body,
+                ),
                 log_id: u64::try_from(id).unwrap_or_default(),
                 observed_at: DateTime::<Utc>::from_timestamp(
                     seconds,
                     nanos.clamp(0, 999_999_999) as u32,
                 )
                 .unwrap_or_else(Utc::now),
-                thread_id: row.get(3)?,
+                thread_id,
                 turn_id: extract_field(&body, "turn.id="),
                 model: extract_field(&body, " model="),
             })
         },
     )?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+fn source_receipt_key(
+    machine: &str,
+    process: Option<&str>,
+    id: i64,
+    seconds: i64,
+    nanos: i64,
+    thread: &str,
+    body: &str,
+) -> Option<String> {
+    let process = process.map(str::trim).filter(|value| !value.is_empty())?;
+    let bytes = serde_json::to_vec(&(machine, process, id, seconds, nanos, thread, body)).ok()?;
+    Some(format!(
+        "sampling-receipt-v1:{}",
+        hex::encode(Sha256::digest(bytes))
+    ))
 }
 
 fn load_thread_index(path: &Path) -> Result<HashMap<String, ThreadInfo>> {
@@ -680,6 +720,7 @@ fn event_from_observation(
         provenance: EventProvenance {
             source_turn_id: observation.turn_id.clone(),
             candidate_rollout_event_id: None,
+            sampling_receipt_key: observation.receipt_key,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: thread_id.to_owned(),
@@ -964,6 +1005,33 @@ mod tests {
             linked, 3,
             "the ambiguous fourth observation must not get a candidate link"
         );
+    }
+
+    #[test]
+    fn receipt_keys_need_process_identity_and_distinguish_requests() {
+        let key =
+            source_receipt_key("machine", Some("process"), 1, 100, 5, "thread", "body").unwrap();
+        assert_eq!(
+            Some(key.clone()),
+            source_receipt_key("machine", Some("process"), 1, 100, 5, "thread", "body")
+        );
+        assert_ne!(
+            Some(key.clone()),
+            source_receipt_key("machine", Some("process"), 2, 100, 5, "thread", "body")
+        );
+        assert_ne!(
+            Some(key),
+            source_receipt_key(
+                "machine",
+                Some("other-process"),
+                1,
+                100,
+                5,
+                "thread",
+                "body"
+            )
+        );
+        assert!(source_receipt_key("machine", None, 1, 100, 5, "thread", "body").is_none());
     }
 
     #[test]

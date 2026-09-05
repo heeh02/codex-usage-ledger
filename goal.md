@@ -637,3 +637,9 @@ No live data migration, installed-app replacement or release has occurred.
   overlap. Explicit regression run FAILED and is preserved as a labeled known
   failure. No production source or persisted usage was changed. This is a
   source identity defect, not evidence for any particular real-world total.
+- Batch 92: sampling captures path-independent receipt digests when source
+  process identity exists; exact row/time/thread/body fields distinguish requests.
+  Schema 32 retains receipt associations without changing legacy hashes or
+  existing amounts, and no receipts are invented for older records. Identity,
+  hash-preservation and upgrade tests plus Clippy pass. Consolidation is not yet
+  applied; the copied-source double-count regression remains unresolved.

@@ -85,6 +85,14 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Schema 32 records path-independent sampling receipt keys from machine,
+nonempty source process UUID, log-row ID, exact source timestamp, thread and
+the sampling log body. Only the digest is retained; missing process identity
+produces no key. Receipt evidence is supplemental and excluded from legacy
+event hashes. Distinct legacy event IDs may currently share a receipt key:
+this is audit evidence, not yet an automatic consolidation policy. Existing
+events receive no invented keys during migration.
+
 Schema 27 retains sampling-to-rollout candidate links using the reconstruction
 record identity derived from physical file identity and byte position. The
 method remains `unique_nearest_timestamp`, not proven request equality.
