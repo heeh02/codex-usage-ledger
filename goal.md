@@ -325,3 +325,8 @@ No live data migration, installed-app replacement or release has occurred.
   Rust 109 library, 3 binary and 1 schema tests plus Clippy pass; an additional
   corrupted-retained-total assertion confirms compaction preserves raw records
   on mismatch. Documentation, module and privacy checks pass.
+- Batch 41: typed retained-request store pagination uses thread/time bounds
+  and a compound time/event-ID cursor, capped at 500 rows. A regression checks
+  equal timestamps, final pages, excluded end boundaries and thread isolation.
+  Missing turn IDs remain null. Targeted test and Clippy pass; HTTP/UI exposure,
+  late-arrival snapshot consistency and effective attribution remain open.

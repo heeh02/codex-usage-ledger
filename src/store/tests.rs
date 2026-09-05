@@ -778,6 +778,58 @@ fn retained_request_evidence_covers_direct_old_ingest_and_atomic_failure() {
 }
 
 #[test]
+fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 8, 31, 1, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+    for (index, id) in ["a", "b", "c", "outside", "other-thread"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut fact = event(id, DataQuality::Confirmed, index as u64 * 10);
+        fact.source_timestamp = Some(if id == "outside" { end } else { start });
+        if id == "other-thread" {
+            fact.thread_id = Some("other".into());
+        }
+        store.upsert_event(&fact).unwrap();
+    }
+    let first = store
+        .retained_request_page("thread", start, end, None, 2)
+        .unwrap();
+    assert_eq!(
+        first
+            .observations
+            .iter()
+            .map(|row| row.cursor.event_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert!(first.observations.iter().all(|row| row.turn_id.is_none()));
+    let last = store
+        .retained_request_page("thread", start, end, first.next.as_ref(), 2)
+        .unwrap();
+    assert_eq!(last.observations.len(), 1);
+    assert_eq!(last.observations[0].cursor.event_id, "c");
+    assert!(last.next.is_none());
+    assert_eq!(
+        first
+            .observations
+            .iter()
+            .chain(&last.observations)
+            .map(|row| row.usage.total_tokens)
+            .sum::<u64>(),
+        360
+    );
+    assert!(
+        store
+            .retained_request_page("thread", end, start, None, 2)
+            .unwrap()
+            .observations
+            .is_empty()
+    );
+}
+
+#[test]
 fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("schema25.sqlite");

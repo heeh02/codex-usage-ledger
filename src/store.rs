@@ -24,7 +24,31 @@ mod ingest_repository;
 mod maintenance_repository;
 mod migrations;
 mod project_repository;
+mod request_repository;
 mod usage_repository;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetainedRequestCursor {
+    pub effective_at: String,
+    pub event_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetainedRequestObservation {
+    pub cursor: RetainedRequestCursor,
+    pub turn_id: Option<String>,
+    pub model: Option<String>,
+    pub observed_account: Option<String>,
+    pub observed_project: Option<String>,
+    pub quality: String,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetainedRequestPage {
+    pub observations: Vec<RetainedRequestObservation>,
+    pub next: Option<RetainedRequestCursor>,
+}
 #[cfg(test)]
 use migrations::{
     CURRENT_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5,

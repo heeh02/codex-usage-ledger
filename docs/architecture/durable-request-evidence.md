@@ -18,6 +18,13 @@ coverage receipts, paged queries, size benchmarks and UI remain outstanding.
 Previously compacted key-only history is not reconstructed. No installed
 database has been upgraded or claimed accepted.
 
+The store exposes retained-request pages for one thread and a half-open UTC
+window. A compound effective-time/event-ID cursor handles equal timestamps;
+page size is bounded to 500. Rows describe ingest-observed attribution, not
+revised account/project ownership. A late arrival before an issued cursor is
+visible on a new traversal, not promised in an already advancing traversal.
+The HTTP/UI layer and snapshot-revision pagination contract remain unimplemented.
+
 ## Verified gap
 
 The current maintenance compactor copies only event ID/hash and compaction time
