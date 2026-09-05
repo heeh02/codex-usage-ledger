@@ -35,6 +35,7 @@ fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
         quality,
         quality_reason: None,
         provenance: EventProvenance {
+            source_turn_id: None,
             machine_id: "machine".to_owned(),
             source_id: "rollout-path".to_owned(),
             rollout_id: "rollout".to_owned(),
@@ -863,6 +864,44 @@ fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
             .retained_request_page("thread", start, end, Some(&invalid), 10)
             .is_err()
     );
+}
+
+#[test]
+fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut fact = event("turn-request", DataQuality::Confirmed, 10);
+    let legacy_hash = event_hash(&fact).unwrap();
+    store.upsert_event(&fact).unwrap();
+    fact.provenance.source_turn_id = Some("explicit-turn".into());
+    assert_eq!(event_hash(&fact).unwrap(), legacy_hash);
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    let turn: String = store
+        .connection
+        .query_row(
+            "SELECT turn_id FROM retained_request_evidence WHERE event_id='turn-request'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(turn, "explicit-turn");
+    let mut another = fact.clone();
+    another.event_id = "second-request-same-turn".into();
+    another.provenance.byte_offset = 20;
+    store.upsert_event(&another).unwrap();
+    let count: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_evidence WHERE turn_id='explicit-turn'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+    fact.provenance.source_turn_id = Some("conflicting-turn".into());
+    assert!(matches!(
+        store.upsert_event(&fact),
+        Err(StoreError::TurnEvidenceConflict(_))
+    ));
 }
 
 #[test]

@@ -647,6 +647,7 @@ fn process_line(
         quality: DataQuality::Confirmed,
         quality_reason: Some("rollout_reconstruction_selected_by_thread_day".to_owned()),
         provenance: EventProvenance {
+            source_turn_id: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: target.thread_id.clone(),
@@ -1003,6 +1004,7 @@ mod tests {
             quality: DataQuality::Confirmed,
             quality_reason: None,
             provenance: EventProvenance {
+                source_turn_id: None,
                 machine_id: "m".to_owned(),
                 source_id: "sampling".to_owned(),
                 rollout_id: "thread".to_owned(),

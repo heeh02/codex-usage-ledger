@@ -381,3 +381,10 @@ No live data migration, installed-app replacement or release has occurred.
   failed page cannot advance using the previous page's stale next cursor.
   Pagination-state regression and all 33 Web tests/build pass. Browser table
   interaction and snapshot consistency across late arrivals remain open.
+- Batch 50: sampling preserves explicit source turn IDs as supplemental
+  provenance and retained-request membership. Legacy event hashes exclude this
+  optional field, allowing matching replays to enrich membership without
+  recounting. Conflicting memberships fail atomically; two requests in one turn
+  remain two requests. Rust 112 library, 3 binary, 2 schema tests and Clippy
+  pass. Historical unknown turns and reconstruction memberships are not inferred;
+  turn-level query/grouping and visual acceptance remain incomplete.

@@ -82,6 +82,8 @@ pub enum StoreError {
     InvalidTimezone(String),
     #[error("invalid retained-request query: {0}")]
     InvalidRequestQuery(&'static str),
+    #[error("conflicting explicit turn membership for event {0}")]
+    TurnEvidenceConflict(String),
     #[error("usage aggregate overflowed u64")]
     AggregateOverflow,
     #[error("daily rollup does not reconcile with raw event totals")]
@@ -463,7 +465,10 @@ reasoning_output_tokens, total_tokens, quality, quality_reason, machine_id, \
 source_id, rollout_id, file_identity, byte_offset, line_number";
 
 fn event_hash(event: &UsageEvent) -> StoreResult<String> {
-    let encoded = serde_json::to_vec(event)?;
+    // Supplemental source turn membership must not invalidate legacy dedup keys.
+    let mut identity = event.clone();
+    identity.provenance.source_turn_id = None;
+    let encoded = serde_json::to_vec(&identity)?;
     Ok(hex::encode(Sha256::digest(encoded)))
 }
 
@@ -674,6 +679,9 @@ fn upsert_event_in(
         )
         .optional()?;
     if old_hash.as_deref() == Some(new_hash.as_str()) {
+        if event.provenance.source_turn_id.is_some() {
+            retain_request_evidence_in(transaction, event)?;
+        }
         return Ok(UpsertOutcome::Unchanged);
     }
 
@@ -822,6 +830,9 @@ fn upsert_compact_event_in(
         .optional()?;
     if let Some(existing_hash) = compacted_hash {
         if existing_hash == new_hash {
+            if event.provenance.source_turn_id.is_some() {
+                retain_request_evidence_in(transaction, event)?;
+            }
             return Ok(UpsertOutcome::Unchanged);
         }
         return Err(StoreError::CompactedEventConflict {
@@ -853,14 +864,29 @@ fn retain_request_evidence_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
 ) -> StoreResult<()> {
+    let existing_turn: Option<String> = transaction
+        .query_row(
+            "SELECT turn_id FROM retained_request_evidence WHERE event_id=?1",
+            params![event.event_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    if let (Some(existing), Some(incoming)) = (
+        existing_turn.as_deref(),
+        event.provenance.source_turn_id.as_deref(),
+    ) && existing != incoming
+    {
+        return Err(StoreError::TurnEvidenceConflict(event.event_id.clone()));
+    }
     transaction.execute(
         "INSERT INTO retained_request_evidence(
            event_id, event_hash, effective_at, thread_id, model,
            account_fingerprint, project_id, quality, input_tokens,
            cached_input_tokens, cache_write_input_tokens,
            cache_write_observed_input_tokens, output_tokens,
-           reasoning_output_tokens, total_tokens, account_confidence, project_confidence
-         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)
+           reasoning_output_tokens, total_tokens, account_confidence, project_confidence, turn_id
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
          ON CONFLICT(event_id) DO UPDATE SET
            event_hash=excluded.event_hash, effective_at=excluded.effective_at,
            thread_id=excluded.thread_id, model=excluded.model,
@@ -873,7 +899,8 @@ fn retain_request_evidence_in(
            reasoning_output_tokens=excluded.reasoning_output_tokens,
            total_tokens=excluded.total_tokens,
            account_confidence=excluded.account_confidence,
-           project_confidence=excluded.project_confidence",
+           project_confidence=excluded.project_confidence,
+           turn_id=COALESCE(excluded.turn_id, retained_request_evidence.turn_id)",
         params![
             event.event_id,
             event_hash(event)?,
@@ -901,6 +928,7 @@ fn retain_request_evidence_in(
             sql_u64(event.usage.total_tokens, "total_tokens")?,
             confidence_name(event.account_confidence),
             confidence_name(event.project.confidence),
+            event.provenance.source_turn_id,
         ],
     )?;
     Ok(())
@@ -1435,6 +1463,7 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageEvent> {
         quality: parse_quality_column(&quality, 20)?,
         quality_reason: row.get(21)?,
         provenance: EventProvenance {
+            source_turn_id: None,
             machine_id: row.get(22)?,
             source_id: row.get(23)?,
             rollout_id: row.get(24)?,

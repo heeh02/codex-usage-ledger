@@ -9,8 +9,13 @@ New raw and directly compacted events retain effective timestamp, thread/model,
 ingest-observed attribution/confidence, quality and token components atomically.
 Compaction also captures older retained raw events and verifies identity/time,
 model, quality and all token values before deletion. Explicit turn IDs remain
-null until the parser contract is implemented. These rows are not used as an
+null unless explicitly supplied by sampling metadata. These rows are not used as an
 additional source of aggregate totals.
+
+Supplemental source turn membership is excluded from the legacy event hash.
+Matching-event replay can enrich a missing turn ID without adding token usage.
+Conflicting explicit memberships fail transactionally; multiple requests with
+the same turn ID remain distinct request records.
 
 This is not complete durable-turn support: source-kind/reconstruction handling,
 observed-time detail, bounded raw backfill, attribution revision handling,

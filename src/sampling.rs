@@ -651,6 +651,7 @@ fn event_from_observation(
         quality,
         quality_reason,
         provenance: EventProvenance {
+            source_turn_id: observation.turn_id.clone(),
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: thread_id.to_owned(),
