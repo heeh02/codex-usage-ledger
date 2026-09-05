@@ -1309,6 +1309,165 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn candidate_audit_pages_classify_without_recounting_or_writes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (index, (id, quality, target)) in [
+        ("a", DataQuality::Confirmed, Some("target-a")),
+        ("b", DataQuality::Confirmed, Some("missing")),
+        ("c", DataQuality::Unknown, None),
+        ("d", DataQuality::Confirmed, None),
+        ("e", DataQuality::Confirmed, Some("target-e")),
+        ("f", DataQuality::Confirmed, Some("shared")),
+        ("g", DataQuality::Confirmed, Some("shared")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut sample = event(id, quality, 10 * (index as u64 + 1));
+        sample.provenance.candidate_rollout_event_id = target.map(str::to_owned);
+        store.upsert_event(&sample).unwrap();
+        if matches!(id, "a" | "e" | "f") {
+            let mut rebuilt = sample.clone();
+            rebuilt.event_id = target.unwrap().to_owned();
+            if id == "e" {
+                rebuilt.usage.input_tokens += 1;
+                rebuilt.usage.total_tokens += 1;
+            }
+            let transaction = store.connection.unchecked_transaction().unwrap();
+            upsert_reconstruction_event_in(
+                &transaction,
+                &ReconstructionEvent {
+                    event: rebuilt,
+                    counter_epoch: 0,
+                },
+            )
+            .unwrap();
+            transaction.commit().unwrap();
+        }
+    }
+    let mut excluded = event("other-model", DataQuality::Confirmed, 90);
+    excluded.model = Some("other".into());
+    store.upsert_event(&excluded).unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap();
+    let scope = || RetainedRequestScope {
+        thread_id: "thread",
+        start,
+        end: start + ChronoDuration::days(1),
+        account: Some("acct-fp"),
+        model: Some("gpt-5.6-sol"),
+    };
+    let before = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    let writes = store.connection.total_changes();
+    let mut next = None;
+    let mut rows = Vec::new();
+    loop {
+        let page = store
+            .audit_candidate_page(scope(), next.as_ref(), 2)
+            .unwrap();
+        assert_eq!(
+            page.groups.iter().map(|group| group.records).sum::<u64>(),
+            page.rows.len() as u64
+        );
+        assert!(!page.history_complete && !page.request_equality_proven);
+        assert_eq!(
+            page.group_totals_scope,
+            "this_page_confirmed_observations_only"
+        );
+        rows.extend(page.rows);
+        next = page.next;
+        if next.is_none() {
+            break;
+        }
+    }
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.cursor.event_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c", "d", "e", "f", "g"]
+    );
+    assert_eq!(
+        rows.iter().map(|row| row.status).collect::<Vec<_>>(),
+        [
+            CandidateOverlapStatus::ConsistentCandidate,
+            CandidateOverlapStatus::TargetUnavailable,
+            CandidateOverlapStatus::NotLinked,
+            CandidateOverlapStatus::NotLinked,
+            CandidateOverlapStatus::DifferentEvidence,
+            CandidateOverlapStatus::SharedCandidate,
+            CandidateOverlapStatus::SharedCandidate,
+        ]
+    );
+    assert!(rows[2].confirmed_usage.is_none());
+    assert_eq!(
+        rows.iter()
+            .filter_map(|row| row.confirmed_usage)
+            .map(|usage| usage.total_tokens)
+            .sum::<u64>(),
+        720
+    );
+    assert!(store.audit_candidate_page(scope(), None, 501).is_err());
+    assert_eq!(store.connection.total_changes(), writes);
+    assert_eq!(
+        store.aggregate_usage(&AggregateFilter::default()).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn read_only_audit_open_never_creates_or_upgrades_a_ledger() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("audit.sqlite3");
+    assert!(LedgerStore::open_read_only(&path).is_err());
+    assert!(!path.exists());
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("retained", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let before = std::fs::read(&path).unwrap();
+    {
+        let mut reader = LedgerStore::open_read_only(&path).unwrap();
+        let start = Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap();
+        assert_eq!(
+            reader
+                .audit_candidate_page(
+                    RetainedRequestScope {
+                        thread_id: "thread",
+                        start,
+                        end: start + ChronoDuration::days(1),
+                        account: None,
+                        model: None
+                    },
+                    None,
+                    100
+                )
+                .unwrap()
+                .rows[0]
+                .confirmed_usage
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        assert!(reader.set_user_confirmed_account_count(Some(99)).is_err());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    {
+        let connection = Connection::open(&path).unwrap();
+        connection.pragma_update(None, "user_version", 24).unwrap();
+    }
+    let before_old = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        LedgerStore::open_read_only(&path),
+        Err(StoreError::UnsupportedAuditSchema {
+            found: 24,
+            supported: 33
+        })
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before_old);
+}
+
+#[test]
 fn candidate_overlap_checks_time_and_components_without_writes() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     assert_eq!(

@@ -17,11 +17,12 @@ use codex_usage_ledger::{
     api::{self, ApiState, UsageQuery},
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
-        POST_SAMPLING_SOURCE_ID, compact_expired_raw_events, discover_rollouts,
-        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
-        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
-        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
-        prepare_store, sync_account_history, sync_native_catalog,
+        POST_SAMPLING_SOURCE_ID, RetainedRequestCursor, RetainedRequestScope,
+        compact_expired_raw_events, discover_rollouts, fetch_official_account_usage,
+        ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
+        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
+        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
+        sync_account_history, sync_native_catalog,
     },
 };
 use serde_json::json;
@@ -37,6 +38,27 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read one retained-request candidate audit page. Never migrates or imports.
+    AuditOverlap {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t=100, value_parser=clap::value_parser!(u16).range(1..=500))]
+        limit: u16,
+        #[arg(long, requires = "after_id")]
+        after_time: Option<String>,
+        #[arg(long, requires = "after_time")]
+        after_id: Option<String>,
+    },
     /// Continuously ingest changes and serve the loopback dashboard.
     Daemon {
         #[arg(long)]
@@ -138,6 +160,38 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::AuditOverlap {
+            db,
+            thread,
+            start,
+            end,
+            account,
+            model,
+            limit,
+            after_time,
+            after_id,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let after =
+                after_time
+                    .zip(after_id)
+                    .map(|(effective_at, event_id)| RetainedRequestCursor {
+                        effective_at,
+                        event_id,
+                    });
+            let report = store.audit_candidate_page(
+                RetainedRequestScope {
+                    thread_id: &thread,
+                    start,
+                    end,
+                    account: account.as_deref(),
+                    model: model.as_deref(),
+                },
+                after.as_ref(),
+                usize::from(limit),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::Daemon {
             db,
             codex_home,

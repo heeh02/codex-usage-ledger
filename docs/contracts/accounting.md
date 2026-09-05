@@ -85,6 +85,11 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+The [read-only overlap audit](../architecture/source-overlap-audit.md) classifies
+bounded retained-request pages without refreshing source selection or rewriting
+history. Category amounts are page-local confirmed observations, not corrected
+accounting totals. A consistent rollout candidate is not proven request equality.
+
 An already namespaced sampling source keeps that source/cursor identity when
 another source path disappears. Source list position must not replace an
 established independent high-water mark. Legacy unnamespaced first-source

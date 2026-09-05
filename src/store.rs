@@ -23,13 +23,15 @@ mod dashboard_repository;
 mod ingest_repository;
 mod maintenance_repository;
 mod migrations;
+mod overlap_repository;
 mod project_repository;
 mod receipt_repository;
 mod request_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RetainedRequestCursor {
     pub effective_at: String,
     pub event_id: String,
@@ -78,7 +80,8 @@ pub struct RetainedRequestScope<'a> {
 }
 
 /// Diagnostic only: a consistent candidate is not proven request equality.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CandidateOverlapStatus {
     RequestUnavailable,
     NotLinked,
@@ -87,6 +90,44 @@ pub enum CandidateOverlapStatus {
     DifferentEvidence,
     ConsistentCandidate,
     SharedCandidate,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditRow {
+    pub cursor: RetainedRequestCursor,
+    pub status: CandidateOverlapStatus,
+    pub quality: DataQuality,
+    pub confirmed_usage: Option<TokenUsage>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditGroup {
+    pub status: CandidateOverlapStatus,
+    pub records: u64,
+    pub confirmed_records: u64,
+    pub confirmed_usage: Option<TokenUsage>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditPage {
+    pub scope: &'static str,
+    pub group_totals_scope: &'static str,
+    pub schema_version: i64,
+    pub audit_version: u32,
+    pub read_only: bool,
+    pub request_equality_proven: bool,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub selected_account: Option<String>,
+    pub selected_model: Option<String>,
+    pub rows: Vec<CandidateAuditRow>,
+    pub groups: Vec<CandidateAuditGroup>,
+    pub next: Option<RetainedRequestCursor>,
 }
 #[cfg(test)]
 use migrations::{
@@ -115,6 +156,8 @@ pub enum StoreError {
     },
     #[error("database schema {found} is newer than supported schema {supported}")]
     SchemaTooNew { found: i64, supported: i64 },
+    #[error("read-only audit needs schema {supported}; found {found}; no migration was run")]
+    UnsupportedAuditSchema { found: i64, supported: i64 },
     #[error("invalid IANA timezone {0:?}")]
     InvalidTimezone(String),
     #[error("invalid retained-request query: {0}")]

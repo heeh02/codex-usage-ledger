@@ -798,3 +798,19 @@ No live data migration, installed-app replacement or release has occurred.
   an installed-app update, notarized release or live-ledger migration. ADR 0003
   and the isolated-preview architecture document record the boundary. The pure
   test runner now removes its own temporary executable directory on exit.
+- Batch 105: previous turn advanced native isolation but did not achieve native
+  window acceptance. Returned to source-overlap correctness with a bounded
+  `audit-overlap` CLI: explicit existing DB/thread/UTC window, exact account/model
+  selection and paired keyset continuation. Read-only opening refuses missing
+  files and unsupported schema versions without creating/migrating a ledger.
+  One read snapshot per page groups retained observations into candidate states;
+  shared candidates are checked beyond page boundaries. Confirmed token groups
+  are explicitly page-local, unknown-only amounts stay null, and no corrected
+  union/equality/completeness claim is produced. Existing source selection and
+  usage are untouched. An initial read-only test exposed that ordinary aggregate
+  queries refresh projections; the audit path therefore uses only retained
+  evidence/link reads. Mixed-state pagination, no-write checks and actual CLI
+  byte-for-byte database preservation pass. Full Rust 149 tests, Clippy and all
+  three API contracts pass. No real ledger/source import or native installation
+  occurred. Global overlap coverage, counterpart-level explanation, replacing
+  max-per-thread/day source selection and historical repair receipts remain open.

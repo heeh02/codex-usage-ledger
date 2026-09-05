@@ -48,5 +48,6 @@ pub mod cli_support {
     pub use crate::sampling::{POST_SAMPLING_SOURCE_ID, ingest_post_sampling};
     pub use crate::store::{
         AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore, LedgerTableCounts,
+        RetainedRequestCursor, RetainedRequestScope,
     };
 }

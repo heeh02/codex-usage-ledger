@@ -1,6 +1,23 @@
 use super::*;
 
 impl LedgerStore {
+    /// Does not create a database, migrate, optimize, or refresh projections.
+    pub fn open_read_only(path: impl AsRef<Path>) -> StoreResult<Self> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        connection.pragma_update(None, "query_only", "ON")?;
+        connection.pragma_update(None, "trusted_schema", "OFF")?;
+        let found: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if found != migrations::CURRENT_SCHEMA_VERSION {
+            return Err(StoreError::UnsupportedAuditSchema {
+                found,
+                supported: migrations::CURRENT_SCHEMA_VERSION,
+            });
+        }
+        Ok(Self { connection })
+    }
+
     pub fn open(path: impl AsRef<Path>) -> StoreResult<Self> {
         let connection = Connection::open(path)?;
         Self::from_connection(connection, true)
