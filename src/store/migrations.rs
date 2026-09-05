@@ -3,7 +3,86 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 24;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 25;
+
+// Queue inserts use an existence predicate: an outer rollup UPSERT can override
+// INSERT OR IGNORE inside a trigger. SQLite serializes writers, so the predicate
+// and insert remain atomic. Existing dirty-state triggers are retained.
+const MIGRATION_25: &str = r#"
+CREATE TABLE IF NOT EXISTS effective_source_dirty_keys (
+ local_day TEXT NOT NULL, thread_key TEXT NOT NULL,
+ PRIMARY KEY(local_day, thread_key)
+) WITHOUT ROWID;
+INSERT OR IGNORE INTO effective_source_dirty_keys
+SELECT local_day, thread_key FROM daily_usage_rollups WHERE quality = 'confirmed'
+UNION SELECT local_day, thread_key FROM reconstruction_daily_rollups
+UNION SELECT local_day, thread_key FROM effective_thread_day_source;
+UPDATE effective_source_selection_state SET dirty = 1 WHERE id = 1;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_insert
+AFTER INSERT ON daily_usage_rollups WHEN NEW.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_update
+AFTER UPDATE ON daily_usage_rollups WHEN OLD.quality = 'confirmed' OR NEW.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_delete
+AFTER DELETE ON daily_usage_rollups WHEN OLD.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_insert
+AFTER INSERT ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_update
+AFTER UPDATE ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_delete
+AFTER DELETE ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+END;
+"#;
 
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
     let mut version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
@@ -46,6 +125,7 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
                 audit_persisted_usage_invariants(&transaction)?;
                 transaction.execute_batch(MIGRATION_24)?;
             }
+            25 => transaction.execute_batch(MIGRATION_25)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

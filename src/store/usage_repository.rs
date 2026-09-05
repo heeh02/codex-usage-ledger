@@ -12,15 +12,20 @@ impl LedgerStore {
         }
         let transaction = self.connection.unchecked_transaction()?;
         transaction.execute_batch(
-            "DELETE FROM effective_thread_day_source;
+            "DELETE FROM effective_thread_day_source
+             WHERE (local_day, thread_key) IN
+                 (SELECT local_day, thread_key FROM effective_source_dirty_keys);
              WITH sampling AS (
-                 SELECT local_day, thread_key, SUM(total_tokens) AS total_tokens
-                 FROM daily_usage_rollups WHERE quality = 'confirmed'
-                 GROUP BY local_day, thread_key
+                 SELECT facts.local_day, facts.thread_key, SUM(total_tokens) AS total_tokens
+                 FROM effective_source_dirty_keys keys
+                 CROSS JOIN daily_usage_rollups facts USING(local_day, thread_key)
+                 WHERE quality = 'confirmed'
+                 GROUP BY facts.local_day, facts.thread_key
              ), reconstructed AS (
-                 SELECT local_day, thread_key, SUM(total_tokens) AS total_tokens
-                 FROM reconstruction_daily_rollups
-                 GROUP BY local_day, thread_key
+                 SELECT facts.local_day, facts.thread_key, SUM(total_tokens) AS total_tokens
+                 FROM effective_source_dirty_keys keys
+                 CROSS JOIN reconstruction_daily_rollups facts USING(local_day, thread_key)
+                 GROUP BY facts.local_day, facts.thread_key
              ), keys AS (
                  SELECT local_day, thread_key FROM sampling
                  UNION
@@ -39,6 +44,7 @@ impl LedgerStore {
              FROM keys
              LEFT JOIN sampling USING(local_day, thread_key)
              LEFT JOIN reconstructed USING(local_day, thread_key);
+             DELETE FROM effective_source_dirty_keys;
              UPDATE effective_source_selection_state
              SET dirty = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = 1;",

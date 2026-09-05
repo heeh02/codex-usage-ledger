@@ -51,6 +51,20 @@ There are three non-interchangeable Token views:
   raw facts are eligible for compaction. Compaction keeps an immutable event
   key, so replaying an old rollout is idempotent.
 
+## Incremental source projection
+
+Schema 25 changes only the maintenance of the effective source projection.
+Rollup inserts, updates (both old and new keys), and deletes persist a unique
+date/thread dirty key in the same write transaction. Refresh recomputes those
+keys and clears their queue atomically; unchanged keys are not rebuilt.
+Upgrade seeds existing keys once, including stale projection keys so deletion
+can be reconciled. Retained event and rollup facts are not changed. The existing
+thread/day source-selection policy remains unchanged; this optimization does
+not establish that policy's accounting accuracy or complete source coverage.
+A failed refresh retains the previous projection and queued work for retry.
+Opening the upgraded ledger with an older binary is unsupported; deployment
+must retain the pre-upgrade backup until upgrade acceptance.
+
 ## Source priority
 
 1. Codex app-server `account/usage/read` for account lifetime and daily totals.

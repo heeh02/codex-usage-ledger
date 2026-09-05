@@ -70,6 +70,185 @@ fn opens_wal_database_and_runs_migrations() {
 }
 
 #[test]
+fn effective_projection_updates_only_dirty_keys_and_survives_restart() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("incremental.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        for (index, name) in ["active", "untouched"].into_iter().enumerate() {
+            let mut fact = event(name, DataQuality::Confirmed, index as u64 * 10);
+            fact.thread_id = Some(name.into());
+            store.upsert_event(&fact).unwrap();
+        }
+        store.refresh_effective_source_selection().unwrap();
+        // A full-table rebuild would hit this guard.
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER untouched_projection_guard
+             BEFORE DELETE ON effective_thread_day_source
+             WHEN OLD.thread_key = 'untouched'
+             BEGIN SELECT RAISE(ABORT, 'unmodified key was rebuilt'); END;
+             UPDATE daily_usage_rollups SET input_tokens = 200, total_tokens = 220
+             WHERE thread_key = 'active';",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let selected: i64 = store
+        .connection
+        .query_row(
+            "SELECT sampling_tokens FROM effective_thread_day_source WHERE thread_key = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(selected, 220);
+    let changes = store.connection.total_changes();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(store.connection.total_changes(), changes);
+    store
+        .connection
+        .execute_batch(
+            "UPDATE daily_usage_rollups SET local_day = '2026-09-01' WHERE thread_key = 'active';",
+        )
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let day: String = store
+        .connection
+        .query_row(
+            "SELECT local_day FROM effective_thread_day_source WHERE thread_key = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(day, "2026-09-01");
+    store
+        .connection
+        .execute_batch("DELETE FROM daily_usage_rollups WHERE thread_key = 'active';")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let remaining: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM effective_thread_day_source",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(remaining, 1);
+}
+
+#[test]
+fn schema_25_upgrade_seeds_existing_keys_without_changing_facts() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema24.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("retained", DataQuality::Confirmed, 10))
+            .unwrap();
+        store.refresh_effective_source_selection().unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TRIGGER effective_sampling_keys_insert;
+             DROP TRIGGER effective_sampling_keys_update;
+             DROP TRIGGER effective_sampling_keys_delete;
+             DROP TRIGGER effective_reconstruction_keys_insert;
+             DROP TRIGGER effective_reconstruction_keys_update;
+             DROP TRIGGER effective_reconstruction_keys_delete;
+             DROP TABLE effective_source_dirty_keys;
+             DELETE FROM schema_migrations WHERE version = 25;
+             PRAGMA user_version = 24;",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 25);
+    let queued: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM effective_source_dirty_keys",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queued, 1);
+    store.refresh_effective_source_selection().unwrap();
+    let totals: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT SUM(total_tokens) FROM daily_usage_rollups),
+                (SELECT SUM(sampling_tokens) FROM effective_thread_day_source)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(totals, (120, 120));
+}
+
+#[test]
+fn incremental_source_selection_retains_policy_and_retries_atomically() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("sample", DataQuality::Confirmed, 10))
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    store
+        .connection
+        .execute_batch(
+            "INSERT INTO reconstruction_daily_rollups
+         VALUES ('2026-08-31', 'thread', 'a', 'p', 'm', 1, 200, 40, 10, 200, 20, 5, 220);
+         CREATE TRIGGER fail_projection BEFORE INSERT ON effective_thread_day_source
+         BEGIN SELECT RAISE(ABORT, 'synthetic interrupted refresh'); END;",
+        )
+        .unwrap();
+    assert!(store.refresh_effective_source_selection().is_err());
+    let state: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT sampling_tokens FROM effective_thread_day_source),
+                (SELECT COUNT(*) FROM effective_source_dirty_keys)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (120, 1));
+    store
+        .connection
+        .execute_batch("DROP TRIGGER fail_projection;")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let source = || -> String {
+        store
+            .connection
+            .query_row(
+                "SELECT evidence_source FROM effective_thread_day_source",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(source(), "reconstruction");
+    store
+        .connection
+        .execute_batch(
+            "UPDATE reconstruction_daily_rollups SET input_tokens = 100, total_tokens = 120;",
+        )
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(source(), "sampling");
+    store
+        .connection
+        .execute_batch("DELETE FROM reconstruction_daily_rollups;")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(source(), "sampling");
+}
+
+#[test]
 fn user_confirmed_account_count_is_persistent_and_clearable() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     assert_eq!(store.user_confirmed_account_count().unwrap(), None);
@@ -231,7 +410,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
     }
 
     let store = LedgerStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 24);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     let repaired: (i64, i64, i64) = store
         .connection()
         .query_row(

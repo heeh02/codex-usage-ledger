@@ -94,6 +94,13 @@ project names, account identifiers, source files or usage snapshots.
 
 ## Current checkpoint
 
+Latest checkpoint: schema 25 replaces full-table source projection refresh with
+durable dirty date/thread keys. Synthetic new/upgrade, restart, unchanged-key,
+key-move, deletion, source-choice and rollback/retry checks pass. No retained
+token facts or source-choice policy changed. Full source-identity/coverage
+arbitration, durable turns, performance measurement, GUI acceptance and installed
+upgrade remain open. The paragraphs below preserve earlier implementation context.
+
 Execution on `feat/usage-visualization`. Historical-start/model-catalog repair,
 account/model navigation continuity and source-tagged CSV export are implemented.
 Scoped interval completeness still remains under A04. Calendar chart coordinates,
@@ -237,3 +244,13 @@ No live data migration, installed-app replacement or release has occurred.
   and complete coverage semantics remain open.
 - Batch 29: custom-window conservation now also asserts the independent daily
   calendar series equals summary/project/conversation totals at the boundaries.
+- Batch 30: schema 25 queues dirty date/thread keys in the rollup transaction;
+  refresh touches only queued keys and atomically clears completed work.
+  Upgrade initializes existing keys without modifying retained facts. Synthetic
+  tests cover restart, unaffected-row guards, key moves, deletes, source ties,
+  previous-schema upgrade and failed-refresh retry. Initial regressions exposed
+  SQLite outer-UPSERT conflict propagation into trigger INSERT OR IGNORE;
+  explicit existence predicates fix duplicate queue entries. Rust 106 library,
+  3 binary and 1 schema tests pass, with Clippy and repository policy checks.
+  This is a derived-index optimization, not proof of source accounting accuracy
+  or a deployed migration. No live ledger or installed application was changed.
