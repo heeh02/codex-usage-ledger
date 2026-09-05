@@ -18,6 +18,7 @@ export const enMessages = {
   "requests.quality": "Evidence quality",
   "requests.empty": "No retained requests in this window; this does not prove zero usage.",
   "requests.first": "First page",
+  "requests.page_summary": "{count} retained requests on this page · {start} – {end}",
   "requests.previous": "Previous page",
   "requests.next": "Next page",
   "requests.confirmed": "Confirmed",

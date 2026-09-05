@@ -32,7 +32,7 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
       });
     return () => controller.abort();
   }, [threadId, start, end, cursor, open, enabled, demo, retry]);
-  return <section className="request-evidence-panel">
+  return <section className="request-evidence-panel" aria-label={t('requests.title')}>
     <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>{t('requests.title')}</button>
     {open && <>
       <p>{t('requests.scope')}</p>
@@ -40,7 +40,9 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
       {!enabled ? <p>{t('requests.unavailable_scope')}</p> : <>
         {busy && <p role="status">{t('requests.loading')}</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
-        {page && <><div className="request-evidence-scroll"><table>
+        {page && <><p role="status">{t('requests.page_summary', {
+          count: String(page.rows.length), start: page.rows[0]?.at ?? '—', end: page.rows.at(-1)?.at ?? '—',
+        })}</p><div className="request-evidence-scroll"><table aria-label={t('requests.title')}>
           <thead><tr>{(['time', 'turn', 'model', 'input', 'read', 'write', 'output', 'quality'] as const).map(key => <th key={key}>{t(`requests.${key}`)}</th>)}</tr></thead>
           <tbody>{page.rows.map(row => <tr key={row.id}>
             <td><time dateTime={row.at}>{row.at}</time></td>

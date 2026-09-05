@@ -16,6 +16,7 @@ export const zhCNMessages = {
   "requests.quality": "证据质量",
   "requests.empty": "该时段没有保留的请求明细，不代表用量为零。",
   "requests.first": "首页",
+  "requests.page_summary": "本页 {count} 条保留请求 · {start}—{end}",
   "requests.previous": "上一页",
   "requests.next": "下一页",
   "requests.confirmed": "已确认",

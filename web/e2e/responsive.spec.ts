@@ -114,3 +114,29 @@ test('narrow conversation list keeps usage and export visible', async ({ page })
   await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
   await expect(page.locator('.agent-own').first()).toBeVisible();
 });
+
+test('request evidence traverses three pages and returns to the exact first row', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  await page.locator('.project-view-tabs button').last().click();
+  await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
+  const panel = page.getByRole('region', { name: '请求证据明细', exact: true });
+  await panel.getByRole('button', { name: '请求证据明细', exact: true }).click();
+  const rows = panel.getByRole('table').locator('tbody tr');
+  await expect(rows).toHaveCount(100);
+  const first = await rows.first().innerText();
+  await expect(panel.getByRole('button', { name: '上一页', exact: true })).toBeDisabled();
+  await panel.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(rows.first()).not.toHaveText(first);
+  await expect(rows).toHaveCount(100);
+  const second = await rows.first().innerText();
+  await panel.getByRole('button', { name: '下一页', exact: true }).click();
+  await expect(rows).toHaveCount(5);
+  await expect(panel.getByRole('button', { name: '下一页', exact: true })).toBeDisabled();
+  await panel.getByRole('button', { name: '上一页', exact: true }).click();
+  await expect(rows).toHaveCount(100);
+  await expect(rows.first()).toHaveText(second);
+  await panel.getByRole('button', { name: '首页', exact: true }).click();
+  await expect(rows.first()).toHaveText(first);
+  await expect(panel.getByRole('button', { name: '上一页', exact: true })).toBeDisabled();
+});

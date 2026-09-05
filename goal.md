@@ -414,3 +414,8 @@ No live data migration, installed-app replacement or release has occurred.
   readback was inconclusive after accessibility indexes changed, so it remains
   unverified. This is interaction evidence, not full layout or live-account
   validation. Owned tab/server closed; default production build restored.
+- Batch 55: request-table page count and first/last UTC timestamps are visible
+  and screen-reader announced. A browser regression encodes three-page traversal,
+  previous-page identity and exact return-to-first-row checks using scoped
+  accessible controls. Web 36 unit tests/build pass. The new browser regression
+  has not passed execution; prior manual evidence remains limited as recorded.
