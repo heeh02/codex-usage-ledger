@@ -362,3 +362,8 @@ No live data migration, installed-app replacement or release has occurred.
   Clippy and Web build pass. Numeric assertions compare values after the shared
   wire token type serializes as JSON numbers. Client and request table remain
   the next incomplete integration layer.
+- Batch 47: frontend request-evidence client uses generated types, encodes
+  compound cursors, forwards abort signals and rejects HTTP errors or mismatched
+  thread/time/attribution scope instead of returning empty usage. Web 32 tests
+  and build pass; additional time-scope guard passes targeted client tests.
+  The helper is not yet wired to a visible request table.
