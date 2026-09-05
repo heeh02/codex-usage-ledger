@@ -907,19 +907,26 @@ fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
 #[test]
 fn deep_request_page_seeks_by_compound_index() {
     let store = LedgerStore::open_in_memory().unwrap();
+    let pages_before: i64 = store
+        .connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
     store.connection.execute_batch(
         "WITH RECURSIVE seq(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM seq WHERE n<99999)
          INSERT INTO retained_request_evidence(
             event_id,event_hash,effective_at,thread_id,quality,input_tokens,
             cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
-            output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence)
-         SELECT printf('request-%06d',n),'synthetic','2026-08-01T00:00:00.000000000Z',
-            'large-thread','confirmed',100,40,10,100,20,5,120,'unknown','unknown' FROM seq;"
+            output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence,
+            model,account_fingerprint,project_id,turn_id)
+         SELECT printf('request-%06d',n),printf('%064d',n),'2026-08-01T00:00:00.000000000Z',
+            'large-thread','confirmed',100,40,10,100,20,5,120,'unknown','unknown',
+            'synthetic-model',printf('%064d',1),'synthetic-project',printf('synthetic-turn-%06d',n/3) FROM seq;"
     ).unwrap();
     let cursor = RetainedRequestCursor {
         effective_at: "2026-08-01T00:00:00.000000000Z".into(),
         event_id: "request-099899".into(),
     };
+    let query_started = std::time::Instant::now();
     let page = store
         .retained_request_page(
             "large-thread",
@@ -929,6 +936,23 @@ fn deep_request_page_seeks_by_compound_index() {
             100,
         )
         .unwrap();
+    let query_elapsed = query_started.elapsed();
+    let pages_after: i64 = store
+        .connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    let page_size: i64 = store
+        .connection
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .unwrap();
+    eprintln!(
+        "synthetic request evidence: rows=100000, added_pages={}, page_size={}, added_bytes={}, deep_page_rows={}, query_us={}",
+        pages_after - pages_before,
+        page_size,
+        (pages_after - pages_before) * page_size,
+        page.observations.len(),
+        query_elapsed.as_micros()
+    );
     assert_eq!(page.observations.len(), 100);
     assert_eq!(page.observations[0].cursor.event_id, "request-099900");
     assert!(page.next.is_none());

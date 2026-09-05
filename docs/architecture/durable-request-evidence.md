@@ -75,6 +75,14 @@ neither that overloaded field nor one event per timestamp proves a turn boundary
 
 ## Acceptance gates
 
+Initial synthetic measurement: 100,000 same-time requests with 64-character
+hash/account fields and populated model/project/turn identifiers added
+39,022,592 SQLite page bytes (9,527 × 4,096). One warm in-memory last-page
+read of 100 rows took 1,449 microseconds. This includes the table/index page
+growth, not WAL, backups, disk cold reads or ingestion provenance. It is not
+a production budget or latency guarantee. The test prints fresh measurements
+when run with `cargo test deep_request_page -- --nocapture`.
+
 - Fresh schema and upgrade from its immediate predecessor.
 - Crash/restart between each write stage leaves no cursor/data discrepancy.
 - Ordinary ingest, late historic ingest, replay, compaction, source deletion,

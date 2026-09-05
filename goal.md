@@ -426,3 +426,8 @@ No live data migration, installed-app replacement or release has occurred.
   were rejected by canonical nanosecond validation; corrected fixture passes.
   Existing paging regression and Clippy pass. This is query-plan evidence,
   not a full retention-size or production-load benchmark.
+- Batch 57: the 100,000-request fixture now populates realistic-length synthetic
+  hash/account and model/project/turn fields. SQLite page growth was 39,022,592
+  bytes; one warm in-memory 100-row deep read measured 1,449 microseconds.
+  Measurements are printed by the regression and documented with exclusions
+  (WAL, backup, cold disk, full ingest). No production budget is claimed.
