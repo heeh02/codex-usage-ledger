@@ -94,6 +94,12 @@ export interface TrendPoint {
   local: number | null;
 }
 
+export function bucketDateRange(date: string, grain: TimeGrain): { startDate: string; endDate: string } {
+  const startDate = date.slice(0, 10);
+  const endDate = grain === 'hour' ? startDate : new Date(nextBucket(date, grain) - 1).toISOString().slice(0, 10);
+  return { startDate, endDate };
+}
+
 export function trendSeries(data: TimeseriesResponse, metric: MetricKey) {
   const localValue = (point: TimeseriesResponse['points'][number]) => point.confirmedEvents === 0
     && (point.unknownEvents > 0 || point.quarantinedEvents > 0)

@@ -39,7 +39,10 @@ export function OverviewPage({
   return (
     <>
       <LocalUsagePulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
-      <TrendAndTimeline data={{ ...bundle.timeseries, official: { ...bundle.timeseries.official, primaryScope: false } }} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} />
+      <TrendAndTimeline data={{ ...bundle.timeseries, official: { ...bundle.timeseries.official, primaryScope: false } }} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} onInspectRange={range => {
+        onFiltersChange({ ...filters, ...range, period: 'custom', sessionOffset: 0, sessionSearch: '' });
+        onDetailTabChange('sessions');
+      }} />
       <section className="overview-tabs panel">
         <nav aria-label={t('overview.usage_details')}>
           {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', 'Sessions']] as const).map(([id, label]) => (

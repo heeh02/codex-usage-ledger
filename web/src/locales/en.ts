@@ -1,6 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "chart.open_day_chats": "View this day's conversations",
+  "chart.open_range_chats": "View conversations in this interval",
   "accounts.compare_local": "Compare accounts · local activity",
   "accounts.compare_scope": "Local records within the same time window, not each account's usage across other devices.",
   "comparison.title": "Usage comparison",

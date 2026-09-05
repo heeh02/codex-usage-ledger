@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MockLedgerApi } from '../api/mock';
 import type { TimeseriesResponse } from '../api/types';
-import { comparisonKey, contiguous, timeDomain, timeRatio, trendSeries } from './time';
+import { bucketDateRange, comparisonKey, contiguous, timeDomain, timeRatio, trendSeries } from './time';
 
 let data: TimeseriesResponse;
 beforeAll(async () => {
@@ -11,6 +11,11 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe('calendar chart projection', () => {
+  it('opens the complete selected calendar bucket', () => {
+    expect(bucketDateRange('2024-02-01', 'month')).toEqual({ startDate: '2024-02-01', endDate: '2024-02-29' });
+    expect(bucketDateRange('2026-08-31', 'week')).toEqual({ startDate: '2026-08-31', endDate: '2026-09-06' });
+    expect(bucketDateRange('2026-09-05T12:00', 'hour')).toEqual({ startDate: '2026-09-05', endDate: '2026-09-05' });
+  });
   it('places sparse series on the same actual date axis', () => {
     const domain = timeDomain(['2026-01-01', '2026-01-02', '2026-01-11'], 'day');
     expect(timeRatio('2026-01-02', domain)).toBeCloseTo(0.1);

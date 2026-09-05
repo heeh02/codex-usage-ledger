@@ -208,3 +208,8 @@ No live data migration, installed-app replacement or release has occurred.
   activity. Official totals remain in Accounts and explicit reconciliation.
   Local composition no longer pairs its buckets with an official total; account
   capture alerts are confined to the account view. Build verification follows.
+- Batch 22: selected chart buckets can open the matching conversation list in
+  overview/project pages while preserving account/model/project scope. Month
+  and week bounds are retained; hourly points explicitly open the whole day,
+  without pretending minute precision. Calendar bucket tests cover leap month
+  and cross-month week; browser interaction acceptance remains open.

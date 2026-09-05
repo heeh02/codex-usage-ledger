@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "chart.open_day_chats": "查看当天聊天",
+  "chart.open_range_chats": "查看此区间聊天",
   "accounts.compare_local": "账号对比 · 本机活动",
   "accounts.compare_scope": "同一时间范围内的本机记录；不代表各账号在其他设备上的全部用量。",
   "comparison.title": "用量对比",

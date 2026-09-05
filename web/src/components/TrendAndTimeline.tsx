@@ -159,7 +159,7 @@ function ProjectRanking({ explorer, metric, onOpenProject }: { explorer: Explore
   ) : <EmptyState text={t('components.trend-and-timeline.no_samples_are_attributable_to_local_projects')} />;
 }
 
-export function UsageTrendPanel({ data, metric, className = '', title = '用量趋势', allowProjectCompare = true }: { data: TimeseriesResponse; metric: MetricKey; className?: string; title?: string; allowProjectCompare?: boolean }) {
+export function UsageTrendPanel({ data, metric, className = '', title = '用量趋势', allowProjectCompare = true, onInspectRange }: { data: TimeseriesResponse; metric: MetricKey; className?: string; title?: string; allowProjectCompare?: boolean; onInspectRange?: (range: { startDate: string; endDate: string }) => void }) {
   const { t } = useI18n();
   const displayTitle = title === '用量趋势' ? t('components.trend-and-timeline.usage_trend') : title;
   const officialScope = metric === 'total' && data.official.primaryScope && data.official.accountCount > 0;
@@ -175,7 +175,7 @@ export function UsageTrendPanel({ data, metric, className = '', title = '用量�
       meta={<div className="trend-panel-meta"><span>{chartGrain === 'hour' ? t('components.trend-and-timeline.hourly') : chartGrain === 'day' ? t('components.trend-and-timeline.daily') : chartGrain === 'week' ? t('components.trend-and-timeline.weekly') : t('components.trend-and-timeline.monthly')}</span><div className="trend-view-control"><button aria-pressed={view === 'total'} className={view === 'total' ? 'is-active' : ''} onClick={() => setView('total')} type="button">{t('components.trend-and-timeline.total')}</button><button aria-pressed={view === 'composition'} className={view === 'composition' ? 'is-active' : ''} onClick={() => setView('composition')} type="button">{t('components.trend-and-timeline.composition')}</button>{allowProjectCompare && <button aria-pressed={view === 'projects'} className={view === 'projects' ? 'is-active' : ''} onClick={() => setView('projects')} type="button">{t('components.trend-and-timeline.compare_projects')}</button>}</div></div>}
       className={`trend-panel ${className}`}
     >
-      {view === 'total' && <UsageTrendChart data={data} metric={metric} />}
+      {view === 'total' && <UsageTrendChart data={data} metric={metric} onInspectRange={onInspectRange} />}
       {view === 'composition' && <CompositionChart data={data} />}
       {view === 'projects' && <DimensionCompareChart data={data} metric={metric} />}
     </Panel>
@@ -187,16 +187,18 @@ export function TrendAndTimeline({
   explorer,
   metric,
   onOpenProject,
+  onInspectRange,
 }: {
   data: TimeseriesResponse;
   explorer: ExplorerResponse;
   metric: MetricKey;
   onOpenProject: (projectId: string) => void;
+  onInspectRange?: (range: { startDate: string; endDate: string }) => void;
 }) {
   const { t } = useI18n();
   return (
     <section className="trend-timeline-grid">
-      <UsageTrendPanel data={data} metric={metric} />
+      <UsageTrendPanel data={data} metric={metric} onInspectRange={onInspectRange} />
       <Panel title={t('components.trend-and-timeline.project_ranking')} eyebrow={t('app.local_attribution')} meta={<span className="definition-chip">{t('components.trend-and-timeline.local_attribution_sample')}</span>} className="timeline-panel">
         <ProjectRanking explorer={explorer} metric={metric} onOpenProject={onOpenProject} />
       </Panel>

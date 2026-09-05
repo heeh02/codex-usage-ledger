@@ -50,7 +50,10 @@ export function ProjectPage({
       scopeKind={selectedProject?.kind ?? 'project'}
       tab={tab}
       onTabChange={onTabChange}
-      trend={<UsageTrendPanel data={bundle.timeseries} metric={metric} title={title} allowProjectCompare={false} className="project-usage-trend" />}
+      trend={<UsageTrendPanel data={bundle.timeseries} metric={metric} title={title} allowProjectCompare={false} className="project-usage-trend" onInspectRange={range => {
+        onFiltersChange({ ...filters, ...range, period: 'custom', sessionOffset: 0, sessionSearch: '' });
+        onTabChange('sessions');
+      }} />}
       modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
       onOpenSession={onOpenSession}
       conversationControls={<ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} />}

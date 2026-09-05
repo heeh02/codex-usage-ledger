@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MetricKey, TimeseriesResponse } from '../api/types';
-import { contiguous, timeRatio, trendSeries, type TrendPoint } from '../charts/time';
+import { bucketDateRange, contiguous, timeRatio, trendSeries, type TrendPoint } from '../charts/time';
 import { compactNumber, metricLabel, shortDate } from '../lib';
 import { useI18n } from '../i18n';
 import { EmptyState } from './Ui';
 
-export function UsageTrendChart({ data, metric }: { data: TimeseriesResponse; metric: MetricKey }) {
+export function UsageTrendChart({ data, metric, onInspectRange }: { data: TimeseriesResponse; metric: MetricKey; onInspectRange?: (range: { startDate: string; endDate: string }) => void }) {
   const { t } = useI18n();
   const container = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
@@ -70,6 +70,7 @@ export function UsageTrendChart({ data, metric }: { data: TimeseriesResponse; me
         <span>{active.date}</span><strong>{format(active.value)}</strong>
         <span>{t('components.explorer.previous')} {format(active.previous)}</span>
         {account && <span>{t('app.local_attribution')} {format(active.local)}</span>}
+        {onInspectRange && !account && <button type="button" onClick={() => onInspectRange(bucketDateRange(active.date, grain))}>{t(grain === 'hour' ? 'chart.open_day_chats' : 'chart.open_range_chats')}</button>}
       </div>
       <div className="chart-footer"><div className="chart-legend">
         <span><i className="legend-confirmed" />{name}</span>
