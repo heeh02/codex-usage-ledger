@@ -20,10 +20,21 @@ pub struct UsageQuery {
     pub session_limit: Option<usize>,
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+    pub node_offset: Option<usize>,
+    pub node_limit: Option<usize>,
+    pub node_search: Option<String>,
 }
 
 impl UsageQuery {
     pub(super) fn validate(&self) -> Result<(), ApiError> {
+        if self
+            .node_limit
+            .is_some_and(|limit| !(1..=1000).contains(&limit))
+        {
+            return Err(ApiError::InvalidQuery(
+                "nodeLimit must be between 1 and 1000".to_owned(),
+            ));
+        }
         for (name, value, allowed) in [
             (
                 "period",

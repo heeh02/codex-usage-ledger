@@ -537,9 +537,36 @@ fn explorer_session_detail(
     }
     let root = tree[0].0.clone();
     let total_nodes = tree.len();
+    let root_own = own_usage.get(&root.thread_id).copied().unwrap_or_default();
+    let root_tree = subtree_usage
+        .get(&root.thread_id)
+        .copied()
+        .unwrap_or_default();
+    let root_events = subtree_events
+        .get(&root.thread_id)
+        .copied()
+        .unwrap_or_default();
+    let search = query
+        .node_search
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    let tree = tree
+        .into_iter()
+        .filter(|(thread, _)| {
+            search.is_empty()
+                || thread_label(thread).to_lowercase().contains(&search)
+                || thread.thread_id.to_lowercase().contains(&search)
+        })
+        .collect::<Vec<_>>();
+    let matched_nodes = tree.len();
+    let offset = query.node_offset.unwrap_or(0);
+    let limit = query.node_limit.unwrap_or(200).clamp(1, 1000);
     let nodes = tree
         .into_iter()
-        .take(800)
+        .skip(offset)
+        .take(limit)
         .map(|(thread, relative_depth)| {
             let (usage, event_count) = own_usage.remove(&thread.thread_id).unwrap_or_default();
             let subtree = subtree_usage.remove(&thread.thread_id).unwrap_or_default();
@@ -601,8 +628,11 @@ fn explorer_session_detail(
         "createdAt": root.created_at,
         "updatedAt": root.updated_at,
         "presentInCodex": root.present_in_codex,
-        "ownUsage": nodes.first().and_then(|node| node.get("ownUsage")).cloned().unwrap_or_else(|| token_value(TokenUsage::default())),
-        "treeUsage": nodes.first().and_then(|node| node.get("subtreeUsage")).cloned().unwrap_or_else(|| token_value(TokenUsage::default())),
+        "ownUsage": token_value(root_own.0),
+        "treeUsage": token_value(root_tree),
+        "ownEventCount": root_own.1,
+        "treeEventCount": root_events,
+        "nodePage": { "total": matched_nodes, "offset": offset, "limit": limit, "hasMore": offset.saturating_add(nodes.len()) < matched_nodes, "search": search, "sort": "hierarchy" },
         "subagentCount": total_nodes.saturating_sub(1),
         "samplingTimeline": timeline.into_iter().map(|(bucket, (events, usage))| serde_json::json!({
             "bucket": bucket,
@@ -617,7 +647,7 @@ fn explorer_session_detail(
         "samplingGrain": detail_grain,
         "officialThreadUsage": official_thread,
         "nodes": nodes,
-        "truncated": total_nodes > 800,
+        "truncated": offset > 0 || nodes.len() < matched_nodes,
     }))
 }
 

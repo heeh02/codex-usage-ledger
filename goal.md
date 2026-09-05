@@ -213,3 +213,7 @@ No live data migration, installed-app replacement or release has occurred.
   and week bounds are retained; hourly points explicitly open the whole day,
   without pretending minute precision. Calendar bucket tests cover leap month
   and cross-month week; browser interaction acceptance remains open.
+- Batch 23: backend node pagination/search replaces the hard 800-node cap;
+  root own/tree usage and event counts are independent of the page. A 901-node
+  fixture checks late-page totals and ID lookup. UI pagination wiring remains
+  required; this backend change is not installed or marked complete.

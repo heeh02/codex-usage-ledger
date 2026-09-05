@@ -168,8 +168,10 @@ export interface ExplorerSessionDetail {
   createdAt: string;
   id: string;
   model: string | null;
+  nodePage?: ExplorerSessionPage | null;
   nodes: ExplorerSessionNode[];
   officialThreadUsage: OfficialThreadUsage | null;
+  ownEventCount?: number | null;
   ownSamplingTimeline: SamplingTimelinePoint[];
   ownUsage: TokenUsage;
   presentInCodex: boolean;
@@ -179,9 +181,18 @@ export interface ExplorerSessionDetail {
   samplingTimeline: SamplingTimelinePoint[];
   subagentCount: number;
   title: string;
+  treeEventCount?: number | null;
   treeUsage: TokenUsage;
   truncated: boolean;
   updatedAt: string;
+}
+export interface ExplorerSessionPage {
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+  search: string;
+  sort: string;
+  total: number;
 }
 export interface ExplorerSessionNode {
   agentNickname: string | null;
@@ -227,14 +238,6 @@ export interface SamplingTimelinePoint {
   bucket: string;
   events: number;
   usage: TokenUsage;
-}
-export interface ExplorerSessionPage {
-  hasMore: boolean;
-  limit: number;
-  offset: number;
-  search: string;
-  sort: string;
-  total: number;
 }
 export interface ExplorerSession {
   active: boolean;

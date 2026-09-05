@@ -878,6 +878,9 @@ pub struct OfficialThreadUsage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerSessionDetail {
+    pub node_page: Option<ExplorerSessionPage>,
+    pub own_event_count: Option<f64>,
+    pub tree_event_count: Option<f64>,
     pub id: String,
     pub title: String,
     pub project_id: Nullable<String>,

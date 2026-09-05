@@ -770,6 +770,16 @@
             "null"
           ]
         },
+        "nodePage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorerSessionPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "nodes": {
           "type": "array",
           "items": {
@@ -785,6 +795,13 @@
               "type": "null"
             }
           ]
+        },
+        "ownEventCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
         },
         "ownSamplingTimeline": {
           "type": "array",
@@ -825,6 +842,13 @@
         },
         "title": {
           "type": "string"
+        },
+        "treeEventCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
         },
         "treeUsage": {
           "$ref": "#/$defs/TokenUsage"

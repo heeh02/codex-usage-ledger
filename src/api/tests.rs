@@ -281,6 +281,54 @@ fn child_detail_recomputes_usage_and_timeline_for_only_its_descendants() {
 }
 
 #[test]
+fn node_pages_keep_root_totals_and_search_beyond_the_old_cap() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&explorer_event("root-usage", "large-root", None))
+        .unwrap();
+    let mut records = vec![native_catalog_thread(
+        "large-root",
+        None,
+        Some("project"),
+        0,
+        "Large task",
+    )];
+    for index in 0..900 {
+        records.push(native_catalog_thread(
+            &format!("node-{index:04}"),
+            Some("large-root"),
+            Some("project"),
+            1,
+            &format!("Worker {index:04}"),
+        ));
+    }
+    store.upsert_thread_catalog_batch(&records).unwrap();
+    let query = UsageQuery {
+        session: Some("large-root".to_owned()),
+        period: Some("lifetime".to_owned()),
+        node_offset: Some(800),
+        ..Default::default()
+    };
+    let detail = explorer::http_explorer(&store, &query).unwrap()["selectedSession"].clone();
+    assert_eq!(detail["nodePage"]["total"], 901);
+    assert_eq!(detail["nodes"].as_array().unwrap().len(), 101);
+    assert_eq!(detail["ownUsage"]["total"], 120);
+    assert_eq!(detail["treeUsage"]["total"], 120);
+    assert_eq!(detail["treeEventCount"], 1);
+    let search = http_explorer(
+        &store,
+        &UsageQuery {
+            node_offset: Some(0),
+            node_search: Some("node-0899".to_owned()),
+            ..query
+        },
+    )
+    .unwrap();
+    assert_eq!(search["selectedSession"]["nodePage"]["total"], 1);
+    assert_eq!(search["selectedSession"]["nodes"][0]["id"], "node-0899");
+}
+
+#[test]
 fn calendar_and_rolling_periods_have_distinct_shanghai_boundaries() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 8, 0, 0).unwrap();
     let resolve = |period: &str| {

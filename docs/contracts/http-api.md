@@ -36,6 +36,12 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+Session detail accepts `nodeOffset`, `nodeLimit` (1–1000, default 200), and
+`nodeSearch` over safe display labels/IDs. Its optional `nodePage` metadata
+describes matching nodes; own/tree totals and event counts always cover the
+full selected scope, independent of the visible page. Pagination replaces the
+old non-enumerable 800-node truncation.
+
 The additive `timeseries.modelSeries` and `timeseries.accountSeries` collections
 contain local source aggregates on the same requested window/grain as the
 project series. They are not derived from official totals or proportional
