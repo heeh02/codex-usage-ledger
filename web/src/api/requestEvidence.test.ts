@@ -7,6 +7,7 @@ const query = { threadId: 'thread & one', start: '2026-08-01T00:00:00Z', end: '2
 it('encodes scope and cursor and propagates cancellation', async () => {
   const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
     scope: 'thread_own_retained_observations', attribution: 'ingest_observed',
+    selectionAttribution: 'current_ledger', selectedAccount: null, selectedModel: null,
     threadId: query.threadId, start: query.start, end: query.end,
     rows: [], next: null, historyComplete: false,
   }) });
@@ -25,6 +26,7 @@ it('does not turn server errors or wrong-scope data into an empty page', async (
   await expect(fetchRequestEvidence(query)).rejects.toThrow('HTTP 500');
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({
     scope: 'thread_own_retained_observations', attribution: 'ingest_observed',
+    selectionAttribution: 'current_ledger', selectedAccount: null, selectedModel: null,
     threadId: 'different', rows: [],
   }) }));
   await expect(fetchRequestEvidence(query)).rejects.toThrow('scope mismatch');
@@ -35,6 +37,7 @@ it('rejects nonconserved and unsafe token numbers instead of displaying them', a
     uncached: 50, output: 20, reasoning: 5, total: 120, cacheWriteCoverage: 1 };
   const response = (next: object) => ({ ok: true, json: async () => ({
     scope: 'thread_own_retained_observations', attribution: 'ingest_observed',
+    selectionAttribution: 'current_ledger', selectedAccount: null, selectedModel: null,
     threadId: query.threadId, start: query.start, end: query.end, rows: [{ usage: next }],
   }) });
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(usage)));

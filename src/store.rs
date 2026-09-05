@@ -52,6 +52,14 @@ pub struct RetainedRequestPage {
     pub next: Option<RetainedRequestCursor>,
 }
 
+pub struct RetainedRequestScope<'a> {
+    pub thread_id: &'a str,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub account: Option<&'a str>,
+    pub model: Option<&'a str>,
+}
+
 /// Diagnostic only: a consistent candidate is not proven request equality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CandidateOverlapStatus {

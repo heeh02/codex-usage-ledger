@@ -9,6 +9,8 @@ pub(super) struct RequestEvidenceQuery {
     after_time: Option<String>,
     after_id: Option<String>,
     limit: Option<usize>,
+    account: Option<String>,
+    model: Option<String>,
 }
 
 pub(super) async fn request_evidence(
@@ -36,16 +38,23 @@ pub(super) async fn request_evidence(
         );
     let value = state
         .query_value(UsageQuery::default(), move |store, _| {
-            let page = store.retained_request_page(
-                &query.thread_id,
-                query.start,
-                query.end,
+            let page = store.retained_request_page_for_scope(
+                crate::store::RetainedRequestScope {
+                    thread_id: &query.thread_id,
+                    start: query.start,
+                    end: query.end,
+                    account: query.account.as_deref().filter(|value| *value != "all"),
+                    model: query.model.as_deref().filter(|value| *value != "all"),
+                },
                 cursor.as_ref(),
                 limit,
             )?;
             Ok(serde_json::json!({
                 "scope": "thread_own_retained_observations",
                 "attribution": "ingest_observed",
+                "selectionAttribution": "current_ledger",
+                "selectedAccount": selected(&query.account),
+                "selectedModel": selected(&query.model),
                 "historyComplete": false,
                 "threadId": query.thread_id,
                 "start": query.start, "end": query.end,
@@ -94,6 +103,8 @@ mod tests {
             after_time: None,
             after_id: None,
             limit: Some(10),
+            account: None,
+            model: None,
         };
         let value = request_evidence(State(state.clone()), Query(make_query()))
             .await
@@ -107,6 +118,13 @@ mod tests {
             Some(event.usage.total_tokens as f64)
         );
         assert_eq!(value["rows"][0]["turnId"], serde_json::Value::Null);
+        let mut filtered = make_query();
+        filtered.model = Some("absent-model".into());
+        let filtered = request_evidence(State(state.clone()), Query(filtered))
+            .await
+            .unwrap()
+            .0;
+        assert!(filtered.rows.is_empty());
         let mut invalid = make_query();
         invalid.after_time = Some("bad-time".into());
         invalid.after_id = Some("request".into());

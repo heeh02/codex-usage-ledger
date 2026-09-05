@@ -31,6 +31,21 @@
     "scope": {
       "type": "string"
     },
+    "selectedAccount": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selectedModel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selectionAttribution": {
+      "type": "string"
+    },
     "start": {
       "type": "string"
     },
@@ -39,6 +54,9 @@
     }
   },
   "required": [
+    "selectionAttribution",
+    "selectedAccount",
+    "selectedModel",
     "scope",
     "attribution",
     "historyComplete",

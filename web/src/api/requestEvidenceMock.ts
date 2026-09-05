@@ -12,7 +12,9 @@ export function mockRequestEvidence(query: RequestEvidenceQuery): RequestEvidenc
     accountConfidence: 'unknown', projectConfidence: 'unknown', quality: 'confirmed',
     usage: { input: 100, cached: 40, cacheWrite: 10, cacheWriteObservedInput: 100,
       cacheWriteCoverage: 1, uncached: 50, output: 20, reasoning: 5, total: 120 },
-  })).filter(row => Date.parse(row.at) < end);
+  })).filter(row => Date.parse(row.at) < end
+    && (!query.model || query.model === 'all' || row.model === query.model)
+    && (!query.account || query.account === 'all'));
   const after = query.after;
   const remaining = rows.filter(row => !after || row.at > after.afterTime ||
     (row.at === after.afterTime && row.id > after.afterId));
@@ -20,6 +22,9 @@ export function mockRequestEvidence(query: RequestEvidenceQuery): RequestEvidenc
   const page = remaining.slice(0, limit);
   const last = page.at(-1);
   return { scope: 'thread_own_retained_observations', attribution: 'ingest_observed',
+    selectionAttribution: 'current_ledger',
+    selectedAccount: query.account && query.account !== 'all' ? query.account : null,
+    selectedModel: query.model && query.model !== 'all' ? query.model : null,
     historyComplete: false, threadId: query.threadId, start: query.start, end: query.end,
     rows: page, next: remaining.length > limit && last ? { afterTime: last.at, afterId: last.id } : null };
 }

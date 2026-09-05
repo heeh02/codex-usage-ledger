@@ -15,6 +15,9 @@ export interface RequestEvidenceResponse {
   next: RequestEvidenceCursor | null;
   rows: RequestEvidenceRow[];
   scope: string;
+  selectedAccount: string | null;
+  selectedModel: string | null;
+  selectionAttribution: string;
   start: string;
   threadId: string;
 }

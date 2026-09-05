@@ -1185,6 +1185,38 @@ fn compacted_request_assignments_follow_account_and_project_changes() {
         [], |row| Ok((row.get(0)?, row.get(1)?))
     ).unwrap();
     assert_eq!(assignment, ("new-account".into(), "new-project".into()));
+    let page = store
+        .retained_request_page_for_scope(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+                account: Some("new-account"),
+                model: Some("gpt-5.6-sol"),
+            },
+            None,
+            100,
+        )
+        .unwrap();
+    assert_eq!(page.observations.len(), 1);
+    assert_eq!(
+        page.observations[0].observed_account.as_deref(),
+        Some("acct-fp")
+    );
+    let old_scope = store
+        .retained_request_page_for_scope(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+                account: Some("acct-fp"),
+                model: None,
+            },
+            None,
+            100,
+        )
+        .unwrap();
+    assert!(old_scope.observations.is_empty());
     let filtered = AggregateFilter {
         account_fingerprint: Some("new-account".into()),
         project_id: Some("new-project".into()),
@@ -1283,7 +1315,9 @@ fn deep_request_page_seeks_by_compound_index() {
                 "2026-08-02T00:00:00.000000000Z",
                 cursor.effective_at,
                 cursor.event_id,
-                101
+                101,
+                Option::<String>::None,
+                Option::<String>::None
             ],
             |row| row.get::<_, String>(3),
         )

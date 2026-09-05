@@ -8,8 +8,8 @@ import './request-evidence.css';
 import { mockRequestEvidence } from '../../api/requestEvidenceMock';
 import { requestTokenDisplay } from './requestValue';
 
-export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
-  threadId: string; start: string; end: string; enabled: boolean; demo: boolean;
+export function RequestEvidencePanel({ threadId, start, end, account, model, demo }: {
+  threadId: string; start: string; end: string; account: string; model: string; demo: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -20,25 +20,25 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (!open || !enabled) return;
+    if (!open) return;
     const controller = new AbortController();
     setBusy(true);
     setError('');
     void runScopedRequest(controller.signal,
-      () => demo ? Promise.resolve(mockRequestEvidence({ threadId, start, end, after: cursor }))
-        : fetchRequestEvidence({ threadId, start, end, after: cursor }, controller.signal), {
+      () => demo ? Promise.resolve(mockRequestEvidence({ threadId, start, end, account, model, after: cursor }))
+        : fetchRequestEvidence({ threadId, start, end, account, model, after: cursor }, controller.signal), {
         success: setPage,
         failure: reason => setError(reason instanceof Error ? reason.message : String(reason)),
         settled: () => setBusy(false),
       });
     return () => controller.abort();
-  }, [threadId, start, end, cursor, open, enabled, demo, retry]);
+  }, [threadId, start, end, account, model, cursor, open, demo, retry]);
   return <section className="request-evidence-panel" aria-label={t('requests.title')}>
     <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>{t('requests.title')}</button>
     {open && <>
       <p>{t('requests.scope')}</p>
       {demo && <p>{t('requests.demo')}</p>}
-      {!enabled ? <p>{t('requests.unavailable_scope')}</p> : <>
+      <>
         {busy && <p role="status">{t('requests.loading')}</p>}
         {error && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>{t('requests.retry')}</button></p>}
         {page && <><p role="status">{t('requests.page_summary', {
@@ -58,7 +58,7 @@ export function RequestEvidencePanel({ threadId, start, end, enabled, demo }: {
         <button type="button" disabled={busy || !cursor} onClick={() => setPaging(firstRequestPage())}>{t('requests.first')}</button>
         <button type="button" disabled={busy || !paging.previous.length} onClick={() => setPaging(previousRequestPage)}>{t('requests.previous')}</button>
         <button type="button" disabled={busy || Boolean(error) || !page.next} onClick={() => setPaging(value => advanceRequestPage(value, page.next))}>{t('requests.next')}</button></>}
-      </>}
+      </>
     </>}
   </section>;
 }

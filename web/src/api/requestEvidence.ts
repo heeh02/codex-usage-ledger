@@ -14,6 +14,8 @@ function validRequestUsage(value: unknown): boolean {
 }
 
 export interface RequestEvidenceQuery {
+  account?: string;
+  model?: string;
   threadId: string;
   start: string;
   end: string;
@@ -33,6 +35,8 @@ export async function fetchRequestEvidence(
     params.set('afterTime', query.after.afterTime);
     params.set('afterId', query.after.afterId);
   }
+  if (query.account && query.account !== 'all') params.set('account', query.account);
+  if (query.model && query.model !== 'all') params.set('model', query.model);
   const base = (import.meta.env.VITE_LEDGER_API_BASE ?? '').replace(/\/$/, '');
   const response = await fetch(`${base}/v1/request-evidence?${params}`, {
     signal, headers: { Accept: 'application/json' },
@@ -40,6 +44,9 @@ export async function fetchRequestEvidence(
   if (!response.ok) throw new Error(`Request evidence returned HTTP ${response.status}`);
   const value = await response.json() as RequestEvidenceResponse;
   if (value.scope !== 'thread_own_retained_observations'
+    || value.selectionAttribution !== 'current_ledger'
+    || value.selectedAccount !== (query.account && query.account !== 'all' ? query.account : null)
+    || value.selectedModel !== (query.model && query.model !== 'all' ? query.model : null)
     || value.attribution !== 'ingest_observed' || value.threadId !== query.threadId
     || Date.parse(value.start) !== Date.parse(query.start)
     || Date.parse(value.end) !== Date.parse(query.end)

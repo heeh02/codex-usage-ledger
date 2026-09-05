@@ -105,8 +105,11 @@ contract gate checks these artifacts alongside the dashboard bundle contract.
 `GET /v1/request-evidence` accepts required `threadId`, RFC3339 `start`
 and `end` (half-open), optional `limit` (1–500, default 100), and paired
 `afterTime`/`afterId` from the preceding response's `next` object.
-Unknown parameters are rejected; this endpoint does not silently apply an
-effective account/project filter to ingest-observed attribution.
+Optional `account` and `model` filter before pagination; omitted or `all`
+means unfiltered. Account membership uses current retained assignments, not
+the observed-account value returned on each row. Unknown parameters are rejected.
+`selectionAttribution=current_ledger`, `selectedAccount` and `selectedModel`
+make this distinction explicit; nullable selection fields mean unfiltered.
 
 Responses identify `scope=thread_own_retained_observations`,
 `attribution=ingest_observed`, and `historyComplete=false`. Rows contain

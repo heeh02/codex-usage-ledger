@@ -532,3 +532,10 @@ No live data migration, installed-app replacement or release has occurred.
   aggregate, request counts and account/project/model/thread time series in
   another timezone, not only total tokens. Targeted regression passes with
   identical pre/post-compaction dimensions. Broader coverage gaps remain open.
+- Batch 74: retained request pages support current-account and model filtering
+  before pagination. API/generated types explicitly separate selection attribution
+  from observed row attribution, and the client verifies returned selection.
+  The session table no longer disables filtered views. A remapped-account fixture
+  selects the new account while preserving the old observed account; model
+  exclusion is covered. Full Rust 126 tests, Clippy, both API contracts, Web 38
+  tests and build pass. Filtered browser/live-account acceptance remains open.

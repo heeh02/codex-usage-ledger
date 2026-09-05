@@ -14,6 +14,11 @@ pub(super) fn request_page_sql(has_cursor: bool) -> String {
         account_confidence, project_confidence
         FROM retained_request_evidence
         WHERE thread_id = ?1 AND effective_at < ?3 AND {lower_bound}
+          AND (?7 IS NULL OR EXISTS(
+              SELECT 1 FROM retained_request_assignments assigned
+              WHERE assigned.event_id=retained_request_evidence.event_id
+                AND assigned.account_fingerprint=?7))
+          AND (?8 IS NULL OR model=?8)
         ORDER BY effective_at, event_id LIMIT ?6"
     )
 }
@@ -84,6 +89,32 @@ impl LedgerStore {
         after: Option<&RetainedRequestCursor>,
         limit: usize,
     ) -> StoreResult<RetainedRequestPage> {
+        self.retained_request_page_for_scope(
+            RetainedRequestScope {
+                thread_id,
+                start,
+                end,
+                account: None,
+                model: None,
+            },
+            after,
+            limit,
+        )
+    }
+
+    pub fn retained_request_page_for_scope(
+        &self,
+        scope: RetainedRequestScope<'_>,
+        after: Option<&RetainedRequestCursor>,
+        limit: usize,
+    ) -> StoreResult<RetainedRequestPage> {
+        let RetainedRequestScope {
+            thread_id,
+            start,
+            end,
+            account,
+            model,
+        } = scope;
         if start >= end || thread_id.is_empty() || !(1..=500).contains(&limit) {
             return Err(StoreError::InvalidRequestQuery(
                 "require thread, start < end and limit 1..500",
@@ -114,6 +145,8 @@ impl LedgerStore {
                 after.map(|cursor| cursor.effective_at.as_str()),
                 after.map(|cursor| cursor.event_id.as_str()),
                 (limit + 1) as i64,
+                account,
+                model,
             ],
             |row| {
                 Ok(RetainedRequestObservation {

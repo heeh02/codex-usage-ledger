@@ -1,7 +1,7 @@
 export const zhCNMessages = {
   "requests.title": "请求证据明细",
   "requests.scroll_region": "可滚动请求表，使用方向键查看其余列",
-  "requests.scope": "仅所选聊天自身的保留观测，不含子代理。历史不完整，这些行不是额外用量；账号和项目归属为导入时观测。",
+  "requests.scope": "仅所选聊天自身的保留观测，不含子代理。按当前账本账号归属与模型筛选。历史不完整，这些行不是额外用量；观测归属与当前归属分开保存。",
   "requests.unavailable_scope": "请选择全部账号、全部模型。筛选后的请求归属尚未支持。",
   "requests.demo": "用于分页测试的合成请求夹具，不是真实用量，也不是演示曲线的组成明细。",
   "requests.loading": "正在读取请求证据…",
