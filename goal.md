@@ -588,3 +588,11 @@ No live data migration, installed-app replacement or release has occurred.
   reload on refreshed bundles even with fixed custom dates, without resetting
   pagination/open state. Backfill regression, three contracts, Web 40 tests and
   final build pass. Live progress transitions and GUI acceptance remain open.
+- Batch 84: native build script produced a workspace-only arm64 macOS bundle.
+  Rust release, locked Web dependency/build step and 11 Swift source compilation
+  succeeded. Independent final-bundle deep signature, both executable architectures,
+  executable permissions, Info.plist version and every file checksum verified.
+  Bundle manifest SHA-256: 1223f45c5a75b993c24832d62e1f61806a59e5de88fc2221aa0fc242cfd66605.
+  This is ad-hoc signing, not notarization or publication. The bundle was NOT
+  launched or installed because default data paths still target the live ledger;
+  real migration, lifecycle and device acceptance remain open.
