@@ -96,6 +96,16 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
+Current integrated state after batch 59: schema 26 retains local request facts,
+preserves explicit sampling turns without changing dedup hashes, and exposes
+typed request-evidence pages to an on-demand session table. Observed attribution
+is not yet reconciled to filtered effective account/project ownership.
+Synthetic three-page interaction is partly verified; full responsive/installed
+acceptance is not. Core remaining priorities are source-overlap correctness,
+scoped coverage, filtered request/turn analysis, complete backfill/retention
+receipts, and installed cross-platform acceptance. No live ledger upgrade or
+application replacement has occurred. Earlier checkpoints below are historical.
+
 Latest checkpoint: schema 25 replaces full-table source projection refresh with
 durable dirty date/thread keys. Synthetic new/upgrade, restart, unchanged-key,
 key-move, deletion, source-choice and rollback/retry checks pass. No retained
@@ -436,3 +446,7 @@ No live data migration, installed-app replacement or release has occurred.
   exceeding output. Invalid successful responses become explicit errors, not
   apparently precise table values. Web 37 tests/build pass. These checks validate
   received dimensions; they do not prove source completeness or dedup accuracy.
+- Batch 59: full integrated Rust regression passes with 113 library, 3 binary
+  and 2 schema tests. Clippy, both generated API contracts, privacy, document
+  links, generated-file and module-boundary checks pass. This verifies current
+  synthetic/source contracts, not the outstanding accounting or device gates.
