@@ -124,6 +124,7 @@ export function periodLabel(period: PeriodKey): string {
     rolling30: ['近30天', 'Last 30 days'],
     weeks12: ['12周', '12 weeks'],
     months12: ['12月', '12 months'],
+    year: ['本年', 'This year'],
     lifetime: ['至今', 'Lifetime'],
   };
   return labels[period][uiLanguage === 'zh-CN' ? 0 : 1];

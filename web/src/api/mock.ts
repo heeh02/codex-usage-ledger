@@ -56,6 +56,7 @@ const PERIODS = [
   { id: 'rolling30' as const, label: '近30天' },
   { id: 'weeks12' as const, label: '12周' },
   { id: 'months12' as const, label: '12月' },
+  { id: 'year' as const, label: '本年' },
   { id: 'lifetime' as const, label: 'Lifetime' },
 ];
 
@@ -257,7 +258,7 @@ function periodDays(period: PeriodKey): number {
 function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
   const days = Math.min(periodDays(period), DEMO_DAYS);
   const option = PERIODS.find((item) => item.id === period) ?? PERIODS[2];
-  const start = dateFromOffset(anchor, days - 1);
+  const start = period === 'year' ? `${anchor.getUTCFullYear()}-01-01` : dateFromOffset(anchor, days - 1);
   const end = isoDate(anchor);
   const windowKind = period === 'rolling7' || period === 'rolling30'
     ? 'rolling'

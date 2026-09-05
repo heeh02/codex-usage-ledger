@@ -335,6 +335,29 @@ fn calendar_and_rolling_periods_have_distinct_shanghai_boundaries() {
 }
 
 #[test]
+fn calendar_year_uses_january_first_and_same_calendar_comparison() {
+    let query = UsageQuery {
+        period: Some("year".to_owned()),
+        ..Default::default()
+    };
+    let period = resolve_period_at(&query, Utc.with_ymd_and_hms(2024, 3, 1, 3, 0, 0).unwrap()).2;
+    assert_eq!(
+        period.start,
+        Some(Utc.with_ymd_and_hms(2023, 12, 31, 16, 0, 0).unwrap())
+    );
+    assert_eq!(period.default_grain, "month");
+    assert_eq!(
+        period.comparison_end,
+        Some(Utc.with_ymd_and_hms(2023, 3, 1, 3, 0, 0).unwrap())
+    );
+    let leap = resolve_period_at(&query, Utc.with_ymd_and_hms(2024, 2, 29, 3, 0, 0).unwrap()).2;
+    assert_eq!(
+        leap.comparison_end,
+        Some(Utc.with_ymd_and_hms(2023, 2, 28, 3, 0, 0).unwrap())
+    );
+}
+
+#[test]
 fn september_first_exposes_a_cross_month_week_without_changing_month_semantics() {
     let now = Utc.with_ymd_and_hms(2026, 8, 31, 17, 30, 0).unwrap();
     let resolve = |period: &str| {

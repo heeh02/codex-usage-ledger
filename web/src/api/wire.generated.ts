@@ -6,7 +6,8 @@
  */
 
 export type TimeGrain = "hour" | "day" | "week" | "month";
-export type PeriodKey = "today" | "week" | "rolling7" | "month" | "rolling30" | "weeks12" | "months12" | "lifetime";
+export type PeriodKey =
+  "today" | "week" | "rolling7" | "month" | "rolling30" | "weeks12" | "months12" | "year" | "lifetime";
 export type PeriodWindowKind = "calendar" | "rolling" | "lifetime";
 export type CollectionPhase = "idle" | "optimizing" | "compacting" | "backfill" | "syncing" | "live";
 export type ExplorerProjectKind = "project" | "standalone_conversations" | "unmatched_records";

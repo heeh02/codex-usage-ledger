@@ -36,6 +36,11 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+The additive `year` period selects January 1 at local midnight through now,
+with monthly default grain. Its comparison uses the same calendar date/time
+in the preceding year; February 29 maps to February 28 when necessary. This
+is distinct from the existing trailing twelve-calendar-month period.
+
 `/v1/explorer` and `/v1/bundle` accept `sessionSearch`, `sessionSort` (tokens,
 output, requests, recent), `sessionOffset` and `sessionLimit` (1–100, default 30).
 The additive optional `explorer.sessionPage` object reports total matches,

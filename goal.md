@@ -158,3 +158,7 @@ No live data migration, installed-app replacement or release has occurred.
 - Batch 8: overview moves the main trend ahead of composition and diagnostic
   panels. Secondary composition and reconciliation are explicitly expandable.
   This is an initial layout improvement, not completed visual acceptance.
+- Batch 9: natural calendar-year period added end-to-end to the API schema,
+  selector and display labels. Targeted January boundary and leap-year
+  comparison tests pass; Web typecheck/build pass. Custom dates and full
+  annual interaction acceptance are still open.

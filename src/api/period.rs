@@ -30,6 +30,12 @@ pub(super) fn resolve_period_at(
         "week" => (local_midnight_utc(this_week, timezone), "day", true),
         "rolling7" => (Some(now_utc - ChronoDuration::days(7)), "day", false),
         "month" => (local_midnight_utc(this_month, timezone), "day", true),
+        "year" => (
+            NaiveDate::from_ymd_opt(today.year(), 1, 1)
+                .and_then(|date| local_midnight_utc(date, timezone)),
+            "month",
+            true,
+        ),
         "rolling30" => (Some(now_utc - ChronoDuration::days(30)), "day", false),
         "weeks12" => (
             local_midnight_utc(this_week - ChronoDuration::weeks(11), timezone),
@@ -49,6 +55,8 @@ pub(super) fn resolve_period_at(
         "today" => local_midnight_utc(today - ChronoDuration::days(1), timezone),
         "week" => local_midnight_utc(this_week - ChronoDuration::weeks(1), timezone),
         "month" => local_midnight_utc(shift_month_start(this_month, -1), timezone),
+        "year" => NaiveDate::from_ymd_opt(today.year() - 1, 1, 1)
+            .and_then(|date| local_midnight_utc(date, timezone)),
         "rolling7" => start.map(|start| start - ChronoDuration::days(7)),
         "rolling30" => start.map(|start| start - ChronoDuration::days(30)),
         "weeks12" => start.map(|start| start - ChronoDuration::weeks(12)),
@@ -56,6 +64,18 @@ pub(super) fn resolve_period_at(
         _ => None,
     };
     let comparison_end = match period_label {
+        "year" => now_local
+            .with_year(today.year() - 1)
+            .or_else(|| {
+                (today.month() == 2 && today.day() == 29)
+                    .then(|| {
+                        now_local
+                            .with_day(28)
+                            .and_then(|date| date.with_year(today.year() - 1))
+                    })
+                    .flatten()
+            })
+            .map(|date| date.with_timezone(&Utc)),
         "today" | "week" | "month" => comparison_start
             .zip(elapsed)
             .map(|(previous, elapsed)| previous + elapsed)

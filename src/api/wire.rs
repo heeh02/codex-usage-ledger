@@ -131,6 +131,7 @@ pub enum PeriodKey {
     Rolling30,
     Weeks12,
     Months12,
+    Year,
     Lifetime,
 }
 

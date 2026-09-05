@@ -91,7 +91,7 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
     let end = period.end.unwrap_or_else(Utc::now);
     let timezone = Tz::from_str(&period.timezone).unwrap_or(chrono_tz::Asia::Shanghai);
     let window_kind = match period.label.as_str() {
-        "today" | "week" | "month" | "weeks12" | "months12" => "calendar",
+        "today" | "week" | "month" | "year" | "weeks12" | "months12" => "calendar",
         "rolling7" | "rolling30" => "rolling",
         _ => "lifetime",
     };
@@ -103,6 +103,7 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
         "rolling30" => "近30天",
         "weeks12" => "12周",
         "months12" => "12月",
+        "year" => "本年",
         _ => "至今",
     };
     let definition = match period.label.as_str() {
@@ -113,6 +114,7 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
         "rolling30" => "当前时间向前 30×24 小时",
         "weeks12" => "含当前周的最近 12 个自然周",
         "months12" => "含当前月的最近 12 个自然月",
+        "year" => "本年 1 月 1 日 00:00 至今",
         _ => "可信数据覆盖起点至今",
     };
     let coverage_complete = period
@@ -273,6 +275,7 @@ pub(super) fn filter_catalog(store: &LedgerStore) -> Result<serde_json::Value, S
             {"id": "rolling30", "label": "近30天"},
             {"id": "weeks12", "label": "12周"},
             {"id": "months12", "label": "12月"},
+            {"id": "year", "label": "本年"},
             {"id": "lifetime", "label": "至今"},
         ],
     }))

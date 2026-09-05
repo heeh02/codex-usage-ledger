@@ -2030,6 +2030,7 @@
         "rolling30",
         "weeks12",
         "months12",
+        "year",
         "lifetime"
       ]
     },

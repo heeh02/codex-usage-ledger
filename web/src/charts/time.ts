@@ -72,7 +72,7 @@ export function comparisonKey(key: string, period: PeriodWindow, grain: TimeGrai
   const previousStart = civilTime(civilKey(period.comparisonStart, period.timezone));
   const date = new Date(civilTime(key));
   if (!Number.isFinite(date.getTime())) return null;
-  if (period.key === 'month' || grain === 'month') {
+  if (period.key === 'month' || period.key === 'year' || grain === 'month') {
     const a = new Date(currentStart), b = new Date(previousStart);
     const monthOffset = (a.getUTCFullYear() - b.getUTCFullYear()) * 12 + a.getUTCMonth() - b.getUTCMonth();
     const day = date.getUTCDate();
