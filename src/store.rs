@@ -24,7 +24,9 @@ mod ingest_repository;
 mod maintenance_repository;
 mod migrations;
 mod project_repository;
+mod receipt_repository;
 mod request_repository;
+use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -710,6 +712,9 @@ fn upsert_event_in(
             .validate()
             .map_err(StoreError::InvalidConfirmedUsage)?;
     }
+    if let Some(outcome) = deduplicate_sampling_receipt_in(transaction, event)? {
+        return Ok(outcome);
+    }
     upsert_event_thread_catalog_in(transaction, event)?;
     let new_hash = event_hash(event)?;
     let old_hash: Option<String> = transaction
@@ -853,6 +858,9 @@ fn upsert_compact_event_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
 ) -> StoreResult<UpsertOutcome> {
+    if let Some(outcome) = deduplicate_sampling_receipt_in(transaction, event)? {
+        return Ok(outcome);
+    }
     let raw_hash: Option<String> = transaction
         .query_row(
             "SELECT event_hash FROM usage_events WHERE event_id = ?1",

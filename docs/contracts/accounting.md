@@ -85,6 +85,16 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
+matching immutable request fields and dimensions become receipt aliases without
+new usage rows; weaker unknown copies cannot replace confirmed evidence.
+A confirmed copy can resolve an unknown owner only while its raw fact is
+available for transactional rollup correction. Conflicting dimensions or
+unavailable resolution evidence fail without advancing the transaction cursor.
+Migration seeds only unambiguous single-owner receipts; preexisting duplicate
+groups and records without receipt identity require a separate audit/receipt,
+not silent deletion. This does not solve untracked legacy source overlap.
+
 Schema 32 records path-independent sampling receipt keys from machine,
 nonempty source process UUID, log-row ID, exact source timestamp, thread and
 the sampling log body. Only the digest is retained; missing process identity

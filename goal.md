@@ -96,12 +96,12 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
-Current source-identity correctness priority: the explicit
-`copied_log_sources_must_not_duplicate_sampling` regression fails with
-200 instead of 100 after a synthetic log database is copied into the migrated
-source directory. Path-dependent sampling namespaces count overlapping sources
-independently. The known-failing test is labeled ignored, not passed. Fix must
-preserve distinct requests and audit legacy identities, not simply drop a source.
+Resolved for receipt-tracked ingestion in batch 93:
+`copied_log_sources_must_not_duplicate_sampling` now returns 100 after copying
+the source and is no longer ignored. Schema 33 assigns a counting owner per
+receipt and preserves source aliases. Untracked legacy overlap, preexisting
+duplicate groups and source-reset/failover continuity remain open audit work;
+no historical duplicates were silently deleted.
 
 Resolved in batch 72: `exact_window_usage_must_survive_raw_compaction` now
 passes (120 before/after) and is no longer ignored. Exact boundary queries
@@ -643,3 +643,11 @@ No live data migration, installed-app replacement or release has occurred.
   existing amounts, and no receipts are invented for older records. Identity,
   hash-preservation and upgrade tests plus Clippy pass. Consolidation is not yet
   applied; the copied-source double-count regression remains unresolved.
+- Batch 93: tracked receipt owners prevent copied log sources from adding a
+  second usage row. The previously failing 100→200 regression now stays 100 and
+  is unignored. Distinct requests remain counted; unknown raw owners can be
+  resolved once; weaker copies, conflicting dimensions and compacted replay
+  are handled without recounting. Legacy duplicate groups are not auto-selected.
+  Full Rust 138 tests passed before final strengthened replay assertions;
+  targeted receipt/replay/upgrade checks and Clippy pass afterward. No live
+  migration or retrospective duplicate cleanup occurred.

@@ -1035,7 +1035,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known gap: copied log sources currently receive distinct sampling IDs"]
     fn copied_log_sources_must_not_duplicate_sampling() {
         let temporary = tempdir().unwrap();
         let home = temporary.path();

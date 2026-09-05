@@ -248,6 +248,159 @@ fn schema_32_does_not_invent_receipts_for_legacy_events() {
 }
 
 #[test]
+fn receipt_owner_dedup_preserves_distinct_requests_and_rejects_conflicting_copies() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut primary = event("receipt-primary", DataQuality::Confirmed, 10);
+    primary.provenance.sampling_receipt_key = Some("receipt-one".into());
+    store
+        .upsert_verified_events_and_cursor(&[primary.clone()], &cursor(10))
+        .unwrap();
+    let mut copy = primary.clone();
+    let mut weaker = primary.clone();
+    weaker.quality = DataQuality::Unknown;
+    weaker.usage = TokenUsage::default();
+    assert_eq!(
+        store.upsert_event(&weaker).unwrap(),
+        UpsertOutcome::Unchanged
+    );
+    copy.event_id = "receipt-copy".into();
+    copy.provenance.source_id = "copied-source".into();
+    let duplicate = store
+        .upsert_verified_events_and_cursor(&[copy.clone()], &cursor(20))
+        .unwrap();
+    assert_eq!((duplicate.inserted, duplicate.unchanged), (0, 1));
+    let mut independent = event("receipt-independent", DataQuality::Confirmed, 30);
+    independent.provenance.sampling_receipt_key = Some("receipt-two".into());
+    store
+        .upsert_verified_events_and_cursor(&[independent], &cursor(30))
+        .unwrap();
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+    copy.usage.input_tokens += 1;
+    copy.usage.total_tokens += 1;
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    assert_eq!(
+        store.upsert_event(&primary).unwrap(),
+        UpsertOutcome::Unchanged
+    );
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+    assert!(matches!(
+        store.upsert_verified_events_and_cursor(&[copy], &cursor(40)),
+        Err(StoreError::SamplingReceiptConflict(_))
+    ));
+    assert_eq!(
+        store
+            .get_cursor("machine", "rollout-path")
+            .unwrap()
+            .unwrap()
+            .byte_offset,
+        30
+    );
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+}
+
+#[test]
+fn receipt_copy_can_resolve_an_unknown_raw_owner_without_a_second_request() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut unknown = event("unknown-owner", DataQuality::Unknown, 10);
+    unknown.usage = TokenUsage::default();
+    unknown.provenance.sampling_receipt_key = Some("resolvable-receipt".into());
+    store.upsert_event(&unknown).unwrap();
+    let mut resolved = event("resolved-copy", DataQuality::Confirmed, 20);
+    resolved.provenance.sampling_receipt_key = unknown.provenance.sampling_receipt_key;
+    let outcome = store.upsert_event(&resolved).unwrap();
+    assert_eq!(outcome, UpsertOutcome::Updated);
+    let usage = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    assert_eq!((usage.event_count, usage.usage.total_tokens), (1, 120));
+}
+
+#[test]
+fn schema_33_does_not_silently_choose_among_legacy_duplicate_receipts() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema32.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 32).unwrap();
+        let mut store = LedgerStore { connection };
+        for (index, id) in ["legacy-a", "legacy-b", "legacy-single"]
+            .into_iter()
+            .enumerate()
+        {
+            store
+                .upsert_event(&event(id, DataQuality::Confirmed, index as u64 * 10))
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "INSERT INTO sampling_source_receipts VALUES (?1,?2)",
+                    params![
+                        id,
+                        if index < 2 {
+                            "shared-legacy"
+                        } else {
+                            "unique-legacy"
+                        }
+                    ],
+                )
+                .unwrap();
+        }
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    let owners: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM sampling_receipt_owners", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(owners, 1);
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+    let mut incoming = event("new-copy", DataQuality::Confirmed, 40);
+    incoming.provenance.sampling_receipt_key = Some("shared-legacy".into());
+    assert!(matches!(
+        store.upsert_event(&incoming),
+        Err(StoreError::SamplingReceiptConflict(_))
+    ));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+}
+
+#[test]
 fn effective_projection_updates_only_dirty_keys_and_survives_restart() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("incremental.sqlite");
