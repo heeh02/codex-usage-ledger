@@ -41,6 +41,11 @@ There are three non-interchangeable Token views:
   prefix emits no usage. Only later positive deltas enter Reconstruction.
 - Pending Reconstruction and Unrecoverable are durable source states. Neither
   is a zero and neither may be replaced with `threads.tokens_used`.
+- Without a prior counter, reconstruction must not assign the first cumulative
+  snapshot wholesale to the current timestamp. Only a valid last sample enters
+  usage; absent/invalid last samples establish a baseline without a confirmed
+  event. Any representable older counter prefix is diagnostic only, never a
+  lifetime/project total. See [initial counter boundaries](../architecture/reconstruction-replay-boundary.md).
 - Model and working directory are attributed from the nearest preceding
   `turn_context` in the same non-replayed stream.
 - Account attribution is temporal. A current `auth.json` snapshot never claims

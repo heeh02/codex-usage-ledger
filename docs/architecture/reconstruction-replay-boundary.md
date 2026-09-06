@@ -51,3 +51,32 @@ changes require code-owner review before release.
 These are synthetic source-path and persistence checks. They do not establish
 full independent inference usage, all historical replay formats or installed
 application acceptance.
+
+## Initial cumulative counter is not a current request
+
+When no previous counter is available, the first cumulative snapshot is not
+emitted wholesale. Reconstruction emits only valid `last_token_usage`; an
+earlier counter prefix must not be assigned to that record's time, model or
+account. If the last sample is missing/invalid, the total establishes a baseline
+without a confirmed usage event, and later valid deltas can resume from it.
+
+The optional checkpoint field `initial_counter_prefix` preserves a representable
+total-minus-last difference for diagnostics. With no valid last sample it holds
+the initial total. It is counter bookkeeping, not independent inference usage
+or a quantity to add to lifetime/daily/project totals. If component coverage is
+incomparable, the prefix is null; a valid last sample still preserves its known
+cache-write observations rather than being discarded or forced to zero. Older
+checkpoints lacking the field remain readable and do not trigger rescanning.
+
+The synthetic 1100-total/100-last fixture previously produced 1100 at one instant;
+it now produces 100 while retaining the 1000 prefix separately. Full token
+components, subsequent increments, unchanged re-emits, missing/invalid samples
+and incomplete cache-write coverage are checked. Disk-backed restart and the
+sampling/reconstruction shadow fixture include an older counter prefix and
+remain incremental and conserved.
+
+Already stored reconstruction events are not rewritten. The existing conflict
+guard refuses a different payload for the same event identity, so a missing
+cursor cannot silently replace older facts under this parser. Historical
+correction still requires an explicit shadow migration/receipt. These checks
+do not establish full history or repair the separate day-max overlap defect.

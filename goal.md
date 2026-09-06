@@ -1161,3 +1161,20 @@ No live data migration, installed-app replacement or release has occurred.
   source policy or installed app changed; current native artifact predates this
   batch. Remaining counting/coverage migration, performance and native acceptance
   keep the complete goal ACTIVE.
+- Batch 127: previous turn reduced duplicate snapshot calculations. Reproduced
+  a counting-source defect: the first cumulative 1100/last-sample 100 snapshot
+  emitted 1100 at one instant. Reconstruction now emits only a valid last sample
+  when no prior counter exists; missing/invalid last samples establish a baseline
+  without a confirmed event. Optional initial-counter-prefix bookkeeping is
+  persisted separately and never allocated to time/model/account/project totals.
+  Incomparable cache-write coverage leaves that prefix unknown while preserving
+  a valid last sample's known fields. Full-component, unchanged-repeat, missing/
+  invalid sample and old-checkpoint tests pass. The reconstruction file fixture
+  now closes/reopens a disk ledger with a 1000 counter prefix and remains
+  incremental; the dual sampling/reconstruction shadow fixture includes the
+  same prefix and still pairs only identifiable samples. Full Rust 184 tests,
+  Clippy and governance gates pass. Existing event-conflict protection remains,
+  so differently reconstructed old event identities are not silently overwritten.
+  No historical rescan/repair, schema/source-selection change, live-ledger or
+  installed-app update occurred. Main day-max overlap, historical migration and
+  native product acceptance remain open; full goal ACTIVE.

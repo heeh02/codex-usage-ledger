@@ -1444,10 +1444,20 @@ mod tests {
         let mut first: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
         first["payload"]["info"]["total_token_usage"] =
             first["payload"]["info"]["last_token_usage"].clone();
+        // The retained file starts after an older counter prefix. Both sources
+        // must still pair only the identifiable sample, not the initial total.
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            first["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                first["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 1000
+            );
+        }
         let mut second: Value =
             serde_json::from_str(&token_line(at + chrono::Duration::seconds(1), 150)).unwrap();
         second["payload"]["info"]["total_token_usage"] = serde_json::json!({
-            "input_tokens":230,"cached_input_tokens":190,"output_tokens":20,"reasoning_output_tokens":6,"total_tokens":250
+            "input_tokens":1230,"cached_input_tokens":1190,"output_tokens":20,"reasoning_output_tokens":6,"total_tokens":1250
         });
         fs::write(&rollout, format!("{}\n{}\n{}\n{}\n",
             serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),

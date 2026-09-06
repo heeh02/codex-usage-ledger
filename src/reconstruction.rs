@@ -93,6 +93,10 @@ struct ReconstructionCheckpoint {
     foreign_replay: bool,
     canonical_at: Option<DateTime<Utc>>,
     previous_total: Option<TokenUsage>,
+    /// Counter bookkeeping predating the first identifiable sample, never an
+    /// event to assign to its timestamp/model/account. None can mean incomparable.
+    #[serde(default)]
+    initial_counter_prefix: Option<TokenUsage>,
     last_token_at: Option<DateTime<Utc>>,
     model: Option<String>,
     cwd: Option<String>,
@@ -111,6 +115,7 @@ impl ReconstructionCheckpoint {
             foreign_replay: false,
             canonical_at: None,
             previous_total: None,
+            initial_counter_prefix: None,
             last_token_at: None,
             model: target.model.clone(),
             cwd: target.cwd.clone(),
@@ -632,7 +637,19 @@ fn process_line(
     }
 
     let (usage, reset) = match state.previous_total {
-        None => (total, false),
+        None => {
+            let Some(last) = sample.last.filter(|usage| valid_usage(*usage)) else {
+                state.initial_counter_prefix = Some(total);
+                state.previous_total = Some(total);
+                state.last_token_at = Some(at);
+                state.prefix_events = state.prefix_events.saturating_add(1);
+                return Ok(None);
+            };
+            state.initial_counter_prefix = total
+                .checked_delta(last)
+                .filter(|usage| valid_usage(*usage));
+            (last, false)
+        }
         Some(previous) if total == previous => {
             state.last_token_at = Some(at);
             state.unchanged_events = state.unchanged_events.saturating_add(1);
@@ -962,6 +979,217 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_invalid_first_sample_is_a_baseline_not_confirmed_usage() {
+        let mut target = child_target();
+        target.thread_id = "root".into();
+        target.parent_thread_id = None;
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: None,
+        };
+        for last in [
+            Value::Null,
+            serde_json::json!({"input_tokens":100,"output_tokens":20,"total_tokens":999}),
+        ] {
+            let mut state = ReconstructionCheckpoint::new(&target);
+            process_line(&mut state,&line(1,serde_json::json!({"timestamp":"2026-09-01T00:00:00Z","type":"session_meta","payload":{"id":"root"}})),&target,"m","s","f",&attribution,&[]).unwrap();
+            let total = TokenUsage {
+                input_tokens: 1000,
+                cached_input_tokens: 800,
+                total_tokens: 1000,
+                ..Default::default()
+            };
+            let first = line(
+                2,
+                serde_json::json!({"timestamp":"2026-09-01T01:00:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":total,"last_token_usage":last}}}),
+            );
+            assert!(
+                process_line(
+                    &mut state,
+                    &first,
+                    &target,
+                    "m",
+                    "s",
+                    "f",
+                    &attribution,
+                    &[]
+                )
+                .unwrap()
+                .is_none()
+            );
+            assert_eq!(state.initial_counter_prefix, Some(total));
+            assert_eq!(state.previous_total, Some(total));
+            let next_total = TokenUsage {
+                input_tokens: 1060,
+                cached_input_tokens: 840,
+                output_tokens: 20,
+                reasoning_output_tokens: 5,
+                total_tokens: 1080,
+                ..Default::default()
+            };
+            let expected = next_total.checked_delta(total).unwrap();
+            let next = line(
+                3,
+                serde_json::json!({"timestamp":"2026-09-01T01:01:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":next_total,"last_token_usage":expected}}}),
+            );
+            assert_eq!(
+                process_line(&mut state, &next, &target, "m", "s", "f", &attribution, &[])
+                    .unwrap()
+                    .unwrap()
+                    .event
+                    .usage,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn first_cumulative_snapshot_does_not_assign_older_usage_to_now() {
+        let mut target = child_target();
+        target.thread_id = "root".into();
+        target.parent_thread_id = None;
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: None,
+        };
+        let mut state = ReconstructionCheckpoint::new(&target);
+        let meta = line(
+            1,
+            serde_json::json!({"timestamp":"2026-09-01T00:00:00Z","type":"session_meta","payload":{"id":"root"}}),
+        );
+        process_line(&mut state, &meta, &target, "m", "s", "f", &attribution, &[]).unwrap();
+        let last = TokenUsage {
+            input_tokens: 80,
+            cached_input_tokens: 50,
+            cache_write_input_tokens: 10,
+            cache_write_observed_input_tokens: 80,
+            output_tokens: 20,
+            reasoning_output_tokens: 5,
+            total_tokens: 100,
+        };
+        let total = TokenUsage {
+            input_tokens: 980,
+            cached_input_tokens: 850,
+            cache_write_input_tokens: 60,
+            cache_write_observed_input_tokens: 980,
+            output_tokens: 120,
+            reasoning_output_tokens: 45,
+            total_tokens: 1100,
+        };
+        let make = |number, total, last| {
+            line(
+                number,
+                serde_json::json!({"timestamp":"2026-09-01T01:00:00Z","type":"event_msg",
+            "payload":{"type":"token_count","info":{"total_token_usage":total,"last_token_usage":last}}}),
+            )
+        };
+        let first = process_line(
+            &mut state,
+            &make(2, total, last),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(first.event.usage, last);
+        assert_eq!(state.initial_counter_prefix, total.checked_delta(last));
+        state = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        let next_last = TokenUsage {
+            input_tokens: 40,
+            cached_input_tokens: 20,
+            cache_write_input_tokens: 5,
+            cache_write_observed_input_tokens: 40,
+            output_tokens: 10,
+            reasoning_output_tokens: 2,
+            total_tokens: 50,
+        };
+        let next_total = TokenUsage {
+            input_tokens: 1020,
+            cached_input_tokens: 870,
+            cache_write_input_tokens: 65,
+            cache_write_observed_input_tokens: 1020,
+            output_tokens: 130,
+            reasoning_output_tokens: 47,
+            total_tokens: 1150,
+        };
+        let next = process_line(
+            &mut state,
+            &make(3, next_total, next_last),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(next.event.usage, next_last);
+        assert!(
+            process_line(
+                &mut state,
+                &make(4, next_total, next_last),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .is_none()
+        );
+        let mut different_coverage = ReconstructionCheckpoint::new(&target);
+        process_line(
+            &mut different_coverage,
+            &meta,
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap();
+        let mut first_json = make(5, total, last).parse_json().unwrap();
+        first_json["payload"]["info"]["total_token_usage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("cache_write_input_tokens");
+        let sample = process_line(
+            &mut different_coverage,
+            &line(5, first_json),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(sample.event.usage, last);
+        assert!(
+            different_coverage.initial_counter_prefix.is_none(),
+            "incomparable coverage does not imply a zero prefix"
+        );
+    }
+
+    #[test]
     fn foreign_history_remains_replay_across_gaps_and_checkpoint_restart() {
         let target = child_target();
         let mut state = ReconstructionCheckpoint::new(&target);
@@ -1043,8 +1271,13 @@ mod tests {
         assert_eq!(own.event.cwd, target.cwd);
         let mut legacy = serde_json::to_value(ReconstructionCheckpoint::new(&target)).unwrap();
         legacy.as_object_mut().unwrap().remove("foreign_replay");
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("initial_counter_prefix");
         let decoded: ReconstructionCheckpoint = serde_json::from_value(legacy).unwrap();
         assert!(!decoded.foreign_replay);
+        assert!(decoded.initial_counter_prefix.is_none());
     }
 
     #[test]
@@ -1259,8 +1492,8 @@ mod tests {
                 "type": "session_meta",
                 "payload": {"id": "root", "cwd": "/tmp/project"}
             }),
-            token("2026-09-01T00:00:01Z", 100, 100),
-            token("2026-09-01T00:00:02Z", 150, 50),
+            token("2026-09-01T00:00:01Z", 1100, 100),
+            token("2026-09-01T00:00:02Z", 1150, 50),
         ];
         let mut encoded = records
             .iter()
@@ -1287,7 +1520,8 @@ mod tests {
             .unwrap();
         drop(index);
 
-        let mut store = LedgerStore::open_in_memory().unwrap();
+        let ledger_path = temp.path().join("ledger.sqlite3");
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
         let first = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
         assert_eq!(first.inserted_events, 2);
         assert_eq!(first.pending_sources, 0);
@@ -1300,11 +1534,27 @@ mod tests {
             150
         );
 
+        drop(store);
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        let checkpoint: ReconstructionCheckpoint = serde_json::from_str(
+            store
+                .get_cursor("machine", &source_id("root"))
+                .unwrap()
+                .unwrap()
+                .parser_state_json
+                .as_ref()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            checkpoint.initial_counter_prefix.unwrap().total_tokens,
+            1000
+        );
         let second = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
         assert_eq!(second.files_advanced, 0);
         assert_eq!(second.inserted_events, 0);
 
-        encoded.push_str(&serde_json::to_string(&token("2026-09-01T00:00:03Z", 200, 50)).unwrap());
+        encoded.push_str(&serde_json::to_string(&token("2026-09-01T00:00:03Z", 1200, 50)).unwrap());
         encoded.push('\n');
         fs::write(&rollout, encoded).unwrap();
         let third = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
