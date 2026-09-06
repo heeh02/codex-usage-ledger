@@ -1051,3 +1051,23 @@ No live data migration, installed-app replacement or release has occurred.
   latency comparison. Isolated server stopped. No DTO/schema, source policy,
   original ledger or installed-app update. Main day-max undercount/overlap,
   continuous coverage and native acceptance remain open; goal stays ACTIVE.
+- Batch 121: prior turn corrected rolling explorer scopes. Returned to the
+  critical source-overlap prerequisite: shadow-union report v2 now projects
+  the resolved canonical measurement set into UTC-day/account/model/project/
+  thread buckets with checked counts and all token components. Unknown keys
+  stay null, distinct from an identifier literally named unknown. Any unresolved
+  group, empty set or canonical-outside-only window leaves both usage and
+  aggregates null; recorded zero retains a counted bucket. Cross-dimension
+  tests preserve the 600-token A/B versus B/C fixture and its sampling-only
+  100-token model while explicitly leaving the production max policy unchanged.
+  CLI contract tests check version/null fields and unchanged database bytes.
+  Full Rust 177 tests, Clippy and governance checks pass. The retained private
+  acceptance copy predates source-record-key ingestion; aggregate metadata
+  inspection found no keys, so it cannot validate a corrected historical union.
+  Three narrow real-copy CLI samples correctly returned missing-key ambiguity,
+  no numeric correction and unchanged DB bytes. Read-only SQLite initially
+  failed because the idle copy retained WAL mode without sidecars; checkpointed
+  only that isolated copy into DELETE mode before byte-preservation checks.
+  No live ledger/source migration or installed-app change occurred. Next policy
+  acceptance needs keyed forward-ingestion/replay fixtures and a measured shadow
+  migration, not extrapolation from missing legacy evidence. Goal remains ACTIVE.

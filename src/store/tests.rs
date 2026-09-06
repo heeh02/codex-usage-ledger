@@ -1636,6 +1636,31 @@ fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
     assert_eq!(shadow.usage.unwrap().total_tokens, 600);
     assert_eq!(shadow.shared_records_collapsed, 1);
     assert_eq!(shadow.selected.len(), 3);
+    let aggregates = shadow.aggregates.as_ref().unwrap();
+    assert_eq!(aggregates.records, 3);
+    for dimension in [
+        &aggregates.by_account,
+        &aggregates.by_model,
+        &aggregates.by_project,
+        &aggregates.by_thread,
+        &aggregates.by_day,
+    ] {
+        let mut total = TokenUsage::default();
+        for bucket in dimension {
+            checked_add_usage(&mut total, bucket.usage).unwrap();
+        }
+        assert_eq!(total, shadow.usage.unwrap());
+    }
+    assert_eq!(
+        aggregates
+            .by_model
+            .iter()
+            .find(|bucket| bucket.key == a.model)
+            .unwrap()
+            .usage
+            .total_tokens,
+        100
+    );
     assert_eq!(
         shadow
             .selected

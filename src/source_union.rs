@@ -49,6 +49,27 @@ pub struct UnresolvedGroup {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ShadowBucket {
+    /// None is unassigned, distinct from a literal identifier named "unknown".
+    pub key: Option<String>,
+    pub records: u64,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShadowAggregates {
+    pub day_timezone: &'static str,
+    pub records: u64,
+    pub by_day: Vec<ShadowBucket>,
+    pub by_account: Vec<ShadowBucket>,
+    pub by_model: Vec<ShadowBucket>,
+    pub by_project: Vec<ShadowBucket>,
+    pub by_thread: Vec<ShadowBucket>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UnionShadow {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
@@ -63,6 +84,7 @@ pub struct UnionShadow {
     pub complete_for_supplied_records: bool,
     pub history_complete: bool,
     pub usage: Option<TokenUsage>,
+    pub aggregates: Option<ShadowAggregates>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,7 +112,7 @@ pub fn plan(
         end,
         scope: "supplied_local_measurements_not_inference_usage",
         production_policy_changed: false,
-        version: 1,
+        version: 2,
         input_records: records.len(),
         selected: Vec::new(),
         unresolved: Vec::new(),
@@ -99,6 +121,7 @@ pub fn plan(
         complete_for_supplied_records: false,
         history_complete: false,
         usage: None,
+        aggregates: None,
     };
     for record in records {
         if !identities.insert((record.side, record.id.clone())) {
@@ -174,8 +197,40 @@ pub fn plan(
             add(&mut total, record.usage.expect("validated measurement"))?;
         }
         report.usage = Some(total);
+        report.aggregates = Some(ShadowAggregates {
+            day_timezone: "UTC",
+            records: u64::try_from(report.selected.len()).map_err(|_| UnionError::Overflow)?,
+            by_day: aggregate(&report.selected, |record| {
+                Some(record.at.date_naive().to_string())
+            })?,
+            by_account: aggregate(&report.selected, |record| record.account.clone())?,
+            by_model: aggregate(&report.selected, |record| record.model.clone())?,
+            by_project: aggregate(&report.selected, |record| record.project.clone())?,
+            by_thread: aggregate(&report.selected, |record| Some(record.thread.clone()))?,
+        });
     }
     Ok(report)
+}
+
+fn aggregate(
+    selected: &[Measurement],
+    key: impl Fn(&Measurement) -> Option<String>,
+) -> Result<Vec<ShadowBucket>, UnionError> {
+    let mut grouped = BTreeMap::<Option<String>, ShadowBucket>::new();
+    for record in selected {
+        let key = key(record);
+        let bucket = grouped.entry(key.clone()).or_insert_with(|| ShadowBucket {
+            key,
+            records: 0,
+            usage: TokenUsage::default(),
+        });
+        bucket.records = bucket.records.checked_add(1).ok_or(UnionError::Overflow)?;
+        add(
+            &mut bucket.usage,
+            record.usage.expect("validated measurement"),
+        )?;
+    }
+    Ok(grouped.into_values().collect())
 }
 
 fn add(total: &mut TokenUsage, next: TokenUsage) -> Result<(), UnionError> {
@@ -259,6 +314,54 @@ mod tests {
         assert_eq!(report.selected[0].id, "a");
     }
     #[test]
+    fn shadow_dimensions_conserve_after_pairing_without_relabeling_unknowns() {
+        let a = record("a", EvidenceSide::Sampling, "shared");
+        let b = record("b", EvidenceSide::Reconstruction, "shared");
+        let mut c = record("c", EvidenceSide::Reconstruction, "independent");
+        c.at -= chrono::Duration::hours(1);
+        c.account = None;
+        c.model = None;
+        c.project = None;
+        c.thread = "another-thread".into();
+        let mut d = record("d", EvidenceSide::Sampling, "named-unknown");
+        d.account = Some("unknown".into());
+        let json = serde_json::to_value(run(vec![a, b, c, d])).unwrap();
+        assert_eq!(json["version"], 2);
+        assert_eq!(json["aggregates"]["dayTimezone"], "UTC");
+        assert_eq!(json["aggregates"]["records"], 3);
+        for dimension in ["byDay", "byAccount", "byModel", "byProject", "byThread"] {
+            let rows = json["aggregates"][dimension].as_array().expect(dimension);
+            assert_eq!(
+                rows.iter()
+                    .map(|row| row["records"].as_u64().unwrap())
+                    .sum::<u64>(),
+                3
+            );
+            for field in [
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "cache_write_observed_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+                "total_tokens",
+            ] {
+                assert_eq!(
+                    rows.iter()
+                        .map(|row| row["usage"][field].as_u64().unwrap_or(0))
+                        .sum::<u64>(),
+                    json["usage"][field].as_u64().unwrap_or(0),
+                    "{dimension}.{field}"
+                );
+            }
+        }
+        let accounts = json["aggregates"]["byAccount"].as_array().unwrap();
+        assert_eq!(accounts.len(), 3);
+        assert!(accounts.iter().any(|row| row["key"].is_null()));
+        assert!(accounts.iter().any(|row| row["key"] == "unknown"));
+        assert_eq!(json["aggregates"]["byDay"][0]["key"], "2025-12-31");
+    }
+    #[test]
     fn ambiguities_never_become_a_partial_total_disguised_as_complete() {
         type Mutate = fn(&mut Measurement);
         let cases: &[(UnresolvedReason, Mutate)] = &[
@@ -290,6 +393,7 @@ mod tests {
             let report = run(vec![a, b]);
             assert!(!report.complete_for_supplied_records);
             assert!(report.usage.is_none());
+            assert!(report.aggregates.is_none());
             assert!(
                 report
                     .unresolved
@@ -301,9 +405,12 @@ mod tests {
     #[test]
     fn empty_zero_and_overflow_are_not_conflated() {
         assert!(run(Vec::new()).usage.is_none());
+        assert!(run(Vec::new()).aggregates.is_none());
         let mut zero = record("zero", EvidenceSide::Sampling, "zero");
         zero.usage = Some(TokenUsage::default());
-        assert_eq!(run(vec![zero]).usage, Some(TokenUsage::default()));
+        let zero = run(vec![zero]);
+        assert_eq!(zero.usage, Some(TokenUsage::default()));
+        assert_eq!(zero.aggregates.unwrap().by_account[0].records, 1);
         let mut a = record("a", EvidenceSide::Sampling, "a");
         a.usage = Some(TokenUsage {
             input_tokens: u64::MAX,
@@ -335,6 +442,7 @@ mod tests {
         assert!(report.selected.is_empty());
         assert_eq!(report.canonical_records_outside_window, 1);
         assert!(report.usage.is_none());
+        assert!(report.aggregates.is_none());
         assert!(matches!(
             plan(
                 vec![a.clone(), a.clone()],

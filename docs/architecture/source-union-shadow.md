@@ -48,6 +48,32 @@ not be presented as exact inference usage or a replacement dashboard total.
 Source replay, copied files with different identities and absent legacy keys
 still require independent coverage/replay evidence and migration receipts.
 
+## Version 2 dimensional validation
+
+CLI report `version=2` adds a required nullable `aggregates` object. It is
+available only when the supplied record set is fully resolved and has at least
+one selected measurement, under exactly the same conditions as `usage`. Its
+`records` counts selected measurements, not input observations or model calls.
+`byDay`, `byAccount`, `byModel`, `byProject` and `byThread` each contain
+`{key, records, usage}` rows. Every dimension independently conserves the
+selected count and every raw token component, including write-coverage weight
+and reasoning. Cache reads/writes stay within input; reasoning stays in output.
+
+All grouping happens after counterpart resolution and canonical-window
+selection. Day keys use the canonical timestamp's UTC date; `dayTimezone=UTC`
+is explicit and must not be confused with the current production selector's
+Shanghai storage dates. Missing account/model/project keys stay JSON null,
+distinct from a real identifier literally named `unknown`. No official total,
+quota percentage or inferred account assignment participates in these groups.
+Empty, unresolved and canonical-outside-window sets have `aggregates=null`,
+not empty/zero distributions claiming completeness. An observed zero record
+still produces a counted zero bucket. Counts and token sums use checked math.
+
+This is an additive versioned CLI diagnostic change, not an HTTP contract,
+database migration or dashboard algorithm replacement. Migration review must
+compare these dimensions against source evidence; matching sums alone do not
+prove replay freedom, complete history, or independent inference requests.
+
 ## Evidence
 
 The A/B versus B/C synthetic fixture yields 600 in the shadow and retains the

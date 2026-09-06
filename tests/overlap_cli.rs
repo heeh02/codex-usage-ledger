@@ -106,6 +106,9 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
     );
     let shadow: serde_json::Value = serde_json::from_slice(&shadow.stdout).unwrap();
     assert_eq!(shadow["productionPolicyChanged"], false);
+    assert_eq!(shadow["version"], 2);
+    assert!(shadow.get("aggregates").is_some());
+    assert!(shadow["aggregates"].is_null());
     assert_eq!(shadow["completeForSuppliedRecords"], false);
     assert_eq!(shadow["unresolved"][0]["reason"], "missing_record_key");
     assert!(shadow["usage"].is_null());
