@@ -392,6 +392,55 @@ fn source_record_evidence_preserves_hash_counts_and_rejects_conflicts() {
 }
 
 #[test]
+fn schema_35_adds_global_time_seek_without_changing_exact_usage() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema34.sqlite3");
+    let time = event("a", DataQuality::Confirmed, 1).observed_at;
+    let filter = AggregateFilter {
+        start_inclusive: Some(time),
+        end_exclusive: Some(time + ChronoDuration::seconds(1)),
+        ..AggregateFilter::default()
+    };
+    let before;
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 34).unwrap();
+        let mut store = LedgerStore { connection };
+        store
+            .upsert_event(&event("a", DataQuality::Confirmed, 1))
+            .unwrap();
+        before = store
+            .aggregate_exact_time_series(
+                TimeGrain::Hour,
+                Some(AggregateDimension::Model),
+                &filter,
+                "Asia/Shanghai",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), 35);
+    let after = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            Some(AggregateDimension::Model),
+            &filter,
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[0].usage, before[0].usage);
+    assert_eq!(after[0].event_count, before[0].event_count);
+    let plan=store.connection.prepare("EXPLAIN QUERY PLAN SELECT event_id FROM retained_request_evidence WHERE effective_at>=?1 AND effective_at<?2").unwrap()
+        .query_map(params![timestamp(time),timestamp(time+ChronoDuration::seconds(1))],|row|row.get::<_,String>(3)).unwrap().collect::<Result<Vec<_>,_>>().unwrap().join(" ");
+    assert!(
+        plan.contains("SEARCH") && plan.contains("retained_request_effective_time_idx"),
+        "{plan}"
+    );
+    assert!(!plan.contains("SCAN"), "{plan}");
+}
+
+#[test]
 fn schema_34_upgrade_does_not_invent_source_record_proofs() {
     let temporary = tempdir().unwrap();
     let path = temporary.path().join("schema33.sqlite3");
@@ -404,7 +453,7 @@ fn schema_34_upgrade_does_not_invent_source_record_proofs() {
             .unwrap();
     }
     let store = LedgerStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 34);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert_eq!(
         store
             .connection

@@ -3,6 +3,10 @@ use super::*;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageQuery {
+    /// Internal bundle clock; never accepted from or exposed to HTTP clients.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub reference_time: Option<DateTime<Utc>>,
     pub period: Option<String>,
     pub account: Option<String>,
     pub project: Option<String>,

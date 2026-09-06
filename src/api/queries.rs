@@ -154,6 +154,9 @@ pub(super) fn http_bundle(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<serde_json::Value, StoreError> {
+    let mut anchored_query = query.clone();
+    anchored_query.reference_time = Some(query.reference_time.unwrap_or_else(Utc::now));
+    let query = &anchored_query;
     let collector = store.collector_status()?;
     let rollup = store.rollup_progress()?;
     let bundle = serde_json::json!({

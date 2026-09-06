@@ -990,3 +990,18 @@ No live data migration, installed-app replacement or release has occurred.
   location recorded outside the repo; isolated server stopped. This proves only
   tested API consistency, not source accuracy, all filters or native/browser
   usability. No production policy change or installed-app update; goal ACTIVE.
+- Batch 117: prior turn measured real-copy rolling7 latency. Its retained time
+  predicate performed an index scan rather than a bounded search. Schema 35
+  adds a global effective-time index; precise union projects a single time
+  column to enable predicate pushdown. Genuine predecessor upgrade and exact
+  usage/index-plan regressions pass. Initial faster real-copy queries exposed
+  a scope mismatch: bundle components independently resolved current time.
+  Added an internal shared reference instant (not client-deserializable) and
+  deterministic boundary conservation test. The cross-crate query struct needed
+  a hidden public Rust field for existing CLI construction; HTTP remains skipped.
+  Final 13-scope audit passed, and private before/after row fingerprints match
+  for all nine fact tables. Final rolling7 samples improved from roughly 3.7–4.1s
+  to 2.1–2.2s; this is observational, not a controlled latency guarantee. Full
+  Rust 170 tests and Clippy pass. Server stopped; updated private receipts stay
+  outside repo. Main day-max accuracy, interval coverage and native acceptance
+  remain open; no original-ledger or installed-app upgrade occurred.

@@ -281,15 +281,17 @@ impl LedgerStore {
         } else {
             "usage_events"
         };
+        let where_sql =
+            where_sql.replace("COALESCE(source_timestamp, observed_at)", "effective_at");
         let sql = format!(
             "WITH precise_events AS (
-                 SELECT event_id, observed_at, source_timestamp, thread_id, model,
+                 SELECT event_id, COALESCE(source_timestamp, observed_at) AS effective_at, thread_id, model,
                         account_fingerprint, project_id, quality, input_tokens,
                         cached_input_tokens, cache_write_input_tokens,
                         cache_write_observed_input_tokens, output_tokens,
                         reasoning_output_tokens, total_tokens FROM {table}
                  UNION ALL
-                 SELECT kept.event_id, kept.effective_at, kept.effective_at,
+                 SELECT kept.event_id, kept.effective_at,
                         kept.thread_id, kept.model, assigned.account_fingerprint,
                         assigned.project_id, kept.quality, kept.input_tokens,
                         kept.cached_input_tokens, kept.cache_write_input_tokens,
@@ -300,12 +302,12 @@ impl LedgerStore {
                  WHERE NOT EXISTS(SELECT 1 FROM usage_events raw WHERE raw.event_id=kept.event_id)
                  {retained_source}
              )
-             SELECT COALESCE(source_timestamp, observed_at), {dimension_expression},
+             SELECT effective_at, {dimension_expression},
                     input_tokens, cached_input_tokens, cache_write_input_tokens,
                     cache_write_observed_input_tokens, output_tokens,
                     reasoning_output_tokens, total_tokens
              FROM precise_events AS usage_events {where_sql}
-             ORDER BY COALESCE(source_timestamp, observed_at), event_id",
+             ORDER BY effective_at, event_id",
             retained_source = if uses_effective_source(filter) {
                 "AND kept.quality='confirmed' AND EXISTS(
                      SELECT 1 FROM effective_thread_day_source choice

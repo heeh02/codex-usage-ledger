@@ -36,6 +36,12 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+Period descriptors in one bundle share a server-internal reference instant,
+including rolling-window start/end computation. Clients cannot supply this
+clock through query parameters. This prevents intra-bundle time drift, but is
+not a frozen cross-request or concurrent-writer snapshot. See
+[exact-window indexing and clock](../architecture/exact-window-query-clock.md).
+
 `GET /healthz` returns `service`, `status`, and integer `processId`. Native shells
 must verify the responding process is their current live child before loading
 the dashboard; service name alone does not distinguish instances on a reused

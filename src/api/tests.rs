@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn bundle_uses_one_rolling_clock_and_does_not_accept_a_client_clock() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 34, 56).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut fact = explorer_event("at-boundary", "thread", None);
+    fact.source_timestamp = Some(now - ChronoDuration::days(7));
+    store.upsert_event(&fact).unwrap();
+    let query = UsageQuery {
+        period: Some("rolling7".into()),
+        reference_time: Some(now),
+        ..Default::default()
+    };
+    let bundle = http_bundle(&store, &query).unwrap();
+    let total = bundle["summary"]["usage"]["confirmed"]["total"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(total, 120);
+    for dimension in ["account", "project", "model"] {
+        assert_eq!(
+            bundle["breakdowns"][dimension]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row["usage"]["confirmed"]["total"].as_u64().unwrap())
+                .sum::<u64>(),
+            total
+        );
+    }
+    assert_eq!(
+        bundle["timeseries"]["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["confirmed"]["total"].as_u64().unwrap())
+            .sum::<u64>(),
+        total
+    );
+    let supplied: UsageQuery =
+        serde_json::from_value(serde_json::json!({"referenceTime":"1900-01-01T00:00:00Z"}))
+            .unwrap();
+    assert!(supplied.reference_time.is_none());
+    assert!(
+        serde_json::to_value(&query)
+            .unwrap()
+            .get("referenceTime")
+            .is_none()
+    );
+}
+
+#[test]
 fn empty_unknown_and_recorded_zero_summary_have_distinct_meanings() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let query = UsageQuery {

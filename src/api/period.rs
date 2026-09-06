@@ -7,7 +7,7 @@ pub(super) fn resolve_period(
     Option<DateTime<Utc>>,
     PeriodDescriptor,
 ) {
-    resolve_period_at(query, Utc::now())
+    resolve_period_at(query, query.reference_time.unwrap_or_else(Utc::now))
 }
 
 pub(super) fn resolve_period_at(
