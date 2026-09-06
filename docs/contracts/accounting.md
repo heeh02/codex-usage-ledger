@@ -85,6 +85,12 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+The [local measurement union shadow](../architecture/source-union-shadow.md)
+resolves explicit source-record groups independently of the active day-max
+projection. It is a read-only diagnostic, not a new official/local total. Missing
+or conflicting evidence blocks a complete supplied-record result; source-record
+identity is not by itself proof against replay or of server inference identity.
+
 Schema 34 retains [shared local source-record evidence](../adr/0004-source-record-evidence.md)
 without changing event identities or accounting selection. A key includes the
 physical occurrence and parsed-content digest; copied interpretations of that

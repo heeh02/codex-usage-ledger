@@ -868,3 +868,20 @@ No live data migration, installed-app replacement or release has occurred.
   tests and Clippy pass. ADR 0004 records that this is local measurement evidence,
   not server equality or authorization to combine replayed history. No real
   ledger migration, main-policy replacement or installed-app update occurred.
+- Batch 109: resumed the uncommitted shadow planner after the environment/date
+  changed; prior source-record work was concrete progress. Added a pure local
+  measurement union planner and read-only `shadow-union` command. Counterpart
+  closure is loaded before time/dimension selection, with an explicit returned-
+  observation cap (not yet a bounded-I/O guarantee). Shared keys collapse only
+  with matching valid usage, dimensions, assignments and nearby times; missing,
+  ambiguous or conflicting groups prevent a complete supplied-record total.
+  Canonical sampling time is filtered after pairing. The existing A/B vs B/C
+  fixture now yields 600 in shadow and restores the 100-token model, while the
+  unchanged production policy still yields 500/0. Tests cover every component,
+  ambiguity reasons, unknown/zero/overflow, duplicate IDs, cross-boundary account
+  conflict closure, cap errors and real CLI byte-for-byte DB preservation.
+  Full Rust 160 tests and Clippy pass. This is local measurement union, not proof
+  against replay or of server request identity. History completeness and
+  production-policy-changed flags remain false. No real ledger migration or
+  installed app update occurred; performance, coverage/replay validation,
+  cross-dimension reconciliation and a migration receipt remain required.

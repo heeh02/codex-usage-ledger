@@ -28,6 +28,7 @@ mod overlap_repository;
 mod project_repository;
 mod receipt_repository;
 mod request_repository;
+mod union_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
 
@@ -201,6 +202,10 @@ pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error(transparent)]
+    Union(#[from] crate::source_union::UnionError),
+    #[error("source union exceeds bounded observation limit; choose a smaller window")]
+    UnionLimit,
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error(transparent)]

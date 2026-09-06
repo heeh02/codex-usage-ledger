@@ -21,6 +21,7 @@ mod replay;
 #[allow(dead_code)]
 mod runtime;
 mod sampling;
+mod source_union;
 mod store;
 mod types;
 

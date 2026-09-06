@@ -38,6 +38,19 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Shadow local source-record union; never changes the active accounting policy.
+    ShadowUnion {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 1000)]
+        limit: usize,
+    },
     /// Read one retained-request candidate audit page. Never migrates or imports.
     AuditOverlap {
         #[arg(long)]
@@ -160,6 +173,17 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::ShadowUnion {
+            db,
+            thread,
+            start,
+            end,
+            limit,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = store.shadow_source_union(&thread, start, end, limit)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::AuditOverlap {
             db,
             thread,

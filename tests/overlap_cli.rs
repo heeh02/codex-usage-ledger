@@ -85,6 +85,31 @@ fn overlap_cli_reads_scoped_evidence_without_mutating_the_database() {
     );
     assert!(report["next"].is_null());
     assert_eq!(std::fs::read(&path).unwrap(), before);
+    let shadow = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("shadow-union")
+        .arg("--db")
+        .arg(&path)
+        .args([
+            "--thread",
+            "synthetic-thread",
+            "--start",
+            "2026-01-02T00:00:00Z",
+            "--end",
+            "2026-01-03T00:00:00Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        shadow.status.success(),
+        "{}",
+        String::from_utf8_lossy(&shadow.stderr)
+    );
+    let shadow: serde_json::Value = serde_json::from_slice(&shadow.stdout).unwrap();
+    assert_eq!(shadow["productionPolicyChanged"], false);
+    assert_eq!(shadow["completeForSuppliedRecords"], false);
+    assert_eq!(shadow["unresolved"][0]["reason"], "missing_record_key");
+    assert!(shadow["usage"].is_null());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
     let rejected = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
         .arg("audit-overlap")
         .arg("--db")

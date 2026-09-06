@@ -1395,12 +1395,51 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn shadow_union_closes_counterparts_before_window_and_dimension_selection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut source = event("sample", DataQuality::Confirmed, 1);
+    source.provenance.source_record_key = Some("shared-record".into());
+    store.upsert_event(&source).unwrap();
+    let mut target = source.clone();
+    target.event_id = "rebuilt".into();
+    target.source_timestamp = Some(source.observed_at + ChronoDuration::milliseconds(100));
+    target.account_fingerprint = Some("different-account".into());
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: target,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    let writes = store.connection.total_changes();
+    let report = store
+        .shadow_source_union(
+            "thread",
+            source.observed_at,
+            source.observed_at + ChronoDuration::milliseconds(50),
+            10,
+        )
+        .unwrap();
+    assert_eq!(report.input_records, 2);
+    assert_eq!(
+        report.unresolved[0].reason,
+        crate::source_union::UnresolvedReason::ConflictingDimensions
+    );
+    assert!(report.usage.is_none());
+    assert_eq!(store.connection.total_changes(), writes);
+}
+
+#[test]
 fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     // Ground truth is three distinct synthetic requests A=100, B=200, C=300.
     // The retained side has A/B; reconstruction has B/C. Only B is shared.
     let make = |id: &str, amount: u64, offset: u64| {
         let mut record = event(id, DataQuality::Confirmed, offset);
+        record.provenance.source_record_key = Some(format!("synthetic-record-{offset}"));
         record.usage = TokenUsage {
             input_tokens: amount,
             total_tokens: amount,
@@ -1433,6 +1472,28 @@ fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
     transaction.commit().unwrap();
     let writes = store.connection.total_changes();
     let at = a.source_timestamp.unwrap();
+    let shadow = store
+        .shadow_source_union("thread", at, at + ChronoDuration::hours(1), 10)
+        .unwrap();
+    assert!(shadow.complete_for_supplied_records);
+    assert!(!shadow.history_complete);
+    assert_eq!(shadow.usage.unwrap().total_tokens, 600);
+    assert_eq!(shadow.shared_records_collapsed, 1);
+    assert_eq!(shadow.selected.len(), 3);
+    assert_eq!(
+        shadow
+            .selected
+            .iter()
+            .filter(|record| record.model == a.model)
+            .map(|record| record.usage.unwrap().total_tokens)
+            .sum::<u64>(),
+        100
+    );
+    assert!(matches!(
+        store.shadow_source_union("thread", at, at + ChronoDuration::hours(1), 3),
+        Err(StoreError::UnionLimit)
+    ));
+    assert_eq!(store.connection.total_changes(), writes);
     let audit = store
         .audit_candidate_page(
             RetainedRequestScope {
