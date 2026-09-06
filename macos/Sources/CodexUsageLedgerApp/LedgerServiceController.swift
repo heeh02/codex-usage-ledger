@@ -34,6 +34,7 @@ final class LedgerServiceController: ObservableObject {
     private var failureAfterTermination: String?
     private var applicationIsTerminating = false
     private var diagnosticBuffer = LedgerProcessDiagnostics()
+    private var stopDeadline: Task<Void, Never>?
 
     private init(defaults: UserDefaults = LedgerLaunchProfile.preferences) {
         self.defaults = defaults
@@ -130,8 +131,8 @@ final class LedgerServiceController: ObservableObject {
         alert.alertStyle = .warning
         alert.messageText = NativeLocalization.text("开始采集 Codex 用量？", "Start collecting Codex usage?")
         alert.informativeText = NativeLocalization.text(
-            "首次采集可能需要扫描约 73 GB 的本机 Codex 会话日志，耗时和磁盘读取量都可能较大。\n\n应用会把内置服务从只读看板切换到持续采集模式；Swift 外壳本身不会读取或写入 Codex 登录凭据。",
-            "The first collection may scan about 73 GB of local Codex session logs and can take significant time and disk I/O.\n\nThe bundled service switches from read-only dashboard mode to continuous collection. The Swift shell never reads or writes Codex login credentials."
+            "采集会分批读取本机 Codex 日志并保存用量证据，耗时和磁盘读取量取决于可用历史；之后按检查点继续。\n\n应用会把内置服务从看板模式切换到持续采集模式；Swift 外壳本身不会读取或写入 Codex 登录凭据。",
+            "Collection reads local Codex logs in batches and retains usage evidence. Time and disk I/O depend on available history; later runs resume from checkpoints.\n\nThe bundled service switches from dashboard mode to continuous collection. The Swift shell never reads or writes Codex login credentials."
         )
         alert.addButton(withTitle: NativeLocalization.text("开始采集", "Start collection"))
         alert.addButton(withTitle: NativeLocalization.text("取消", "Cancel"))
@@ -145,6 +146,8 @@ final class LedgerServiceController: ObservableObject {
     }
 
     func stopForApplicationExit() {
+        stopDeadline?.cancel()
+        stopDeadline = nil
         applicationIsTerminating = true
         pendingMode = nil
         expectedTermination = true
@@ -170,26 +173,34 @@ final class LedgerServiceController: ObservableObject {
     }
 
     private func transition(to mode: LedgerServiceMode) {
+        let stopInProgress: Bool
+        if case .stopping = state { stopInProgress = true } else { stopInProgress = false }
         switch LedgerServiceLifecycle.decision(
             applicationIsTerminating: applicationIsTerminating,
             processIsRunning: child?.isRunning == true,
             currentMode: childMode,
-            requestedMode: mode
+            requestedMode: mode,
+            stopInProgress: stopInProgress
         ) {
         case .ignore:
             return
+        case .updatePendingMode(let nextMode):
+            pendingMode = nextMode
+            state = .stopping(next: nextMode)
         case .stopThenLaunch(let nextMode):
             guard let child else { return }
             pendingMode = nextMode
             expectedTermination = true
             state = .stopping(next: nextMode)
-            child.terminate()
+            requestBoundedStop(child)
         case .launch(let launchMode):
             launch(launchMode)
         }
     }
 
     private func launch(_ mode: LedgerServiceMode) {
+        stopDeadline?.cancel()
+        stopDeadline = nil
         do {
             let paths = try LedgerRuntimePaths.resolve()
             try paths.validateBundledResources()
@@ -276,11 +287,31 @@ final class LedgerServiceController: ObservableObject {
         failureAfterTermination = message
         expectedTermination = true
         state = .failed(message)
-        child.terminate()
+        requestBoundedStop(child)
+    }
+
+    private func requestBoundedStop(_ process: Process) {
+        stopDeadline?.cancel()
+        let stoppingGeneration = generation
+        stopDeadline = LedgerProcessStopDeadline.stop(process, stillOwned: { [weak self] in
+            guard let self else { return false }
+            return !self.applicationIsTerminating && self.generation == stoppingGeneration
+                && self.child === process
+        }, onFailure: { [weak self] code in
+            guard let self else { return }
+            self.pendingMode = nil
+            let message = NativeLocalization.text(
+                "本地进程未能停止（错误 \(code)）；已取消模式切换。",
+                "The local process could not be stopped (error \(code)); mode switching was cancelled.")
+            self.failureAfterTermination = message
+            self.state = .failed(message)
+        })
     }
 
     private func handleTermination(of terminatedProcess: Process, generation terminatedGeneration: Int) {
         guard terminatedGeneration == generation else { return }
+        stopDeadline?.cancel()
+        stopDeadline = nil
 
         detachPipeHandlers()
         child = nil

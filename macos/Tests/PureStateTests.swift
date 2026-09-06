@@ -4,6 +4,12 @@ import Foundation
 struct PureStateTests {
     static func main() {
         testIsolatedProfile()
+        for mode in [LedgerServiceMode.serve, .daemon] {
+            precondition(LedgerServiceLifecycle.decision(applicationIsTerminating: false, processIsRunning: true,
+                currentMode: .serve, requestedMode: mode, stopInProgress: true) == .updatePendingMode(mode))
+        }
+        precondition(LedgerServiceLifecycle.decision(applicationIsTerminating: true, processIsRunning: true,
+            currentMode: .serve, requestedMode: .daemon, stopInProgress: true) == .ignore)
         let own = Data(#"{"service":"codex-usage-ledger","status":"ok","processId":1234}"#.utf8)
         precondition(LedgerHealthIdentity.matches(own, statusCode: 200, expectedProcessId: 1234))
         precondition(!LedgerHealthIdentity.matches(own, statusCode: 503, expectedProcessId: 1234))

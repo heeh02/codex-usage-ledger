@@ -959,3 +959,21 @@ No live data migration, installed-app replacement or release has occurred.
   No new native instance launched against the occupied port, no installed
   replacement or real-ledger write. Actual native startup/port-conflict/zoom/
   exit acceptance still pending, alongside main accounting policy and coverage.
+- Batch 115: previous turn fixed native health/child binding. Mode-switch and
+  health-timeout shutdown previously sent SIGTERM without an escalation deadline.
+  Added an 800ms owned-child deadline, cancelled on termination/launch/app exit,
+  with generation/ownership checks before SIGKILL. Signal failure cancels pending
+  mode and remains a visible failure. Repeated mode requests while stopping now
+  retarget the pending destination without extending the deadline. Removed the
+  fixed historical-size claim from the bilingual collection prompt. Real helper
+  subprocess tests cover graceful exit, explicit SIGTERM ignore, cancellation,
+  unowned and later-revoked ownership; all children are test-owned. The first
+  stopped-process fixture did not isolate SIGTERM behavior and failed; replaced
+  it with an explicit signal-ignoring child and cleanup-on-error assertions.
+  Final helper/state tests, native build, deep signing and governance checks pass.
+  Bundle manifest: `0c928bcb40b8260633cff01ec9c34f0d04cd0d111382756a9349cbfed7330cf4`.
+  No installed app interruption/replacement or real-ledger change occurred.
+  This does not prove full UI mode-switch/zoom/export acceptance or guarantee
+  exit time for kernel-stuck processes. Pending user approval for a temporary
+  native test window is separate from remaining useful accounting work; goal
+  remains ACTIVE.
