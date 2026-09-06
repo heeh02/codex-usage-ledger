@@ -1071,3 +1071,21 @@ No live data migration, installed-app replacement or release has occurred.
   No live ledger/source migration or installed-app change occurred. Next policy
   acceptance needs keyed forward-ingestion/replay fixtures and a measured shadow
   migration, not extrapolation from missing legacy evidence. Goal remains ACTIVE.
+- Batch 122: tested the forward ingestion path rather than only supplied shadow
+  measurements. Reproduced reconstruction emitting an ancestor increment as
+  child usage when a foreign-history timestamp gap exceeded two seconds. A
+  persisted optional foreign-replay flag now keeps those records as baseline
+  until the shared canonical-task-start predicate allows resumption. Foreign
+  model/cwd are ignored; rewritten outer timestamps and stale task-start data
+  do not independently resume counting. Synthetic checkpoint round trips and
+  legacy missing-flag decoding pass. The disk-backed source fixture now runs
+  native catalog sync, copied sampling-log ingestion, reconstruction and shadow
+  union, then reopens the ledger (zero new bytes/observations) and appends one
+  request (one observation per source, one new shadow measurement). Final full
+  Rust 178 tests, Clippy and governance checks pass; an initial Clippy nesting
+  warning was fixed without suppressing the lint. This is a forward parser
+  correction, not repair of already consumed foreign history. Formats lacking
+  explicit foreign metadata and the existing task-start heuristic still need
+  broader evidence. No stored historical facts, database schema, day-max source
+  policy, live ledger or installed app changed. Historical shadow migration,
+  accounting owner review and native product acceptance remain open; ACTIVE.

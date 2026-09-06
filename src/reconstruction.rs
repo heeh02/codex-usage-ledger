@@ -89,6 +89,8 @@ struct ReconstructionCheckpoint {
     schema_version: u32,
     tail: TailCheckpoint,
     phase: ReconstructionPhase,
+    #[serde(default)]
+    foreign_replay: bool,
     canonical_at: Option<DateTime<Utc>>,
     previous_total: Option<TokenUsage>,
     last_token_at: Option<DateTime<Utc>>,
@@ -106,6 +108,7 @@ impl ReconstructionCheckpoint {
             schema_version: STATE_SCHEMA_VERSION,
             tail: TailCheckpoint::default(),
             phase: ReconstructionPhase::AwaitingCanonical,
+            foreign_replay: false,
             canonical_at: None,
             previous_total: None,
             last_token_at: None,
@@ -543,6 +546,40 @@ fn process_line(
         };
         return Ok(None);
     }
+    if kind == "session_meta" && state.phase != ReconstructionPhase::AwaitingCanonical {
+        if record
+            .pointer("/payload/id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id != target.thread_id)
+        {
+            state.foreign_replay = true;
+        }
+        return Ok(None);
+    }
+    if state.foreign_replay {
+        if kind == "event_msg"
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("task_started")
+            && crate::replay::task_belongs_to_canonical_stream(
+                &record,
+                &target.thread_id,
+                state.canonical_at,
+            )
+        {
+            state.foreign_replay = false;
+            state.phase = ReconstructionPhase::Live;
+            state.model = target.model.clone();
+        } else if kind == "event_msg"
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count")
+            && let Some(total) = parse_token_sample(&record)
+                .total
+                .filter(|usage| valid_usage(*usage))
+        {
+            state.previous_total = Some(total);
+            state.last_token_at = source_timestamp(&record);
+            state.prefix_events = state.prefix_events.saturating_add(1);
+        }
+        return Ok(None);
+    }
     if kind == "turn_context" && state.phase == ReconstructionPhase::Live {
         state.model = record
             .pointer("/payload/model")
@@ -922,6 +959,92 @@ mod tests {
             cwd: Some("/tmp/project".to_owned()),
             model: Some("gpt-test".to_owned()),
         }
+    }
+
+    #[test]
+    fn foreign_history_remains_replay_across_gaps_and_checkpoint_restart() {
+        let target = child_target();
+        let mut state = ReconstructionCheckpoint::new(&target);
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: target.parent_thread_id.clone(),
+        };
+        for (number, record) in [
+            (
+                1,
+                serde_json::json!({"timestamp":"2026-09-01T00:00:00Z","type":"session_meta","payload":{"id":"child"}}),
+            ),
+            (
+                2,
+                serde_json::json!({"timestamp":"2026-09-01T00:00:00.100Z","type":"session_meta","payload":{"id":"parent"}}),
+            ),
+            (3, token("2026-09-01T00:00:00.200Z", 100, 100)),
+            (
+                4,
+                serde_json::json!({"timestamp":"2026-09-01T00:00:04Z","type":"event_msg","payload":{"type":"task_started","started_at":1}}),
+            ),
+            (
+                5,
+                serde_json::json!({"type":"turn_context","payload":{"model":"foreign-model","cwd":"/foreign"}}),
+            ),
+            (6, token("2026-09-01T00:00:05Z", 200, 100)),
+        ] {
+            let event = process_line(
+                &mut state,
+                &line(number, record),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[],
+            )
+            .unwrap();
+            assert!(event.is_none(), "foreign record {number} became new usage");
+            state = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        }
+        let start = DateTime::parse_from_rfc3339("2026-09-01T00:00:06Z")
+            .unwrap()
+            .timestamp();
+        let resumed = serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":start}});
+        assert!(
+            process_line(
+                &mut state,
+                &line(7, resumed),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .is_none()
+        );
+        let own = process_line(
+            &mut state,
+            &line(8, token("2026-09-01T00:00:07Z", 250, 50)),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(own.event.usage.total_tokens, 50);
+        assert_eq!(own.event.model, target.model);
+        assert_eq!(own.event.cwd, target.cwd);
+        let mut legacy = serde_json::to_value(ReconstructionCheckpoint::new(&target)).unwrap();
+        legacy.as_object_mut().unwrap().remove("foreign_replay");
+        let decoded: ReconstructionCheckpoint = serde_json::from_value(legacy).unwrap();
+        assert!(!decoded.foreign_replay);
     }
 
     #[test]

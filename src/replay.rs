@@ -402,27 +402,7 @@ impl ReplayGuard {
         let Some(canonical) = self.canonical.as_ref() else {
             return false;
         };
-        let turn_id = record
-            .pointer("/payload/turn_id")
-            .and_then(Value::as_str)
-            .and_then(uuid_v7_millis_prefix);
-        let rollout_id = uuid_v7_millis_prefix(&canonical.rollout_id);
-        if matches!((turn_id, rollout_id), (Some(turn), Some(rollout)) if turn >= rollout) {
-            return true;
-        }
-
-        let started_at_ms = record
-            .pointer("/payload/started_at")
-            .and_then(json_u64)
-            .map(|seconds| seconds.saturating_mul(1_000));
-        let canonical_ms = canonical
-            .source_timestamp
-            .as_ref()
-            .and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok());
-        matches!(
-            (started_at_ms, canonical_ms),
-            (Some(started), Some(canonical)) if started.saturating_add(2_000) >= canonical
-        )
+        task_belongs_to_canonical_stream(record, &canonical.rollout_id, canonical.source_timestamp)
     }
 
     fn process_turn_context(&mut self, record: &Value) -> ReplayOutcome {
@@ -644,6 +624,30 @@ impl ReplayGuard {
             },
         }
     }
+}
+
+/// Shared by live interpretation and reconstruction; rewritten outer record
+/// timestamps alone do not establish that a task belongs to the child.
+pub(crate) fn task_belongs_to_canonical_stream(
+    record: &Value,
+    rollout_id: &str,
+    canonical_at: Option<DateTime<Utc>>,
+) -> bool {
+    let turn_id = record
+        .pointer("/payload/turn_id")
+        .and_then(Value::as_str)
+        .and_then(uuid_v7_millis_prefix);
+    let rollout_id = uuid_v7_millis_prefix(rollout_id);
+    if matches!((turn_id, rollout_id), (Some(turn), Some(rollout)) if turn >= rollout) {
+        return true;
+    }
+    let started_at_ms = record
+        .pointer("/payload/started_at")
+        .and_then(json_u64)
+        .map(|seconds| seconds.saturating_mul(1_000));
+    let canonical_ms =
+        canonical_at.and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok());
+    matches!((started_at_ms, canonical_ms), (Some(started), Some(canonical)) if started.saturating_add(2_000) >= canonical)
 }
 
 /// Extract both cumulative context and the actual per-sampling delta.

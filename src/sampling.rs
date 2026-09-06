@@ -1423,8 +1423,18 @@ mod tests {
         fs::create_dir_all(rollout.parent().unwrap()).unwrap();
         fs::rename(old_rollout, &rollout).unwrap();
         for state in ["state_5.sqlite", "sqlite/state_5.sqlite"] {
-            Connection::open(temporary.path().join(state))
-                .unwrap()
+            let state = Connection::open(temporary.path().join(state)).unwrap();
+            state
+                .execute_batch(
+                    "ALTER TABLE threads ADD COLUMN title TEXT NOT NULL DEFAULT 'Synthetic';
+                ALTER TABLE threads ADD COLUMN created_at INTEGER NOT NULL DEFAULT 1788220800;
+                ALTER TABLE threads ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 1788220800;
+                ALTER TABLE threads ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE threads ADD COLUMN has_user_event INTEGER NOT NULL DEFAULT 1;
+                ALTER TABLE threads ADD COLUMN git_origin_url TEXT;",
+                )
+                .unwrap();
+            state
                 .execute(
                     "UPDATE threads SET rollout_path=?1",
                     [rollout.to_string_lossy().as_ref()],
@@ -1442,7 +1452,9 @@ mod tests {
         fs::write(&rollout, format!("{}\n{}\n{}\n{}\n",
             serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),
             serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}), first, second)).unwrap();
-        let mut store = LedgerStore::open_in_memory().unwrap();
+        let ledger_path = temporary.path().join("ledger.sqlite3");
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        crate::runtime::sync_native_catalog(&mut store, temporary.path()).unwrap();
         ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
         let reconstructed = crate::reconstruction::ingest_reconstruction_batch(
             &mut store,
@@ -1456,6 +1468,30 @@ mod tests {
             "SELECT COUNT(*) FROM (SELECT record_key FROM source_record_evidence GROUP BY record_key HAVING COUNT(DISTINCT evidence_source)=2)",
             [], |row| row.get(0)).unwrap();
         assert_eq!(matched, 2);
+        let shadow = store
+            .shadow_source_union("thread-1", at, at + chrono::Duration::seconds(10), 100)
+            .unwrap();
+        assert!(
+            shadow.complete_for_supplied_records,
+            "{:?}",
+            shadow.unresolved
+        );
+        assert_eq!(shadow.shared_records_collapsed, 2);
+        assert_eq!(shadow.usage.unwrap().total_tokens, 250);
+        drop(store);
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        let idle_sampling = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let idle_reconstruction = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(idle_sampling.observations, 0);
+        assert_eq!(idle_sampling.bytes_read, 0);
+        assert_eq!(idle_reconstruction.inserted_events, 0);
+        assert_eq!(idle_reconstruction.bytes_read, 0);
         assert_eq!(
             store
                 .aggregate_usage(&AggregateFilter::default())
@@ -1464,6 +1500,52 @@ mod tests {
                 .total_tokens,
             250
         );
+        let third_at = at + chrono::Duration::seconds(2);
+        let mut third: Value = serde_json::from_str(&token_line(third_at, 180)).unwrap();
+        let mut cumulative = second["payload"]["info"]["total_token_usage"].clone();
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            cumulative[field] = serde_json::json!(
+                cumulative[field].as_u64().unwrap()
+                    + third["payload"]["info"]["last_token_usage"][field]
+                        .as_u64()
+                        .unwrap()
+            );
+        }
+        third["payload"]["info"]["total_token_usage"] = cumulative;
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{third}"
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, third_at, "after-ledger-reopen");
+        drop(logs);
+        let appended = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let rebuilt = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(appended.inserted_events, 1);
+        assert_eq!(rebuilt.inserted_events, 1);
+        let shadow = store
+            .shadow_source_union("thread-1", at, at + chrono::Duration::seconds(10), 100)
+            .unwrap();
+        assert!(
+            shadow.complete_for_supplied_records,
+            "{:?}",
+            shadow.unresolved
+        );
+        assert_eq!(shadow.shared_records_collapsed, 3);
+        assert_eq!(shadow.usage.unwrap().total_tokens, 430);
         let digest = crate::reconstruction::source_record_digest(&first);
         second = first.clone();
         second["timestamp"] = serde_json::json!("2020-01-01T00:00:00Z");

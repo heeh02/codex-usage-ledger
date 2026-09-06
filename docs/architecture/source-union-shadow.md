@@ -83,6 +83,12 @@ classes, counterpart closure across a window boundary with conflicting accounts,
 stable canonical time, zero/empty/overflow and read-only CLI byte preservation.
 No live-ledger replay, global reconciliation or historical migration is claimed.
 
+The disk-backed forward-ingestion fixture now also verifies native catalog sync,
+sampling/reconstruction key agreement, a zero-read ledger reopen, and appended
+measurement pairing. The reconstruction foreign-prefix gap defect and its
+forward-only guard are documented in
+[reconstruction replay boundaries](reconstruction-replay-boundary.md).
+
 An isolated SQL-plan fixture with 100,000 unrelated rows per evidence side
 checks the actual seed/closure statements: zero `FullscanStep`, fewer than 100
 VM steps per one-row seed query and fewer than 150 for a two-row closure.
