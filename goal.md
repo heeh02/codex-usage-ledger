@@ -28,6 +28,14 @@ dimensions, then record a validated migration. Neither max nor an unqualified
 sum is an acceptable proof of complete usage. See the
 [counterexample and read-only diagnostics](docs/architecture/source-overlap-audit.md).
 
+Source-continuity finding (batch 128): physical device/inode strings differed
+in a private existing-file cohort because the device component changed while
+inode values matched. The old automatic replacement path could delete derived
+history and restart backfill. It is now guarded: identity changes preserve
+facts/cursors and require verification. Next work must establish reviewed safe
+continuity/rebinding; matching inode alone is not sufficient. See the
+[prefix audit and identity-review contract](docs/architecture/reconstruction-prefix-audit.md).
+
 - Official account totals and local activity have explicit, independent scopes.
 - Summary, chart, ranking and composition use one applied scope and revision.
 - Do not sum cumulative counters, inherited history or alternative source rows.
@@ -1178,3 +1186,25 @@ No live data migration, installed-app replacement or release has occurred.
   No historical rescan/repair, schema/source-selection change, live-ledger or
   installed-app update occurred. Main day-max overlap, historical migration and
   native product acceptance remain open; full goal ACTIVE.
+- Batch 128: previous turn separated initial counters from samples. Added a
+  bounded read-only reconstruction-prefix audit against stored facts/hashes,
+  explicit byte/row limits, canonical/root checks and unknown source-key handling.
+  Optional device-only drift comparison is diagnostic, never an identity rebind
+  or migration receipt. A private two-project cohort had existing main files and
+  matching thread records but no full identity-string matches; metadata showed
+  unchanged inode components and changed device components. A bounded prefix
+  preview under the stored namespace found unchanged token fields, not a proved
+  project correction; detailed counts stay in the private receipt. Ledger bytes
+  remained unchanged. Code review traced identity mismatch to automatic derived-
+  fact deletion/restart. A RED regression reproduced unwanted rereading; the
+  collector now preserves facts/rollups/cursors, marks identity verification
+  required, and excludes those checkpoints from generic failed-source cleanup.
+  Both repeated device drift and actual replacement preserve previous facts.
+  Bilingual collection copy explains review rather than futile automatic retry.
+  Full Rust 190 tests, Web 70 tests, Clippy/contracts/governance and standard
+  arm64/ad-hoc build pass. Bundle manifest:
+  `c2e566fad1f26c0d384769bc1a8792a8e0f04f2a898537d9a6d2a913fde280e3`.
+  CUA still reported the Mac locked, so native-window acceptance is not claimed.
+  No live ledger/source modifications, historical correction, automatic rebind
+  or installed-app update occurred. Safe continuation binding, day-max overlap
+  replacement, historical receipts and native acceptance remain open; ACTIVE.

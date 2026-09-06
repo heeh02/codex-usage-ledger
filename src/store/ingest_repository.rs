@@ -148,10 +148,9 @@ impl LedgerStore {
         Ok(())
     }
 
-    /// Replaces derived reconstruction facts when Codex has replaced the
-    /// physical rollout behind a logical thread. Replaying the new file on top
-    /// of the old identity would double count, so the replacement and rollup
-    /// rebuild happen in one transaction.
+    /// Explicit destructive replacement primitive for receipt-reviewed maintenance.
+    /// Automatic collectors must not call this merely because an identity changed.
+    /// Replacement and rollup rebuild happen in one transaction.
     pub fn replace_reconstruction_sources(
         &mut self,
         sources: &[ReconstructionSourceStatus],
@@ -280,8 +279,9 @@ impl LedgerStore {
                    AND source_id IN (
                        SELECT source_id FROM reconstruction_sources
                        WHERE machine_id = ?1 AND status = 'unrecoverable'
+                         AND COALESCE(last_error, '') <> ?2
                    )",
-                [machine_id],
+                params![machine_id, RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED],
             )
             .map_err(StoreError::from)
     }

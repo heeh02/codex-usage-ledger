@@ -1,6 +1,35 @@
 use super::*;
 
 impl LedgerStore {
+    /// Audit-only snapshot: no selector refresh, migration or cache preparation.
+    pub(crate) fn with_source_audit_snapshot<T, E: From<StoreError>>(
+        &self,
+        read: impl FnOnce(&Self) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(StoreError::from)?;
+        let result = read(self)?;
+        transaction.commit().map_err(StoreError::from)?;
+        Ok(result)
+    }
+
+    pub(crate) fn reconstruction_audit_fact(
+        &self,
+        event_id: &str,
+    ) -> StoreResult<Option<ReconstructionAuditFact>> {
+        self.connection.prepare_cached("SELECT COALESCE(r.source_timestamp,r.observed_at),r.thread_id,r.model,
+            r.account_fingerprint,r.project_id,p.record_key,r.input_tokens,r.cached_input_tokens,r.cache_write_input_tokens,
+            r.cache_write_observed_input_tokens,r.output_tokens,r.reasoning_output_tokens,r.total_tokens,r.event_hash
+            FROM reconstruction_usage_events r LEFT JOIN source_record_evidence p ON p.evidence_source='reconstruction' AND p.event_id=r.event_id
+            WHERE r.event_id=?1")?.query_row([event_id], |row| Ok(ReconstructionAuditFact {
+                event_id:event_id.into(),stored_hash:Some(row.get(13)?),at:parse_timestamp_column(row.get(0)?,0)?,thread:row.get(1)?,model:row.get(2)?,account:row.get(3)?,project:row.get(4)?,record_key:row.get(5)?,
+                usage:TokenUsage { input_tokens:u64_from_sql(row.get(6)?,6)?,cached_input_tokens:u64_from_sql(row.get(7)?,7)?,cache_write_input_tokens:u64_from_sql(row.get(8)?,8)?,
+                    cache_write_observed_input_tokens:u64_from_sql(row.get(9)?,9)?,output_tokens:u64_from_sql(row.get(10)?,10)?,reasoning_output_tokens:u64_from_sql(row.get(11)?,11)?,total_tokens:u64_from_sql(row.get(12)?,12)? },
+            })).optional().map_err(StoreError::from)
+    }
+
     /// Refresh the derived selector before opening a read snapshot. If another
     /// writer dirties it in that gap, retry preparation rather than refreshing
     /// (writing/nesting a transaction) from inside the frozen read view.

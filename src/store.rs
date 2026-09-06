@@ -198,6 +198,8 @@ use migrations::{
     MIGRATION_13, MIGRATION_14, MIGRATION_15,
 };
 pub const RAW_EVENT_RETENTION_DAYS: i64 = 7;
+pub(crate) const RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED: &str =
+    "source_identity_verification_required";
 pub const STANDALONE_CONVERSATIONS_PROJECT_ID: &str = "__standalone_conversations__";
 pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
@@ -304,6 +306,20 @@ pub struct ReconstructionSourceStatus {
 pub struct ReconstructionEvent {
     pub event: UsageEvent,
     pub counter_epoch: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReconstructionAuditFact {
+    pub event_id: String,
+    pub stored_hash: Option<String>,
+    pub at: DateTime<Utc>,
+    pub thread: Option<String>,
+    pub model: Option<String>,
+    pub account: Option<String>,
+    pub project: Option<String>,
+    pub record_key: Option<String>,
+    pub usage: TokenUsage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

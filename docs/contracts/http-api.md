@@ -64,6 +64,12 @@ codes, not raw source errors. The UI supplies localized failure copy. This
 closed-enum addition requires paired backend/Web deployment as recorded in
 [the collector lifecycle decision](../adr/0001-collector-degraded-state.md).
 
+The stable collection message code `reconstruction_identity_review` indicates
+that affected reconstruction sources need identity verification. Their prior
+facts and checkpoints remain retained; the UI must not promise that retry alone
+will fix this condition or label it as an automatic history recount. This uses
+the existing degraded phase and does not add a new wire enum value.
+
 `timeseries.dailyPoints` retains daily local aggregates even when the main
 plot uses week/month grain. Missing days are absent, not implicitly zero.
 

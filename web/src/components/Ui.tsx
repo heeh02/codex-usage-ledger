@@ -176,12 +176,13 @@ export function FilterBar({
 
 export function CollectionProgress({ status }: { status: CollectionStatus }) {
   const { t } = useI18n();
+  const identityReview = typeof status.message === 'string' && status.message.split(',').includes('reconstruction_identity_review');
   if (status.phase === 'live') return null;
   if (status.phase === 'degraded') return (
     <aside className="collection-progress phase-degraded" role="status">
       <div className="collection-progress-copy">
-        <div><span className="collection-state-dot" aria-hidden="true" /><strong>{t('collection.degraded')}</strong></div>
-        <p>{t('collection.retry_detail')}</p>
+        <div><span className="collection-state-dot" aria-hidden="true" /><strong>{t(identityReview ? 'collection.identity_review' : 'collection.degraded')}</strong></div>
+        <p>{t(identityReview ? 'collection.identity_review_detail' : 'collection.retry_detail')}</p>
       </div>
     </aside>
   );

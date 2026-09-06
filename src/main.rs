@@ -18,11 +18,11 @@ use codex_usage_ledger::{
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
         POST_SAMPLING_SOURCE_ID, RetainedRequestCursor, RetainedRequestScope,
-        compact_expired_raw_events, discover_rollouts, fetch_official_account_usage,
-        ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
-        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
-        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
-        sync_account_history, sync_native_catalog,
+        audit_reconstruction_prefix, compact_expired_raw_events, discover_rollouts,
+        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
+        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
+        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
+        prepare_store, sync_account_history, sync_native_catalog,
     },
 };
 use serde_json::json;
@@ -38,6 +38,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Compare a bounded retained rollout prefix with existing reconstructed facts; never writes.
+    AuditReconstruction {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 4194304)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        /// Diagnostic only: compare under the old namespace when only Unix device differs.
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
     /// Resume retained request detail backfill in an existing current-schema ledger.
     /// Writes derived details, but never imports sources or changes token rollups.
     BackfillRequests {
@@ -181,6 +197,25 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::AuditReconstruction {
+            db,
+            codex_home,
+            thread,
+            max_bytes,
+            limit,
+            allow_device_drift,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = audit_reconstruction_prefix(
+                &store,
+                &codex_home,
+                &thread,
+                max_bytes,
+                limit,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::BackfillRequests { db, batches } => {
             // Reject missing/old ledgers before opening for writes. Migration
             // acceptance must be a separate explicit step, not a side effect.
@@ -667,7 +702,9 @@ fn collect_daemon_sources(
         ingest_reconstruction_batch(store, home, machine, 8),
         &mut failures,
     ) {
-        if !report.issues.is_empty() {
+        if report.identity_review_sources > 0 {
+            failures.push("reconstruction_identity_review");
+        } else if !report.issues.is_empty() {
             failures.push("reconstruction");
         }
         if report.files_advanced > 0 {

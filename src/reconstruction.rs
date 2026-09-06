@@ -33,6 +33,9 @@ use crate::{
     },
 };
 
+mod audit;
+pub use audit::audit_reconstruction_prefix;
+
 pub const RECONSTRUCTION_SOURCE_PREFIX: &str = "rollout-reconstruction-v1";
 const STATE_SCHEMA_VERSION: u32 = 1;
 const INHERITED_PREFIX_GAP_MILLIS: i64 = 2_000;
@@ -55,6 +58,7 @@ pub struct ReconstructionReport {
     pub counter_resets: u64,
     pub completed_sources: u64,
     pub unrecoverable_sources: u64,
+    pub identity_review_sources: u64,
     pub issues: Vec<String>,
 }
 
@@ -228,7 +232,7 @@ pub fn ingest_reconstruction_batch_for_project(
     }
 
     let mut refreshed = store.reconstruction_sources()?;
-    let mut replacements = Vec::new();
+    let mut identity_reviews = Vec::new();
     for status in refreshed
         .iter()
         .filter(|source| source.machine_id == machine_id)
@@ -254,25 +258,37 @@ pub fn ingest_reconstruction_batch_for_project(
         };
         let current_identity = physical_file_identity(&target.path, &metadata)?;
         if !status.file_identity.is_empty() && status.file_identity != current_identity {
-            replacements.push(ReconstructionSourceStatus {
-                machine_id: machine_id.to_owned(),
-                source_id: status.source_id.clone(),
-                thread_id: status.thread_id.clone(),
-                file_identity: current_identity,
-                status: ReconstructionStatus::Pending,
-                bytes_total: metadata.len(),
-                bytes_processed: 0,
-                prefix_events: 0,
-                unchanged_events: 0,
-                counter_resets: 0,
-                last_error: None,
-                updated_at: Utc::now(),
-            });
+            // A device number change is not proof of replacement, and even a
+            // replacement is not permission to delete retained history.
+            if status.status != ReconstructionStatus::Unrecoverable
+                || status.last_error.as_deref()
+                    != Some(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED)
+            {
+                let mut review = status.clone();
+                review.status = ReconstructionStatus::Unrecoverable;
+                review.last_error =
+                    Some(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned());
+                review.updated_at = Utc::now();
+                identity_reviews.push(review);
+            }
         }
     }
-    store.replace_reconstruction_sources(&replacements)?;
-    if !replacements.is_empty() {
+    if !identity_reviews.is_empty() {
+        store.upsert_reconstruction_sources(&identity_reviews)?;
         refreshed = store.reconstruction_sources()?;
+    }
+    report.identity_review_sources = refreshed
+        .iter()
+        .filter(|source| {
+            source.machine_id == machine_id
+                && source.last_error.as_deref()
+                    == Some(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED)
+        })
+        .count() as u64;
+    if report.identity_review_sources > 0 {
+        report
+            .issues
+            .push(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned());
     }
     let status_by_source = refreshed
         .iter()

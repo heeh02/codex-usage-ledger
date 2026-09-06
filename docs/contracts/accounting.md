@@ -41,6 +41,10 @@ There are three non-interchangeable Token views:
   prefix emits no usage. Only later positive deltas enter Reconstruction.
 - Pending Reconstruction and Unrecoverable are durable source states. Neither
   is a zero and neither may be replaced with `threads.tokens_used`.
+- Physical identity changes are not permission to delete reconstruction facts
+  or restart history. Retain events and checkpoints pending identity verification;
+  device-only/inode-only matches are not automatic rebinding proof. See the
+  [bounded preview and identity-review contract](../architecture/reconstruction-prefix-audit.md).
 - Without a prior counter, reconstruction must not assign the first cumulative
   snapshot wholesale to the current timestamp. Only a valid last sample enters
   usage; absent/invalid last samples establish a baseline without a confirmed

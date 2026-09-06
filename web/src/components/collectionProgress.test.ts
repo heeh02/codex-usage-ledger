@@ -30,3 +30,14 @@ it('explains retryable failures in both languages without false completion or ra
     expect(render('live')).toBe('');
   }
 });
+
+it('distinguishes identity review from a failure that automatic retry can resolve', () => {
+  for (const messages of [enMessages, zhCNMessages]) {
+    const html=renderToStaticMarkup(createElement(I18nContext.Provider,
+      {value:{language:'en',setLanguage:()=>{},t:key=>messages[key]}},
+      createElement(CollectionProgress,{status:{...status,message:'sampling,reconstruction_identity_review'}})));
+    expect(html).toContain(messages['collection.identity_review']);
+    expect(html).not.toContain(messages['collection.retry_detail']);
+    expect(html).not.toContain('reconstruction_identity_review');
+  }
+});

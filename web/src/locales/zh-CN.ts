@@ -1,4 +1,6 @@
 export const zhCNMessages = {
+  "collection.identity_review": "来源文件身份需要核验",
+  "collection.identity_review_detail": "检测到日志文件身份变化。历史用量已保留，相关来源暂停重建，等待核验；不会自动清空并重新统计。",
   "app.time_precision_unavailable_title": "该范围的时间精度不足",
   "app.show_today_usage": "查看今日用量",
   "app.insufficient_time_precision": "刚请求的范围缺少按此时区拆分小时所需的历史明细，无法精确生成曲线。请缩短时间范围；重复刷新不会补回缺失明细。",
