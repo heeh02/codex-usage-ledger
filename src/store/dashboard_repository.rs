@@ -363,7 +363,29 @@ impl LedgerStore {
         request: &ConversationPageRequest<'_>,
     ) -> StoreResult<(Vec<DashboardCatalogThread>, u64)> {
         self.refresh_effective_source_selection()?;
-        let (usage_where, mut values) = build_rollup_filter(request.filter);
+        let (usage_sql, mut values) = if let Some(rows) = request.ranked_usage {
+            let encoded = serde_json::to_string(
+                &rows
+                    .iter()
+                    .map(|row| {
+                        (
+                            &row.root_thread_id,
+                            row.tree.usage.total_tokens,
+                            row.tree.usage.output_tokens,
+                            row.tree.event_count,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
+            ("SELECT json_extract(value,'$[0]') root_thread_id,json_extract(value,'$[1]') tokens,
+                json_extract(value,'$[2]') output,json_extract(value,'$[3]') requests FROM json_each(?)".to_owned(),vec![SqlValue::Text(encoded)])
+        } else {
+            let (usage_where, values) = build_rollup_filter(request.filter);
+            (format!("SELECT membership.root_thread_id,SUM(total_tokens) tokens,SUM(output_tokens) output,SUM(event_count) requests
+                FROM effective_daily_usage_rollups AS daily_usage_rollups
+                JOIN thread_root_membership membership ON membership.thread_id=daily_usage_rollups.thread_key
+                {usage_where} GROUP BY membership.root_thread_id"),values)
+        };
         let mut predicates = vec!["catalog.parent_thread_id IS NULL".to_owned()];
         if request.filter.account_fingerprint.is_some() || request.filter.model.is_some() {
             predicates.push("usage.root_thread_id IS NOT NULL".to_owned());
@@ -402,16 +424,11 @@ impl LedgerStore {
             _ => "COALESCE(usage.tokens, 0) DESC",
         };
         let relation = format!(
-            "WITH usage AS (
-                SELECT membership.root_thread_id, SUM(total_tokens) AS tokens,
-                       SUM(output_tokens) AS output, SUM(event_count) AS requests
-                FROM effective_daily_usage_rollups AS daily_usage_rollups
-                JOIN thread_root_membership membership ON membership.thread_id = daily_usage_rollups.thread_key
-                {usage_where} GROUP BY membership.root_thread_id
-             )
+            "WITH usage AS ({usage_sql})
              SELECT {{columns}} FROM thread_catalog catalog
              LEFT JOIN usage ON usage.root_thread_id = catalog.thread_id
-             WHERE {}", predicates.join(" AND ")
+             WHERE {}",
+            predicates.join(" AND ")
         );
         // A bundle already owns a consistent read snapshot. Standalone page
         // queries still need their own count/rows snapshot.

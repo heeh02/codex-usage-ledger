@@ -110,6 +110,14 @@ include roots with matching usage in the selected period. Existing clients can
 still read `sessions`; updated clients use the page metadata to load the rest.
 No stored event or catalog membership is modified by pagination.
 
+For `period=rolling7`, conversation sorting and displayed own/tree totals use
+the exact half-open timestamp range, not all events from the boundary dates.
+The same per-thread/time projection feeds detail nodes and own/descendant
+timelines, independent of list/node pagination. This corrects query results
+without changing DTOs or persisted accounting/source selection. Non-Shanghai
+rolling timelines use exact timestamp evidence in the requested timezone;
+stored Shanghai-hour labels must not be mixed with timezone-local boundaries.
+
 ## CSV export format
 
 The dashboard CSV is a source-tagged table, not a join driven by official dates.

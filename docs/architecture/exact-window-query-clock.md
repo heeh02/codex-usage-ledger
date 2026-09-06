@@ -33,6 +33,20 @@ recent-15-minute window ends at that instant exclusively, not one second in
 the future. These remain observed activity, not a quota conversion or proof of
 complete collection.
 
+Rolling-seven-day explorer queries build one thread/hour projection for both
+conversation ranking and selected conversation details. Membership merges
+per-thread usage into roots before SQL sorting and pagination. Detail node
+totals and timelines reuse that projection; page limits affect visible rows,
+not the own/subtree denominator. Missing catalog membership is not assigned to
+an invented root. No source-selection policy or historical event is changed.
+
+Durable hourly rollups currently carry Shanghai civil-hour keys. For other
+timezones the rolling-series helper uses indexed exact timestamp evidence for
+the whole window, avoiding mixed labels and fractional-offset bucket splits.
+This favors correct bucketing over the complete-hour optimization; performance
+for large non-Shanghai windows still needs separate measurement. It is not a
+claim that all other calendar-period timezone paths have been accepted.
+
 Tests cover genuine schema-34 upgrade, exact usage preservation, time-index
 search plans, an event exactly at an anchored rolling boundary, and rejection of
 client-supplied reference time. A two-connection WAL test commits new usage and

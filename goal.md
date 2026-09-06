@@ -1030,3 +1030,24 @@ No live data migration, installed-app replacement or release has occurred.
   per-response consistency, not cross-request pagination pinning or source
   accuracy. No original-ledger or installed app modification; production union,
   coverage/replay verification and native acceptance remain outstanding.
+- Batch 120: resumed after user-requested cleanup of stale own-crate codegen
+  objects (about 4.75 GiB reclaimed; current incremental/dependency caches,
+  pending source edits and private acceptance ledger retained). Rolling7
+  conversation ranking had used whole-day totals: a boundary-excluded root
+  ranked ahead of an included child. Detail independently returned 480 instead
+  of 240 synthetic tokens by including an outside and a future event. Explorer
+  now shares one exact thread/time projection across pre-pagination root
+  ranking, displayed own/tree totals, detail nodes and own/descendant curves.
+  A timezone regression also exposed mixed Shanghai/interior and UTC/boundary
+  labels. Non-Shanghai rolling series use exact timestamp evidence, including
+  fractional offsets; this is not acceptance of every calendar timezone path.
+  Synthetic tests cover ordering/pagination/model-project filtering, child
+  detail, four curve grains, all token components and three non-Shanghai zones.
+  Initial RED failures were observed; final Rust 176 tests, Clippy, API contract
+  and governance checks pass. Private-copy HTTP audit passed 13 scopes; two
+  selected roots across four grains also matched list/detail, full visible node
+  own sums and both timelines component-by-component (8 checks). Rolling7 bundle
+  measured about 3.2s during concurrent audit traffic; this is not a controlled
+  latency comparison. Isolated server stopped. No DTO/schema, source policy,
+  original ledger or installed-app update. Main day-max undercount/overlap,
+  continuous coverage and native acceptance remain open; goal stays ACTIVE.

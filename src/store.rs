@@ -509,6 +509,7 @@ pub struct DashboardCatalogThread {
 }
 
 pub(crate) struct ConversationPageRequest<'a> {
+    pub ranked_usage: Option<&'a [RootUsageBucket]>,
     pub project_id: Option<&'a str>,
     pub filter: &'a AggregateFilter,
     pub search: &'a str,

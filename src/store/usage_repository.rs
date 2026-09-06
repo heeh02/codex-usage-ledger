@@ -1,6 +1,60 @@
 use super::*;
 
 impl LedgerStore {
+    /// Roll up already scoped per-thread facts before conversation ranking or
+    /// pagination. Unknown membership is not assigned to an invented root.
+    pub(crate) fn root_usage_from_threads(
+        &self,
+        buckets: &[UsageBucket],
+    ) -> StoreResult<Vec<RootUsageBucket>> {
+        let mut roots = BTreeMap::<String, RootUsageBucket>::new();
+        let mut membership = self.connection.prepare_cached(
+            "SELECT root_thread_id FROM thread_root_membership WHERE thread_id=?1",
+        )?;
+        for bucket in buckets {
+            let Some(thread) = bucket.key.as_deref() else {
+                continue;
+            };
+            let root: Option<String> = membership
+                .query_row([thread], |row| row.get(0))
+                .optional()?;
+            let Some(root) = root else { continue };
+            let entry = roots
+                .entry(root.clone())
+                .or_insert_with(|| RootUsageBucket {
+                    root_thread_id: root.clone(),
+                    node_count: 0,
+                    own: UsageAggregate {
+                        event_count: 0,
+                        usage: TokenUsage::default(),
+                    },
+                    tree: UsageAggregate {
+                        event_count: 0,
+                        usage: TokenUsage::default(),
+                    },
+                });
+            entry.tree.event_count = entry
+                .tree
+                .event_count
+                .checked_add(bucket.event_count)
+                .ok_or(StoreError::AggregateOverflow)?;
+            checked_add_usage(&mut entry.tree.usage, bucket.usage)?;
+            if root == thread {
+                entry.own.event_count = entry
+                    .own
+                    .event_count
+                    .checked_add(bucket.event_count)
+                    .ok_or(StoreError::AggregateOverflow)?;
+                checked_add_usage(&mut entry.own.usage, bucket.usage)?;
+            }
+        }
+        let counts = self.root_thread_member_counts(&roots.keys().cloned().collect::<Vec<_>>())?;
+        for (id, root) in &mut roots {
+            root.node_count = counts.get(id).copied().unwrap_or_default() as u64;
+        }
+        Ok(roots.into_values().collect())
+    }
+
     pub(super) fn refresh_effective_source_selection(&self) -> StoreResult<()> {
         let dirty: bool = self.connection.query_row(
             "SELECT dirty FROM effective_source_selection_state WHERE id = 1",

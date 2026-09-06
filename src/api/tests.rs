@@ -1,6 +1,221 @@
 use super::*;
 
 #[test]
+fn rolling_detail_timezones_keep_boundary_and_interior_hours_consistent() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (index, time) in [
+        now - ChronoDuration::days(7) + ChronoDuration::minutes(1),
+        now - ChronoDuration::hours(4),
+        now - ChronoDuration::minutes(1),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut event = explorer_event(&format!("tz-{index}"), "root", None);
+        event.source_timestamp = Some(time);
+        store.upsert_event(&event).unwrap();
+    }
+    store
+        .upsert_thread_catalog_batch(&[native_catalog_thread(
+            "root",
+            None,
+            Some("project"),
+            0,
+            "Root",
+        )])
+        .unwrap();
+    for timezone in ["UTC", "America/New_York", "Asia/Kathmandu"] {
+        let query = UsageQuery {
+            period: Some("rolling7".into()),
+            reference_time: Some(now),
+            session: Some("root".into()),
+            grain: Some("hour".into()),
+            timezone: Some(timezone.into()),
+            ..Default::default()
+        };
+        let (filter, _) = filter_and_period(&query, DataQuality::Confirmed);
+        let expected = store.aggregate_exact_time_series(TimeGrain::Hour, None, &filter, timezone).unwrap().into_iter()
+            .map(|b| serde_json::json!({"bucket":b.time_key,"events":b.event_count,"usage":token_value(b.usage)})).collect::<Vec<_>>();
+        let actual = http_explorer(&store, &query).unwrap();
+        assert_eq!(
+            actual["selectedSession"]["samplingTimeline"],
+            serde_json::json!(expected),
+            "{timezone}"
+        );
+    }
+}
+
+#[test]
+fn rolling_session_detail_matches_list_nodes_and_timelines() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (id, thread, parent, time) in [
+        (
+            "outside",
+            "root",
+            None,
+            now - ChronoDuration::days(7) - ChronoDuration::minutes(1),
+        ),
+        (
+            "inside-root",
+            "root",
+            None,
+            now - ChronoDuration::days(7) + ChronoDuration::minutes(1),
+        ),
+        (
+            "inside-child",
+            "child",
+            Some("root"),
+            now - ChronoDuration::hours(2),
+        ),
+        (
+            "future",
+            "child",
+            Some("root"),
+            now + ChronoDuration::minutes(1),
+        ),
+    ] {
+        let mut fact = explorer_event(id, thread, parent);
+        fact.source_timestamp = Some(time);
+        fact.usage.cache_write_input_tokens = 7;
+        store.upsert_event(&fact).unwrap();
+    }
+    store
+        .upsert_thread_catalog_batch(&[
+            native_catalog_thread("root", None, Some("project"), 0, "Root"),
+            native_catalog_thread("child", Some("root"), Some("project"), 1, "Child"),
+        ])
+        .unwrap();
+    for grain in ["hour", "day", "week", "month"] {
+        let query = UsageQuery {
+            period: Some("rolling7".into()),
+            reference_time: Some(now),
+            session: Some("root".into()),
+            grain: Some(grain.into()),
+            ..Default::default()
+        };
+        let explorer = http_explorer(&store, &query).unwrap();
+        let detail = &explorer["selectedSession"];
+        assert_eq!(detail["treeUsage"]["total"], 240, "{grain}: tree");
+        assert_eq!(detail["ownUsage"]["total"], 120, "{grain}: own");
+        assert_eq!(detail["treeEventCount"], 2);
+        assert_eq!(detail["treeUsage"], explorer["sessions"][0]["treeUsage"]);
+        for (timeline, expected) in [("samplingTimeline", 240), ("ownSamplingTimeline", 120)] {
+            let total: u64 = detail[timeline]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|b| b["usage"]["total"].as_u64().unwrap())
+                .sum();
+            assert_eq!(total, expected, "{grain}: {timeline}");
+            let target = if timeline == "samplingTimeline" {
+                "treeUsage"
+            } else {
+                "ownUsage"
+            };
+            for field in [
+                "input",
+                "cached",
+                "cacheWrite",
+                "cacheWriteObservedInput",
+                "uncached",
+                "output",
+                "reasoning",
+                "total",
+            ] {
+                let sum: u64 = detail[timeline]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|b| b["usage"][field].as_u64().unwrap())
+                    .sum();
+                assert_eq!(
+                    sum,
+                    detail[target][field].as_u64().unwrap(),
+                    "{grain}: {timeline}.{field}"
+                );
+            }
+        }
+        for node in detail["nodes"].as_array().unwrap() {
+            assert_eq!(node["ownUsage"]["total"], 120);
+        }
+        let child = http_explorer(
+            &store,
+            &UsageQuery {
+                session: Some("child".into()),
+                ..query
+            },
+        )
+        .unwrap();
+        assert_eq!(child["selectedSession"]["treeUsage"]["total"], 120);
+    }
+}
+
+#[test]
+fn rolling_conversation_order_and_amounts_exclude_outside_boundary_usage() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut outside = explorer_event("outside", "root-a", None);
+    outside.source_timestamp = Some(now - ChronoDuration::days(7) - ChronoDuration::minutes(1));
+    outside.usage.input_tokens = 1000;
+    outside.usage.total_tokens = 1020;
+    let mut inside = explorer_event("inside", "child-b", Some("root-b"));
+    inside.source_timestamp = Some(now - ChronoDuration::days(7) + ChronoDuration::minutes(1));
+    store.upsert_event(&outside).unwrap();
+    store.upsert_event(&inside).unwrap();
+    store
+        .upsert_thread_catalog_batch(&[
+            native_catalog_thread("root-a", None, Some("project"), 0, "Outside"),
+            native_catalog_thread("root-b", None, Some("project"), 0, "Inside"),
+            native_catalog_thread("child-b", Some("root-b"), Some("project"), 1, "Child"),
+        ])
+        .unwrap();
+    let query = UsageQuery {
+        period: Some("rolling7".into()),
+        reference_time: Some(now),
+        session_limit: Some(1),
+        ..Default::default()
+    };
+    let first = http_explorer(&store, &query).unwrap();
+    assert_eq!(first["sessions"][0]["id"], "root-b");
+    assert_eq!(first["sessions"][0]["treeUsage"]["total"], 120);
+    assert_eq!(first["sessions"][0]["ownUsage"]["total"], 0);
+    for sort in ["output", "requests"] {
+        let sorted = http_explorer(
+            &store,
+            &UsageQuery {
+                session_sort: Some(sort.into()),
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(sorted["sessions"][0]["id"], "root-b");
+    }
+    let filtered = http_explorer(
+        &store,
+        &UsageQuery {
+            model: inside.model.clone(),
+            project: Some("project".into()),
+            ..query.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(filtered["sessionPage"]["total"], 1);
+    assert_eq!(filtered["sessions"][0]["id"], "root-b");
+    let second = http_explorer(
+        &store,
+        &UsageQuery {
+            session_offset: Some(1),
+            ..query
+        },
+    )
+    .unwrap();
+    assert_eq!(second["sessions"][0]["id"], "root-a");
+    assert_eq!(second["sessions"][0]["treeUsage"]["total"], 0);
+}
+
+#[test]
 fn recent_activity_uses_bundle_clock_without_adding_a_future_second() {
     let now = Utc.with_ymd_and_hms(2026, 1, 3, 12, 0, 0).unwrap();
     let mut store = LedgerStore::open_in_memory().unwrap();

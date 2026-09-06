@@ -32,12 +32,18 @@ fn ceil_utc_hour(value: DateTime<Utc>) -> DateTime<Utc> {
 
 /// Exact rolling windows use durable hour rollups for complete hours and scan
 /// raw evidence only for the two partial boundary hours.
-fn aggregate_exact_hour_window_series(
+pub(super) fn aggregate_exact_hour_window_series(
     store: &LedgerStore,
     dimension: Option<AggregateDimension>,
     filter: &AggregateFilter,
     timezone: &str,
 ) -> Result<Vec<crate::store::UsageSeriesBucket>, StoreError> {
+    // Durable hourly buckets use Shanghai civil-hour keys. They cannot be
+    // mixed with boundary buckets labeled in a different timezone; fractional
+    // offsets can also split one stored hour across two requested hours.
+    if timezone != "Asia/Shanghai" {
+        return store.aggregate_exact_time_series(TimeGrain::Hour, dimension, filter, timezone);
+    }
     let (Some(start), Some(end)) = (filter.start_inclusive, filter.end_exclusive) else {
         return store.aggregate_exact_time_series(TimeGrain::Hour, dimension, filter, timezone);
     };

@@ -1,3 +1,4 @@
+use super::queries::aggregate_exact_hour_window_series;
 use super::*;
 
 type CatalogCounts = DashboardCatalogCounts;
@@ -35,11 +36,26 @@ pub(super) fn http_explorer(
     let project_count = store.project_count()?;
 
     let projects = explorer_projects(store, query)?;
-    let (sessions, session_page) = explorer_sessions(store, query)?;
+    // One exact thread/time projection feeds ranking, detail totals and curves.
+    // Catalog project selection is applied after root membership resolution.
+    let exact_threads = if query.period.as_deref() == Some("rolling7") {
+        let mut filter = period_filter(query, "rolling7");
+        filter.project_id = None;
+        let (_, descriptor) = filter_and_period(query, DataQuality::Confirmed);
+        Some(aggregate_exact_hour_window_series(
+            store,
+            Some(AggregateDimension::Thread),
+            &filter,
+            &descriptor.timezone,
+        )?)
+    } else {
+        None
+    };
+    let (sessions, session_page) = explorer_sessions(store, query, exact_threads.as_deref())?;
     let selected_session = query
         .session
         .as_deref()
-        .map(|thread_id| explorer_session_detail(store, query, thread_id))
+        .map(|thread_id| explorer_session_detail(store, query, thread_id, exact_threads.as_deref()))
         .transpose()?;
     let official_period = |period_key: &str| -> Result<serde_json::Value, StoreError> {
         let mut period_query = query.clone();
@@ -382,9 +398,29 @@ fn explorer_projects(
     Ok(rows)
 }
 
+fn thread_totals_from_series(
+    series: &[crate::store::UsageSeriesBucket],
+) -> Vec<crate::store::UsageBucket> {
+    let mut totals = BTreeMap::<Option<String>, (u64, TokenUsage)>::new();
+    for bucket in series {
+        let entry = totals.entry(bucket.dimension_key.clone()).or_default();
+        entry.0 = entry.0.saturating_add(bucket.event_count);
+        add_usage_saturating(&mut entry.1, bucket.usage);
+    }
+    totals
+        .into_iter()
+        .map(|(key, (event_count, usage))| crate::store::UsageBucket {
+            key,
+            event_count,
+            usage,
+        })
+        .collect()
+}
+
 fn explorer_sessions(
     store: &LedgerStore,
     query: &UsageQuery,
+    exact_threads: Option<&[crate::store::UsageSeriesBucket]>,
 ) -> Result<(Vec<serde_json::Value>, serde_json::Value), StoreError> {
     let mut filter = period_filter(query, query.period.as_deref().unwrap_or("week"));
     filter.project_id = None;
@@ -396,7 +432,13 @@ fn explorer_sessions(
         .as_deref()
         .filter(|value| ["tokens", "output", "requests", "recent"].contains(value))
         .unwrap_or("tokens");
+    let exact_root_usage = if let Some(series) = exact_threads {
+        Some(store.root_usage_from_threads(&thread_totals_from_series(series))?)
+    } else {
+        None
+    };
     let (roots, total) = store.conversation_page(&crate::store::ConversationPageRequest {
+        ranked_usage: exact_root_usage.as_deref(),
         project_id: query.project.as_deref(),
         filter: &filter,
         search,
@@ -414,8 +456,11 @@ fn explorer_sessions(
         .iter()
         .map(|root| root.thread_id.clone())
         .collect::<Vec<_>>();
-    let usage_by_root = store
-        .aggregate_rollup_by_root_threads(&root_ids, &filter)?
+    let scoped_usage = match exact_root_usage {
+        Some(usage) => usage,
+        None => store.aggregate_rollup_by_root_threads(&root_ids, &filter)?,
+    };
+    let usage_by_root = scoped_usage
         .into_iter()
         .map(|bucket| (bucket.root_thread_id.clone(), bucket))
         .collect::<HashMap<_, _>>();
@@ -457,6 +502,7 @@ fn explorer_session_detail(
     store: &LedgerStore,
     query: &UsageQuery,
     thread_id: &str,
+    exact_threads: Option<&[crate::store::UsageSeriesBucket]>,
 ) -> Result<serde_json::Value, StoreError> {
     let tree = catalog_descendants(store, thread_id)?;
     if tree.is_empty() {
@@ -482,9 +528,22 @@ fn explorer_session_detail(
     let timeline_for =
         |thread_ids: &[String]| -> Result<BTreeMap<String, (u64, TokenUsage)>, StoreError> {
             let mut timeline = BTreeMap::<String, (u64, TokenUsage)>::new();
-            for bucket in
-                store.aggregate_time_series_for_threads(source_grain, thread_ids, &filter)?
-            {
+            let buckets = match exact_threads {
+                Some(series) => series
+                    .iter()
+                    .filter(|bucket| {
+                        bucket
+                            .dimension_key
+                            .as_ref()
+                            .is_some_and(|id| thread_ids.contains(id))
+                    })
+                    .cloned()
+                    .collect(),
+                None => {
+                    store.aggregate_time_series_for_threads(source_grain, thread_ids, &filter)?
+                }
+            };
+            for bucket in buckets {
                 let key = if source_grain == TimeGrain::Day {
                     aggregate_date_key(&bucket.time_key, detail_grain).unwrap_or(bucket.time_key)
                 } else {
@@ -498,8 +557,14 @@ fn explorer_session_detail(
         };
     let timeline = timeline_for(&ids)?;
     let own_timeline = timeline_for(std::slice::from_ref(&root_thread_id))?;
-    let mut own_usage = store
-        .aggregate_rollup_by_thread_ids(&ids, &filter)?
+    let scoped_usage = match exact_threads {
+        Some(series) => thread_totals_from_series(series)
+            .into_iter()
+            .filter(|bucket| bucket.key.as_ref().is_some_and(|id| ids.contains(id)))
+            .collect(),
+        None => store.aggregate_rollup_by_thread_ids(&ids, &filter)?,
+    };
+    let mut own_usage = scoped_usage
         .into_iter()
         .filter_map(|bucket| {
             bucket
