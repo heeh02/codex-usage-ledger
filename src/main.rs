@@ -38,6 +38,14 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Resume retained request detail backfill in an existing current-schema ledger.
+    /// Writes derived details, but never imports sources or changes token rollups.
+    BackfillRequests {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value_t=1, value_parser=clap::value_parser!(u16).range(1..=100))]
+        batches: u16,
+    },
     /// Shadow local source-record union; never changes the active accounting policy.
     ShadowUnion {
         #[arg(long)]
@@ -173,6 +181,26 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::BackfillRequests { db, batches } => {
+            // Reject missing/old ledgers before opening for writes. Migration
+            // acceptance must be a separate explicit step, not a side effect.
+            drop(LedgerStore::open_read_only(&db)?);
+            let mut store = LedgerStore::open(&db)?;
+            let mut complete = store.request_evidence_backfill_complete()?;
+            let mut attempted = 0;
+            while !complete && attempted < batches {
+                complete = store.backfill_request_evidence_chunk(1000)?;
+                attempted += 1;
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "schemaVersion":store.schema_version()?,"batchesAttempted":attempted,
+                    "maxRowsPerBatch":1000,"backfillComplete":complete,
+                    "historyComplete":false,"sourceImport":false,"rollupRecount":false
+                }))?
+            );
+        }
         Command::ShadowUnion {
             db,
             thread,

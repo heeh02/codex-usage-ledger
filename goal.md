@@ -929,3 +929,18 @@ No live data migration, installed-app replacement or release has occurred.
   immutable shortcut was used. Full backfill/restart/native acceptance and
   accounting-policy correctness remain open; preserved hashes are not proof of
   correct historic usage. Retain one private copy for the next acceptance step.
+- Batch 113: resumed the existing private migration copy, not a new backup.
+  Added bounded `backfill-requests` maintenance using existing chunk logic and
+  explicit current-schema DB selection, with missing/old-file rejection. A
+  synthetic subprocess test covers pending-target completion, zero-work restart
+  and batch bounds; its initial empty-schema assumption was corrected by
+  explicitly constructing a pending empty target. On the private copy, bounded
+  runs completed all existing raw-request detail and a fresh process attempted
+  zero additional batches. Row-level raw/retained usage, quality and observation
+  dimension comparison found no differences or missing assignment/origin rows.
+  All nine pre-migration fact-table hashes/counts remain identical; quick_check
+  passed and the original stayed schema 24. Full Rust 167 tests and Clippy pass.
+  Private receipts updated outside the repo. This is existing-detail migration
+  and process-restart evidence, not recovered deleted history, new source
+  identity, main-policy correctness or installed/native acceptance. One isolated
+  copy remains for data-query/native validation; full goal remains ACTIVE.
