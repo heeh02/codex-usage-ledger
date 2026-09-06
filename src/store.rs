@@ -203,6 +203,10 @@ pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error(
+        "requested timezone needs per-request time evidence unavailable in this window; choose an hour-aligned timezone or a narrower window"
+    )]
+    InsufficientTimePrecision,
+    #[error(
         "usage snapshot could not stabilize while source selection was changing; retry the query"
     )]
     SnapshotUnavailable,

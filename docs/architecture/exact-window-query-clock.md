@@ -40,12 +40,32 @@ totals and timelines reuse that projection; page limits affect visible rows,
 not the own/subtree denominator. Missing catalog membership is not assigned to
 an invented root. No source-selection policy or historical event is changed.
 
-Durable hourly rollups currently carry Shanghai civil-hour keys. For other
-timezones the rolling-series helper uses indexed exact timestamp evidence for
-the whole window, avoiding mixed labels and fractional-offset bucket splits.
-This favors correct bucketing over the complete-hour optimization; performance
-for large non-Shanghai windows still needs separate measurement. It is not a
-claim that all other calendar-period timezone paths have been accepted.
+Durable hourly rollups carry Shanghai civil-hour keys. A target timezone can
+reuse them only when each stored hour starts on a target hour boundary and its
+UTC offset stays constant throughout that hour. This preserves old aggregate
+facts after request-detail retention without mixing timezone labels. Open-ended
+windows also reuse complete-hour rollups rather than scanning lifetime raw rows.
+Scalar dimension totals need exact instants but not local hour labels, so they
+use the complete-hour path independently of the requested display timezone.
+
+Fractional offsets or within-hour clock transitions require timestamp evidence
+to split a stored hour. That fallback must conserve counts and every component
+by dimension against the retained-hour result. A mismatch returns explicit
+insufficient-time-precision, not a smaller curve paired with a larger total.
+This is a loss-detection gate, not proof of replay-free historical identity.
+Large timestamp-backed windows can still cost more than hour-aligned queries.
+
+The timestamp path also applies to non-Shanghai calendar windows, not just
+rolling seven days. Summary/quality, dimensional breakdowns, conversation
+ranking/detail, project totals/sparklines and previous-period comparisons must
+honor the same local-midnight/UTC-instant boundaries. Day-key aggregations derive
+their date from timezone-local buckets rather than substituting storage dates.
+The shared comparison path also fixes exact rolling comparison boundaries.
+Synthetic UTC, New York DST-transition and Kathmandu fractional-offset cases
+cover today/week/month/year/custom windows with records just before, at and
+after the boundary. Official provider-date records are not relabeled or used to
+allocate local project usage by this change; official timezone comparability
+and historical source coverage still require separate evidence.
 
 Tests cover genuine schema-34 upgrade, exact usage preservation, time-index
 search plans, an event exactly at an anchored rolling boundary, and rejection of

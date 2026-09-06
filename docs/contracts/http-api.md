@@ -118,6 +118,19 @@ without changing DTOs or persisted accounting/source selection. Non-Shanghai
 rolling timelines use exact timestamp evidence in the requested timezone;
 stored Shanghai-hour labels must not be mixed with timezone-local boundaries.
 
+For supported non-Shanghai `timezone` values, calendar-window local totals and
+curves likewise use exact timestamp bounds and timezone-local date/hour labels.
+Local previous-period values and comparison curves follow their descriptor's
+bounds rather than rounding them to Shanghai storage dates. This changes
+affected query values, not DTO fields, stored facts or official provider dates.
+
+If local historical hourly aggregates survive but per-request timestamps needed
+to split those hours do not, a non-hour-aligned timezone request returns HTTP
+422 with an insufficient-time-precision error. Clients must retain the last
+accepted scope/response and show the error, not replace it with a zero or a
+smaller partial curve. Choose an hour-aligned timezone or a range with retained
+timestamp evidence. Ordinary schema validation errors remain HTTP 400.
+
 ## CSV export format
 
 The dashboard CSV is a source-tagged table, not a join driven by official dates.

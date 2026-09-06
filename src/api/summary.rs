@@ -16,7 +16,12 @@ pub(super) fn http_summary(
             let mut previous_filter = base.clone();
             previous_filter.start_inclusive = Some(start);
             previous_filter.end_exclusive = Some(end);
-            Some(store.aggregate_rollup_usage(&previous_filter)?)
+            Some(aggregate_selected_period(
+                store,
+                query,
+                &previous_filter,
+                &period,
+            )?)
         } else {
             None
         };
@@ -225,16 +230,24 @@ pub(super) fn project_attribution_coverage(
 
     let mut evidence_filter = confirmed_filter.clone();
     evidence_filter.quality = None;
-    let evidence_days = store
-        .aggregate_rollup_by(AggregateDimension::Day, &evidence_filter)?
-        .into_iter()
-        .filter_map(|bucket| bucket.key.filter(|_| bucket.event_count > 0))
-        .collect::<BTreeSet<_>>();
-    let local_days = store
-        .aggregate_rollup_by(AggregateDimension::Day, &confirmed_filter)?
-        .into_iter()
-        .filter_map(|bucket| bucket.key.map(|day| (day, bucket.usage.total_tokens)))
-        .collect::<HashMap<_, _>>();
+    let evidence_days = aggregate_selected_period_by(
+        store,
+        &scope_query,
+        AggregateDimension::Day,
+        &evidence_filter,
+    )?
+    .into_iter()
+    .filter_map(|bucket| bucket.key.filter(|_| bucket.event_count > 0))
+    .collect::<BTreeSet<_>>();
+    let local_days = aggregate_selected_period_by(
+        store,
+        &scope_query,
+        AggregateDimension::Day,
+        &confirmed_filter,
+    )?
+    .into_iter()
+    .filter_map(|bucket| bucket.key.map(|day| (day, bucket.usage.total_tokens)))
+    .collect::<HashMap<_, _>>();
     let first_evidence_day = evidence_days.iter().next().cloned();
     let mut official_before_local_evidence = 0_u64;
     let mut official_without_local_evidence = 0_u64;

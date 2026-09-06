@@ -1106,3 +1106,24 @@ No live data migration, installed-app replacement or release has occurred.
   No notarization, installed-app replacement or live-ledger modification. Goal
   remains ACTIVE; lock-screen dependency affects UI acceptance, not remaining
   useful accounting/coverage work. Resume native interaction after manual unlock.
+- Batch 124: previous turn hardened preferences while native UI awaited unlock.
+  Reproduced non-Shanghai UTC-today returning 360 instead of 240 synthetic tokens.
+  Shared exact-window routing now covers local calendar totals, quality, project
+  and conversation scopes, date labels and previous-period comparisons. Initial
+  raw-timestamp-only queries were rejected by real-copy acceptance: around 20s
+  for today, timeouts and comparison drift where old hourly facts outlived request
+  detail. Hour-aligned timezone relabeling now preserves durable hours, open
+  lifetime bounds avoid raw full scans, and scalar groups use complete hours.
+  Fractional-offset/within-hour transitions fall back to precise evidence only
+  when per-dimension counts/components conserve; otherwise HTTP 422 explicitly
+  reports unavailable precision rather than returning a partial curve. Synthetic
+  UTC/New York DST/Kathmandu fixtures cover five calendar presets and comparisons.
+  The legacy-hour shape moved to a disk-backed integration test so API modules
+  retain their no-SQL boundary; its real loopback HTTP responses prove UTC 200
+  and an unprovable split 422. Full Rust 180 tests, Clippy, API contracts and
+  governance gates pass. Final nine private-copy scopes conserve all audited
+  fields; UTC/New York samples were about 0.6–1.0s, Kathmandu month still about
+  13s and remains a performance follow-up. Private receipt stays outside repo.
+  Test server stopped. No schema/source-policy/history migration or installed
+  app change; prior native bundle predates this batch. Accounting completeness,
+  precision-aware GUI, broader performance and native acceptance remain ACTIVE.

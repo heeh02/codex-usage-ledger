@@ -1,6 +1,159 @@
 use super::*;
 
 #[test]
+fn calendar_timezone_scopes_conserve_summary_projects_and_conversations() {
+    let now = Utc.with_ymd_and_hms(2026, 3, 9, 12, 30, 0).unwrap();
+    for timezone in ["UTC", "America/New_York", "Asia/Kathmandu"] {
+        for period in ["today", "week", "month", "year", "custom"] {
+            let query = UsageQuery {
+                timezone: Some(timezone.into()),
+                period: Some(period.into()),
+                reference_time: Some(now),
+                session: Some("root".into()),
+                grain: Some("day".into()),
+                start_date: Some("2026-03-08".into()),
+                end_date: Some("2026-03-08".into()),
+                ..Default::default()
+            };
+            let (filter, descriptor) = filter_and_period(&query, DataQuality::Confirmed);
+            let (start, end) = (
+                filter.start_inclusive.unwrap(),
+                filter.end_exclusive.unwrap(),
+            );
+            let mut store = LedgerStore::open_in_memory().unwrap();
+            for (index, at) in [
+                start - ChronoDuration::minutes(1),
+                start,
+                start + ChronoDuration::minutes(1),
+                end,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut event = explorer_event(&format!("edge-{index}"), "root", None);
+                event.source_timestamp = Some(at);
+                store.upsert_event(&event).unwrap();
+            }
+            if let (Some(previous_start), Some(previous_end)) =
+                (descriptor.comparison_start, descriptor.comparison_end)
+            {
+                for (index, at) in [
+                    previous_start - ChronoDuration::minutes(1),
+                    previous_start,
+                    previous_end,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let mut event = explorer_event(&format!("comparison-{index}"), "root", None);
+                    event.source_timestamp = Some(at);
+                    store.upsert_event(&event).unwrap();
+                }
+            }
+            store
+                .upsert_thread_catalog_batch(&[native_catalog_thread(
+                    "root",
+                    None,
+                    Some("project"),
+                    0,
+                    "Root",
+                )])
+                .unwrap();
+            let bundle = http_bundle(&store, &query).unwrap();
+            assert_eq!(
+                bundle["summary"]["usage"]["confirmed"]["total"], 240,
+                "{timezone}/{period}"
+            );
+            let expected = &bundle["summary"]["usage"]["confirmed"];
+            let detail = &bundle["explorer"]["selectedSession"];
+            assert_eq!(detail["treeUsage"], *expected);
+            assert_eq!(bundle["explorer"]["sessions"][0]["treeUsage"], *expected);
+            let project = bundle["explorer"]["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == "project")
+                .unwrap();
+            assert_eq!(project["periodUsage"], *expected);
+            if let (Some(previous_start), Some(previous_end)) =
+                (descriptor.comparison_start, descriptor.comparison_end)
+            {
+                let mut previous_filter = filter.clone();
+                previous_filter.start_inclusive = Some(previous_start);
+                previous_filter.end_exclusive = Some(previous_end);
+                let mut previous = TokenUsage::default();
+                for bucket in store
+                    .aggregate_exact_time_series(TimeGrain::Day, None, &previous_filter, timezone)
+                    .unwrap()
+                {
+                    add_usage_saturating(&mut previous, bucket.usage);
+                }
+                assert_eq!(
+                    bundle["summary"]["comparison"]["usage"],
+                    token_value(previous)
+                );
+                assert_eq!(project["previousPeriodUsage"], token_value(previous));
+                for field in [
+                    "input",
+                    "cached",
+                    "cacheWrite",
+                    "cacheWriteObservedInput",
+                    "uncached",
+                    "output",
+                    "reasoning",
+                    "total",
+                ] {
+                    let sum: u64 = bundle["timeseries"]["comparisonPoints"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p["confirmed"][field].as_u64().unwrap())
+                        .sum();
+                    assert_eq!(sum, token_value(previous)[field].as_u64().unwrap());
+                }
+            }
+            for field in [
+                "input",
+                "cached",
+                "cacheWrite",
+                "cacheWriteObservedInput",
+                "uncached",
+                "output",
+                "reasoning",
+                "total",
+            ] {
+                let series: u64 = bundle["timeseries"]["points"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|p| p["confirmed"][field].as_u64().unwrap())
+                    .sum();
+                assert_eq!(
+                    series,
+                    expected[field].as_u64().unwrap(),
+                    "{timezone}/{period}/{field}"
+                );
+                for dimension in ["account", "project", "model"] {
+                    let sum: u64 = bundle["breakdowns"][dimension]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p["usage"]["confirmed"][field].as_u64().unwrap())
+                        .sum();
+                    assert_eq!(sum, expected[field].as_u64().unwrap());
+                }
+            }
+            let expected_day = start
+                .with_timezone(&timezone.parse::<Tz>().unwrap())
+                .date_naive()
+                .to_string();
+            assert_eq!(bundle["timeseries"]["points"][0]["date"], expected_day);
+            assert_eq!(detail["samplingTimeline"][0]["bucket"], expected_day);
+        }
+    }
+}
+
+#[test]
 fn rolling_detail_timezones_keep_boundary_and_interior_hours_consistent() {
     let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
     let mut store = LedgerStore::open_in_memory().unwrap();

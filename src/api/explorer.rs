@@ -1,4 +1,4 @@
-use super::queries::aggregate_exact_hour_window_series;
+use super::queries::{aggregate_exact_hour_window_series, requires_exact_window};
 use super::*;
 
 type CatalogCounts = DashboardCatalogCounts;
@@ -38,8 +38,8 @@ pub(super) fn http_explorer(
     let projects = explorer_projects(store, query)?;
     // One exact thread/time projection feeds ranking, detail totals and curves.
     // Catalog project selection is applied after root membership resolution.
-    let exact_threads = if query.period.as_deref() == Some("rolling7") {
-        let mut filter = period_filter(query, "rolling7");
+    let exact_threads = if requires_exact_window(query) {
+        let mut filter = period_filter(query, query.period.as_deref().unwrap_or("week"));
         filter.project_id = None;
         let (_, descriptor) = filter_and_period(query, DataQuality::Confirmed);
         Some(aggregate_exact_hour_window_series(
@@ -190,18 +190,22 @@ fn explorer_projects(
         let mut filter = period_filter(&period_query, "lifetime");
         filter.start_inclusive = Some(start);
         filter.end_exclusive = Some(end);
-        Ok(store
-            .aggregate_rollup_by(AggregateDimension::Project, &filter)?
-            .into_iter()
-            .map(|bucket| {
-                (
-                    bucket
-                        .key
-                        .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-                    bucket.usage,
-                )
-            })
-            .collect())
+        Ok(aggregate_selected_period_by(
+            store,
+            &period_query,
+            AggregateDimension::Project,
+            &filter,
+        )?
+        .into_iter()
+        .map(|bucket| {
+            (
+                bucket
+                    .key
+                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+                bucket.usage,
+            )
+        })
+        .collect())
     };
     let period_usage = usage_map(query.period.as_deref().unwrap_or("week"))?;
     let selected_period_key = query.period.as_deref().unwrap_or("week");
@@ -234,18 +238,22 @@ fn explorer_projects(
         let mut previous_filter = period_filter(&all_projects_query, "lifetime");
         previous_filter.start_inclusive = Some(start);
         previous_filter.end_exclusive = Some(end);
-        store
-            .aggregate_rollup_by(AggregateDimension::Project, &previous_filter)?
-            .into_iter()
-            .map(|bucket| {
-                (
-                    bucket
-                        .key
-                        .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-                    (bucket.usage, bucket.event_count),
-                )
-            })
-            .collect::<HashMap<_, _>>()
+        aggregate_selected_period_by(
+            store,
+            &all_projects_query,
+            AggregateDimension::Project,
+            &previous_filter,
+        )?
+        .into_iter()
+        .map(|bucket| {
+            (
+                bucket
+                    .key
+                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+                (bucket.usage, bucket.event_count),
+            )
+        })
+        .collect::<HashMap<_, _>>()
     } else {
         HashMap::new()
     };
@@ -265,9 +273,9 @@ fn explorer_projects(
         })
         .collect::<HashMap<_, _>>();
     let mut project_sparklines = HashMap::<String, Vec<u64>>::new();
-    let sparkline_buckets = if selected_period_key == "rolling7" {
-        store.aggregate_exact_time_series(
-            TimeGrain::Day,
+    let sparkline_buckets = if requires_exact_window(query) {
+        aggregate_exact_hour_window_series(
+            store,
             Some(AggregateDimension::Project),
             &selected_period_filter,
             query.timezone.as_deref().unwrap_or("Asia/Shanghai"),
@@ -279,15 +287,19 @@ fn explorer_projects(
             &selected_period_filter,
         )?
     };
+    let mut sparkline_days = BTreeMap::<(String, String), u64>::new();
     for bucket in sparkline_buckets {
-        project_sparklines
-            .entry(
-                bucket
-                    .dimension_key
-                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-            )
-            .or_default()
-            .push(bucket.usage.total_tokens);
+        let key = (
+            bucket.time_key[..10].to_owned(),
+            bucket
+                .dimension_key
+                .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+        );
+        let total = sparkline_days.entry(key).or_default();
+        *total = total.saturating_add(bucket.usage.total_tokens);
+    }
+    for ((_, project), total) in sparkline_days {
+        project_sparklines.entry(project).or_default().push(total);
     }
     let active_cutoff = (now - ChronoDuration::minutes(5)).to_rfc3339();
     let active_project_sessions = store.active_project_session_counts(&active_cutoff)?;

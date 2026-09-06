@@ -1,4 +1,12 @@
 use super::*;
+use chrono::Offset;
+
+/// Persisted calendar buckets are Shanghai-local. Other timezone calendars
+/// require timestamp-scoped evidence, not relabeled or rounded storage days.
+pub(super) fn requires_exact_window(query: &UsageQuery) -> bool {
+    query.period.as_deref() == Some("rolling7")
+        || query.timezone.as_deref().unwrap_or("Asia/Shanghai") != "Asia/Shanghai"
+}
 
 pub(super) fn aggregate_selected_period_by(
     store: &LedgerStore,
@@ -6,8 +14,13 @@ pub(super) fn aggregate_selected_period_by(
     dimension: AggregateDimension,
     filter: &AggregateFilter,
 ) -> Result<Vec<crate::store::UsageBucket>, StoreError> {
-    if query.period.as_deref() == Some("rolling7") {
-        aggregate_exact_hour_window_by(store, dimension, filter)
+    if requires_exact_window(query) {
+        aggregate_exact_hour_window_by(
+            store,
+            dimension,
+            filter,
+            query.timezone.as_deref().unwrap_or("Asia/Shanghai"),
+        )
     } else {
         store.aggregate_rollup_by(dimension, filter)
     }
@@ -38,20 +51,69 @@ pub(super) fn aggregate_exact_hour_window_series(
     filter: &AggregateFilter,
     timezone: &str,
 ) -> Result<Vec<crate::store::UsageSeriesBucket>, StoreError> {
-    // Durable hourly buckets use Shanghai civil-hour keys. They cannot be
-    // mixed with boundary buckets labeled in a different timezone; fractional
-    // offsets can also split one stored hour across two requested hours.
     if timezone != "Asia/Shanghai" {
-        return store.aggregate_exact_time_series(TimeGrain::Hour, dimension, filter, timezone);
+        let zone = timezone
+            .parse::<Tz>()
+            .map_err(|_| StoreError::InvalidTimezone(timezone.to_owned()))?;
+        let mut stored =
+            aggregate_exact_hour_window_series(store, dimension, filter, "Asia/Shanghai")?;
+        let mut convertible = true;
+        for bucket in &mut stored {
+            let local = chrono::NaiveDateTime::parse_from_str(&bucket.time_key, "%Y-%m-%dT%H:%M")
+                .ok()
+                .and_then(|time| {
+                    chrono_tz::Asia::Shanghai
+                        .from_local_datetime(&time)
+                        .single()
+                });
+            let Some(at) = local else {
+                convertible = false;
+                break;
+            };
+            let Some(last) =
+                at.checked_add_signed(ChronoDuration::hours(1) - ChronoDuration::nanoseconds(1))
+            else {
+                convertible = false;
+                break;
+            };
+            let at = at.with_timezone(&zone);
+            if at.minute() != 0
+                || at.second() != 0
+                || at.offset().fix() != last.with_timezone(&zone).offset().fix()
+            {
+                convertible = false;
+                break;
+            }
+            bucket.time_key = at.format("%Y-%m-%dT%H:00").to_string();
+        }
+        if convertible {
+            return Ok(stored);
+        }
+        let precise =
+            store.aggregate_exact_time_series(TimeGrain::Hour, dimension, filter, timezone)?;
+        let totals = |rows: &[crate::store::UsageSeriesBucket]| {
+            let mut groups = BTreeMap::<Option<String>, (u64, TokenUsage)>::new();
+            for row in rows {
+                let entry = groups.entry(row.dimension_key.clone()).or_default();
+                entry.0 = entry.0.saturating_add(row.event_count);
+                add_usage_saturating(&mut entry.1, row.usage);
+            }
+            groups
+        };
+        if totals(&stored) != totals(&precise) {
+            return Err(StoreError::InsufficientTimePrecision);
+        }
+        return Ok(precise);
     }
-    let (Some(start), Some(end)) = (filter.start_inclusive, filter.end_exclusive) else {
-        return store.aggregate_exact_time_series(TimeGrain::Hour, dimension, filter, timezone);
-    };
-    if start >= end {
+    let (start, end) = (filter.start_inclusive, filter.end_exclusive);
+    if matches!((start,end), (Some(start),Some(end)) if start>=end) {
         return Ok(Vec::new());
     }
-    let first_complete_hour = ceil_utc_hour(start).min(end);
-    let last_complete_hour = floor_utc_hour(end).max(first_complete_hour);
+    let first_complete_hour =
+        start.map(|start| ceil_utc_hour(start).min(end.unwrap_or(DateTime::<Utc>::MAX_UTC)));
+    let last_complete_hour = end.map(|end| {
+        floor_utc_hour(end).max(first_complete_hour.unwrap_or(DateTime::<Utc>::MIN_UTC))
+    });
     let mut merged = BTreeMap::<(String, Option<String>), (u64, TokenUsage)>::new();
     let mut merge = |buckets: Vec<crate::store::UsageSeriesBucket>| {
         for bucket in buckets {
@@ -62,7 +124,9 @@ pub(super) fn aggregate_exact_hour_window_series(
             add_usage_saturating(&mut entry.1, bucket.usage);
         }
     };
-    if start < first_complete_hour {
+    if let (Some(start), Some(first_complete_hour)) = (start, first_complete_hour)
+        && start < first_complete_hour
+    {
         let mut boundary = filter.clone();
         boundary.start_inclusive = Some(start);
         boundary.end_exclusive = Some(first_complete_hour);
@@ -73,13 +137,15 @@ pub(super) fn aggregate_exact_hour_window_series(
             timezone,
         )?);
     }
-    if first_complete_hour < last_complete_hour {
+    if !matches!((first_complete_hour,last_complete_hour), (Some(start),Some(end)) if start>=end) {
         let mut middle = filter.clone();
-        middle.start_inclusive = Some(first_complete_hour);
-        middle.end_exclusive = Some(last_complete_hour);
+        middle.start_inclusive = first_complete_hour;
+        middle.end_exclusive = last_complete_hour;
         merge(store.aggregate_time_series(TimeGrain::Hour, dimension, &middle)?);
     }
-    if last_complete_hour < end {
+    if let (Some(last_complete_hour), Some(end)) = (last_complete_hour, end)
+        && last_complete_hour < end
+    {
         let mut boundary = filter.clone();
         boundary.start_inclusive = Some(last_complete_hour);
         boundary.end_exclusive = Some(end);
@@ -122,12 +188,25 @@ fn aggregate_exact_hour_window_by(
     store: &LedgerStore,
     dimension: AggregateDimension,
     filter: &AggregateFilter,
+    timezone: &str,
 ) -> Result<Vec<crate::store::UsageBucket>, StoreError> {
     let mut grouped = BTreeMap::<Option<String>, (u64, TokenUsage)>::new();
+    // Scalar dimensional totals need exact instants, not localized hour labels.
+    // Keep the complete-hour optimization for these groups in every timezone.
+    let bucket_timezone = if matches!(dimension, AggregateDimension::Day) {
+        timezone
+    } else {
+        "Asia/Shanghai"
+    };
     for bucket in
-        aggregate_exact_hour_window_series(store, Some(dimension), filter, "Asia/Shanghai")?
+        aggregate_exact_hour_window_series(store, Some(dimension), filter, bucket_timezone)?
     {
-        let entry = grouped.entry(bucket.dimension_key).or_default();
+        let key = if matches!(dimension, AggregateDimension::Day) {
+            Some(bucket.time_key[..10].to_owned())
+        } else {
+            bucket.dimension_key
+        };
+        let entry = grouped.entry(key).or_default();
         entry.0 = entry.0.saturating_add(bucket.event_count);
         add_usage_saturating(&mut entry.1, bucket.usage);
     }
@@ -147,7 +226,7 @@ pub(super) fn aggregate_selected_period(
     filter: &AggregateFilter,
     period: &PeriodDescriptor,
 ) -> Result<UsageAggregate, StoreError> {
-    if query.period.as_deref() == Some("rolling7") {
+    if requires_exact_window(query) {
         return aggregate_exact_hour_window(store, filter);
     }
     if period.default_grain == "hour" {
@@ -216,7 +295,7 @@ pub(super) fn http_timeseries(
         .grain
         .as_deref()
         .unwrap_or(period.default_grain.as_str());
-    let exact_rolling_window = query.period.as_deref() == Some("rolling7");
+    let exact_window = requires_exact_window(query);
     let mut days: BTreeMap<String, DayUsage> = BTreeMap::new();
     for quality in [
         DataQuality::Confirmed,
@@ -225,7 +304,7 @@ pub(super) fn http_timeseries(
     ] {
         let mut filter = base.clone();
         filter.quality = Some(quality);
-        let buckets = if exact_rolling_window {
+        let buckets = if exact_window {
             let source_grain = if grain == "hour" {
                 TimeGrain::Hour
             } else {
@@ -301,7 +380,13 @@ pub(super) fn http_timeseries(
             comparison_filter.start_inclusive = Some(start);
             comparison_filter.end_exclusive = Some(end);
             comparison_filter.quality = Some(DataQuality::Confirmed);
-            confirmed_series_points(store, &comparison_filter, grain, false, &period.timezone)?
+            confirmed_series_points(
+                store,
+                &comparison_filter,
+                grain,
+                exact_window,
+                &period.timezone,
+            )?
         } else {
             Vec::new()
         };
@@ -309,7 +394,7 @@ pub(super) fn http_timeseries(
         store,
         &base,
         grain,
-        exact_rolling_window,
+        exact_window,
         &period.timezone,
         AggregateDimension::Project,
     )?;
@@ -319,10 +404,10 @@ pub(super) fn http_timeseries(
         "grain": grain,
         "points": points,
         "comparisonPoints": comparison_points,
-        "dailyPoints": confirmed_series_points(store, &base, "day", exact_rolling_window, &period.timezone)?,
+        "dailyPoints": confirmed_series_points(store, &base, "day", exact_window, &period.timezone)?,
         "projectSeries": project_series,
-        "modelSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Model)?,
-        "accountSeries": local_dimension_series(store, &base, grain, exact_rolling_window, &period.timezone, AggregateDimension::Account)?,
+        "modelSeries": local_dimension_series(store, &base, grain, exact_window, &period.timezone, AggregateDimension::Model)?,
+        "accountSeries": local_dimension_series(store, &base, grain, exact_window, &period.timezone, AggregateDimension::Account)?,
         "official": official_usage_view(store, query, &period)?,
         "timeline": timeline_views(store, query)?,
     }))
@@ -409,8 +494,7 @@ fn confirmed_series_points(
         } else {
             TimeGrain::Day
         };
-        store
-            .aggregate_exact_time_series(source_grain, None, filter, timezone)?
+        aggregate_exact_hour_window_series(store, None, filter, timezone)?
             .into_iter()
             .map(|bucket| {
                 let key = if source_grain == TimeGrain::Day {

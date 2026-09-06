@@ -168,6 +168,7 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
+            Self::Store(StoreError::InsufficientTimePrecision) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
