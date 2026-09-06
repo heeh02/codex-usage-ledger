@@ -1395,6 +1395,53 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn shadow_union_limits_counterpart_fanout_without_hiding_conflicts() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut seed = event("seed", DataQuality::Confirmed, 1);
+    seed.provenance.source_record_key = Some("fanout".into());
+    store.upsert_event(&seed).unwrap();
+    for index in 0..3 {
+        let mut peer = seed.clone();
+        peer.event_id = format!("peer-{index}");
+        peer.provenance.source_id = format!("synthetic-copy-{index}");
+        peer.thread_id = Some("different-thread".into());
+        peer.source_timestamp = Some(seed.observed_at + ChronoDuration::days(1));
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: peer,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let writes = store.connection.total_changes();
+    assert!(matches!(
+        store.shadow_source_union(
+            "thread",
+            seed.observed_at,
+            seed.observed_at + ChronoDuration::seconds(1),
+            3
+        ),
+        Err(StoreError::UnionLimit)
+    ));
+    let report = store
+        .shadow_source_union(
+            "thread",
+            seed.observed_at,
+            seed.observed_at + ChronoDuration::seconds(1),
+            4,
+        )
+        .unwrap();
+    assert_eq!(report.input_records, 4);
+    assert_eq!(report.unresolved.len(), 1);
+    assert!(report.usage.is_none());
+    assert_eq!(store.connection.total_changes(), writes);
+}
+
+#[test]
 fn shadow_union_closes_counterparts_before_window_and_dimension_selection() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let mut source = event("sample", DataQuality::Confirmed, 1);

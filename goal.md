@@ -885,3 +885,18 @@ No live data migration, installed-app replacement or release has occurred.
   production-policy-changed flags remain false. No real ledger migration or
   installed app update occurred; performance, coverage/replay validation,
   cross-dimension reconciliation and a migration receipt remain required.
+- Batch 110: previous turn implemented the shadow union. Replaced its whole-
+  observations CTE with bounded per-side indexed thread/time seed reads, one
+  indexed expansion per distinct record key, and primary-key payload lookups
+  within the same read snapshot. No production/schema changes. A 100,000-row-
+  per-side unrelated-history SQL fixture verifies zero full-scan steps, <100
+  VM steps per one-row seed lookup and <150 for a two-record closure. These are
+  index-behavior checks, not real-ledger latency guarantees. Full-store fanout
+  tests preserve cross-thread/time conflicts and reject insufficient caps;
+  initial fixture identities collided with an existing provenance uniqueness
+  guard, so synthetic copy namespaces were corrected rather than weakening it.
+  Full Rust 162 tests, Clippy, API contracts and governance checks pass. Stale
+  links may require extra key-local checks; this remains diagnostic rather than
+  a proven incremental production projection. No actual ledger migration or
+  installed application update occurred. Remaining replay/coverage validation,
+  main-policy replacement and full product/native acceptance keep goal ACTIVE.

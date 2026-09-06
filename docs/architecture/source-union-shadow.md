@@ -14,8 +14,15 @@ with the same source-record key even outside the window/thread. No account or
 model filter is applied before identity resolution: that could conceal a
 conflicting counterpart. A maximum of 10,000 returned observations is supported;
 exceeding the chosen limit fails instead of returning a silently truncated union.
-The query may still scan/materialize a larger source set; this is not a proven
-bounded-I/O or production incremental implementation.
+Seed IDs are now sought separately through each side's thread/effective-time
+index and stopped at the remaining observation budget plus one. Distinct record
+keys then expand through the source-record index, and measurement payloads are
+fetched by primary key. Each key expands once in the read snapshot. This avoids
+materializing the entire dual-source history before filtering. The observation
+cap includes counterpart closure; a large shared group fails before planning
+rather than being truncated. Stale links can still require extra checks within
+that key, so this is not a fixed I/O/latency guarantee or a production incremental
+projection.
 
 The pure planner groups shared local source-record keys. One observation per
 side with matching dimensions, valid/equal token components and timestamps
@@ -49,3 +56,11 @@ The A/B versus B/C synthetic fixture yields 600 in the shadow and retains the
 classes, counterpart closure across a window boundary with conflicting accounts,
 stable canonical time, zero/empty/overflow and read-only CLI byte preservation.
 No live-ledger replay, global reconciliation or historical migration is claimed.
+
+An isolated SQL-plan fixture with 100,000 unrelated rows per evidence side
+checks the actual seed/closure statements: zero `FullscanStep`, fewer than 100
+VM steps per one-row seed query and fewer than 150 for a two-row closure.
+These verify index-seeking behavior with matching index layouts, not production
+wall-clock performance. Full-store tests cover cross-window/thread counterpart
+fanout, exact cap rejection, preserved conflicts, no writes and the 600-token
+partial-overlap case.
