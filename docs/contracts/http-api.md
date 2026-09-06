@@ -38,8 +38,9 @@ requires an ADR and release boundary.
 
 Period descriptors in one bundle share a server-internal reference instant,
 including rolling-window start/end computation. Clients cannot supply this
-clock through query parameters. This prevents intra-bundle time drift, but is
-not a frozen cross-request or concurrent-writer snapshot. See
+clock through query parameters. Bundle parts also read one consistent database
+snapshot; concurrent WAL commits become visible on a later response. Separate
+requests/pages are not pinned to this snapshot. See
 [exact-window indexing and clock](../architecture/exact-window-query-clock.md).
 
 `GET /healthz` returns `service`, `status`, and integer `processId`. Native shells

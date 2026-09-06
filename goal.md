@@ -1018,3 +1018,15 @@ No live data migration, installed-app replacement or release has occurred.
   removed. Isolated server stopped; no installed app, original ledger, schema
   or main day-max source policy changed. Remaining source correctness, coverage
   and native acceptance keep the goal ACTIVE.
+- Batch 119: previous turn aligned rolling quality and recent activity scopes.
+  Bundle assembly now uses one SQLite read snapshot after refreshing the
+  derived selector. A dirty-selector race retries preparation up to three times
+  rather than doing nested writes inside the read snapshot. Conversation count/
+  page queries reuse the outer snapshot, preserving standalone transaction use.
+  A second WAL connection committed usage and registry changes between reads;
+  the active snapshot retained old values, the next saw new values, and error
+  paths returned to autocommit. Full Rust 173 tests and Clippy pass. All 13
+  private-copy HTTP scope audits passed (rolling7 approximately 2.3s). This is
+  per-response consistency, not cross-request pagination pinning or source
+  accuracy. No original-ledger or installed app modification; production union,
+  coverage/replay verification and native acceptance remain outstanding.

@@ -413,8 +413,14 @@ impl LedgerStore {
              LEFT JOIN usage ON usage.root_thread_id = catalog.thread_id
              WHERE {}", predicates.join(" AND ")
         );
-        let transaction = self.connection.unchecked_transaction()?;
-        let total: i64 = transaction.query_row(
+        // A bundle already owns a consistent read snapshot. Standalone page
+        // queries still need their own count/rows snapshot.
+        let transaction = if self.connection.is_autocommit() {
+            Some(self.connection.unchecked_transaction()?)
+        } else {
+            None
+        };
+        let total: i64 = self.connection.query_row(
             &relation.replace("{columns}", "COUNT(*)"),
             params_from_iter(values.iter()),
             |row| row.get(0),
@@ -427,11 +433,14 @@ impl LedgerStore {
         values.push(SqlValue::Integer(
             i64::try_from(request.offset).unwrap_or(i64::MAX),
         ));
-        let rows = transaction
+        let rows = self
+            .connection
             .prepare(&sql)?
             .query_map(params_from_iter(values), dashboard_catalog_thread_from_row)?
             .collect::<Result<Vec<_>, _>>()?;
-        transaction.commit()?;
+        if let Some(transaction) = transaction {
+            transaction.commit()?;
+        }
         Ok((rows, u64_from_sql(total, 0)?))
     }
 

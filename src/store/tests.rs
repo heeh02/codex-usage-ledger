@@ -1444,6 +1444,66 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
 }
 
 #[test]
+fn usage_snapshot_excludes_concurrent_wal_commits_and_releases_after_error() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("snapshot.sqlite3");
+    let mut writer = LedgerStore::open(&path).unwrap();
+    writer
+        .upsert_event(&event("before", DataQuality::Confirmed, 10))
+        .unwrap();
+    writer.set_user_confirmed_account_count(Some(1)).unwrap();
+    let reader = LedgerStore::open(&path).unwrap();
+    reader
+        .with_usage_snapshot(|snapshot| {
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                120
+            );
+            writer.upsert_event(&event("concurrent", DataQuality::Confirmed, 20))?;
+            writer.set_user_confirmed_account_count(Some(2))?;
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                120
+            );
+            assert_eq!(snapshot.user_confirmed_account_count()?, Some(1));
+            Ok(())
+        })
+        .unwrap();
+    assert!(reader.connection.is_autocommit());
+    reader
+        .with_usage_snapshot(|snapshot| {
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                240
+            );
+            assert_eq!(snapshot.user_confirmed_account_count()?, Some(2));
+            Ok(())
+        })
+        .unwrap();
+    let failed: StoreResult<()> =
+        reader.with_usage_snapshot(|_| Err(StoreError::InvalidRequestQuery("synthetic failure")));
+    assert!(failed.is_err());
+    assert!(reader.connection.is_autocommit());
+    assert_eq!(
+        reader
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+}
+
+#[test]
 fn shadow_union_limits_counterpart_fanout_without_hiding_conflicts() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let mut seed = event("seed", DataQuality::Confirmed, 1);

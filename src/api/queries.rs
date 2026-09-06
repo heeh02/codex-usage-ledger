@@ -154,6 +154,13 @@ pub(super) fn http_bundle(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<serde_json::Value, StoreError> {
+    store.with_usage_snapshot(|store| http_bundle_in_snapshot(store, query))
+}
+
+fn http_bundle_in_snapshot(
+    store: &LedgerStore,
+    query: &UsageQuery,
+) -> Result<serde_json::Value, StoreError> {
     let mut anchored_query = query.clone();
     anchored_query.reference_time = Some(query.reference_time.unwrap_or_else(Utc::now));
     let query = &anchored_query;

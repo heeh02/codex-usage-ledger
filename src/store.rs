@@ -202,6 +202,10 @@ pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error(
+        "usage snapshot could not stabilize while source selection was changing; retry the query"
+    )]
+    SnapshotUnavailable,
     #[error(transparent)]
     Union(#[from] crate::source_union::UnionError),
     #[error("source union exceeds bounded observation limit; choose a smaller window")]

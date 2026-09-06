@@ -1,6 +1,32 @@
 use super::*;
 
 impl LedgerStore {
+    /// Refresh the derived selector before opening a read snapshot. If another
+    /// writer dirties it in that gap, retry preparation rather than refreshing
+    /// (writing/nesting a transaction) from inside the frozen read view.
+    pub(crate) fn with_usage_snapshot<T>(
+        &self,
+        read: impl FnOnce(&Self) -> StoreResult<T>,
+    ) -> StoreResult<T> {
+        for _ in 0..3 {
+            self.refresh_effective_source_selection()?;
+            let transaction = self.connection.unchecked_transaction()?;
+            let dirty: bool = transaction.query_row(
+                "SELECT dirty FROM effective_source_selection_state WHERE id=1",
+                [],
+                |row| row.get(0),
+            )?;
+            if dirty {
+                transaction.rollback()?;
+                continue;
+            }
+            let result = read(self)?;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        Err(StoreError::SnapshotUnavailable)
+    }
+
     /// Does not create a database, migrate, optimize, or refresh projections.
     pub fn open_read_only(path: impl AsRef<Path>) -> StoreResult<Self> {
         let connection =
