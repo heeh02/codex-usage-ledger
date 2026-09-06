@@ -225,7 +225,10 @@ fn schema_32_does_not_invent_receipts_for_legacy_events() {
     {
         let mut connection = Connection::open(&path).unwrap();
         migrations::create_legacy_schema(&mut connection, 31).unwrap();
-        let mut store = LedgerStore { connection };
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
         store
             .upsert_event(&event("legacy-no-receipt", DataQuality::Confirmed, 10))
             .unwrap();
@@ -405,7 +408,10 @@ fn schema_35_adds_global_time_seek_without_changing_exact_usage() {
     {
         let mut connection = Connection::open(&path).unwrap();
         migrations::create_legacy_schema(&mut connection, 34).unwrap();
-        let mut store = LedgerStore { connection };
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
         store
             .upsert_event(&event("a", DataQuality::Confirmed, 1))
             .unwrap();
@@ -447,7 +453,10 @@ fn schema_34_upgrade_does_not_invent_source_record_proofs() {
     {
         let mut connection = Connection::open(&path).unwrap();
         migrations::create_legacy_schema(&mut connection, 33).unwrap();
-        let mut store = LedgerStore { connection };
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
         store
             .upsert_event(&event("legacy", DataQuality::Confirmed, 10))
             .unwrap();
@@ -479,7 +488,10 @@ fn schema_33_does_not_silently_choose_among_legacy_duplicate_receipts() {
     {
         let mut connection = Connection::open(&path).unwrap();
         migrations::create_legacy_schema(&mut connection, 32).unwrap();
-        let mut store = LedgerStore { connection };
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
         for (index, id) in ["legacy-a", "legacy-b", "legacy-single"]
             .into_iter()
             .enumerate()
@@ -1441,6 +1453,124 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
         .unwrap();
     assert_eq!(state, (0, 120));
     assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn exact_series_memo_is_scoped_and_never_survives_a_snapshot() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("memo.sqlite3");
+    let mut writer = LedgerStore::open(&path).unwrap();
+    let first = event("a", DataQuality::Confirmed, 1);
+    let mut second = event("b", DataQuality::Confirmed, 2);
+    second.model = Some("model-b".into());
+    second.account_fingerprint = Some("account-b".into());
+    second.project.project_id = Some("project-b".into());
+    second.usage.input_tokens = 160;
+    second.usage.total_tokens = 180;
+    writer.upsert_event(&first).unwrap();
+    writer.upsert_event(&second).unwrap();
+    let reader = LedgerStore::open(&path).unwrap();
+    let base = AggregateFilter::default();
+    reader
+        .with_usage_snapshot(|store| {
+            let query = |filter: &AggregateFilter| {
+                store.aggregate_exact_time_series(TimeGrain::Hour, None, filter, "UTC")
+            };
+            let original = query(&base)?;
+            assert_eq!(original[0].usage.total_tokens, 300);
+            assert_eq!(query(&base)?, original);
+            assert_eq!(store.exact_series_memo.borrow().as_ref().unwrap().hits, 1);
+            for (filter, expected) in [
+                (
+                    AggregateFilter {
+                        account_fingerprint: Some("account-b".into()),
+                        ..base.clone()
+                    },
+                    180,
+                ),
+                (
+                    AggregateFilter {
+                        project_id: Some("project-b".into()),
+                        ..base.clone()
+                    },
+                    180,
+                ),
+                (
+                    AggregateFilter {
+                        model: first.model.clone(),
+                        ..base.clone()
+                    },
+                    120,
+                ),
+                (
+                    AggregateFilter {
+                        quality: Some(DataQuality::Unknown),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+                (
+                    AggregateFilter {
+                        start_inclusive: Some(first.observed_at + ChronoDuration::seconds(1)),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+                (
+                    AggregateFilter {
+                        end_exclusive: Some(first.observed_at),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+            ] {
+                assert_eq!(
+                    query(&filter)?
+                        .iter()
+                        .map(|row| row.usage.total_tokens)
+                        .sum::<u64>(),
+                    expected
+                );
+            }
+            let localized =
+                store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "Asia/Shanghai")?;
+            assert_ne!(localized[0].time_key, original[0].time_key);
+            assert_eq!(
+                store
+                    .aggregate_exact_time_series(
+                        TimeGrain::Hour,
+                        Some(AggregateDimension::Model),
+                        &base,
+                        "UTC"
+                    )?
+                    .len(),
+                2
+            );
+            assert!(
+                !store.aggregate_exact_time_series(TimeGrain::Day, None, &base, "UTC")?[0]
+                    .time_key
+                    .contains('T')
+            );
+            writer.upsert_event(&event("later", DataQuality::Confirmed, 3))?;
+            assert_eq!(query(&base)?, original);
+            Ok(())
+        })
+        .unwrap();
+    assert!(reader.exact_series_memo.borrow().is_none());
+    reader
+        .with_usage_snapshot(|store| {
+            let rows = store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "UTC")?;
+            assert_eq!(rows[0].usage.total_tokens, 420);
+            Ok(())
+        })
+        .unwrap();
+    let failed: StoreResult<()> = reader.with_usage_snapshot(|store| {
+        store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "UTC")?;
+        Err(StoreError::InvalidRequestQuery("synthetic failure"))
+    });
+    assert!(failed.is_err());
+    assert!(reader.exact_series_memo.borrow().is_none());
+    assert!(reader.connection.is_autocommit());
 }
 
 #[test]

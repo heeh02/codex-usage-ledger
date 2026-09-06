@@ -20,6 +20,7 @@ impl LedgerStore {
                 transaction.rollback()?;
                 continue;
             }
+            let _memo = snapshot_memo::MemoScope::begin(&self.exact_series_memo);
             let result = read(self)?;
             transaction.commit()?;
             return Ok(result);
@@ -41,7 +42,10 @@ impl LedgerStore {
                 supported: migrations::CURRENT_SCHEMA_VERSION,
             });
         }
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            exact_series_memo: Default::default(),
+        })
     }
 
     pub fn open(path: impl AsRef<Path>) -> StoreResult<Self> {
@@ -70,7 +74,10 @@ impl LedgerStore {
         connection.pragma_update(None, "journal_size_limit", 67_108_864_i64)?;
 
         migrations::migrate(&mut connection)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            exact_series_memo: Default::default(),
+        })
     }
 
     pub fn schema_version(&self) -> StoreResult<i64> {

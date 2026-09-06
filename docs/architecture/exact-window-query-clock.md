@@ -25,6 +25,22 @@ snapshot. Error paths release that snapshot. Long reads can delay WAL checkpoint
 reclamation even though they do not hold a reserved write lock, so latency and
 WAL growth still require operational monitoring.
 
+Within that read snapshot, identical exact time-series reads can reuse an
+in-memory result. The key contains grain, dimension, exact timestamp bounds,
+account/project/model/quality, timezone and the connection's own change counter.
+This memo is distinct from the HTTP response cache: it is absent outside the
+snapshot and dropped on success, error or stack unwinding. A later snapshot
+cannot reuse it; concurrent WAL writes remain governed by SQLite's snapshot.
+No memo data is written to the database or browser storage.
+
+The memo accepts at most 64 entries and approximately 8 MiB of retained result/
+key payload; oversized values are queried normally without caching. This is an
+estimated retained-payload budget, not an operating-system RSS limit. Returning
+clones also avoids callers mutating cached rows. Tests check key isolation,
+repeat hits, external-write visibility on the next snapshot, error cleanup and
+the entry/payload limits. This optimizes repeated calculations, not accounting
+selection or the completeness of timestamp evidence.
+
 The quality page uses the same selected-period aggregator for confirmed,
 quarantined and unknown events, not whole-day totals for rolling boundaries.
 Its confirmed count/components reconcile with the summary. Recent-activity and

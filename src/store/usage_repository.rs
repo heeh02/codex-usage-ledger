@@ -316,6 +316,21 @@ impl LedgerStore {
         if uses_effective_source(filter) {
             self.refresh_effective_source_selection()?;
         }
+        let memo_key = snapshot_memo::SeriesKey::new(
+            grain,
+            dimension,
+            filter,
+            timezone,
+            self.connection.total_changes(),
+        );
+        if let Some(value) = self
+            .exact_series_memo
+            .borrow_mut()
+            .as_mut()
+            .and_then(|memo| memo.get(&memo_key))
+        {
+            return Ok(value);
+        }
         let timezone = timezone
             .parse::<chrono_tz::Tz>()
             .map_err(|_| StoreError::InvalidTimezone(timezone.to_owned()))?;
@@ -404,7 +419,7 @@ impl LedgerStore {
                 .ok_or(StoreError::AggregateOverflow)?;
             checked_add_usage(&mut bucket.usage, usage)?;
         }
-        Ok(buckets
+        let result = buckets
             .into_iter()
             .map(|((time_key, dimension_key), aggregate)| UsageSeriesBucket {
                 time_key,
@@ -412,7 +427,11 @@ impl LedgerStore {
                 event_count: aggregate.event_count,
                 usage: aggregate.usage,
             })
-            .collect())
+            .collect::<Vec<_>>();
+        if let Some(memo) = self.exact_series_memo.borrow_mut().as_mut() {
+            memo.insert(memo_key, &result);
+        }
+        Ok(result)
     }
 
     pub fn aggregate_time_series_for_threads(

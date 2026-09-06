@@ -1144,3 +1144,20 @@ No live data migration, installed-app replacement or release has occurred.
   No live ledger or installed-app change, no notarization. Source accounting
   migration/coverage, fractional-offset performance and native acceptance remain
   open; full goal ACTIVE.
+- Batch 126: previous turn localized precision failures. Added bounded reuse of
+  identical exact-series queries only inside one consistent database snapshot.
+  Keys include all query arguments and the reader connection's change counter;
+  subsequent snapshots start empty. Results are cloned for callers, successes
+  only are retained, and scope drop clears memo state on success/error/unwind.
+  Budget is 64 entries/about 8 MiB estimated retained payload, not an RSS promise.
+  Key-isolation, positive-hit, concurrent writer/next-snapshot, error cleanup and
+  size/entry-limit tests pass. Initial compilation exposed four direct test-store
+  constructors; initialized their new ephemeral field without changing migration
+  fixtures. Full Rust 182 tests, Clippy, API and governance checks pass. Private
+  Kathmandu month bundle measured 6.54s versus prior observed 13.16s (not a
+  controlled latency guarantee); six curve collections matched a separate
+  non-memoized timeseries request. Standard 13-scope audit also passed. Private
+  receipt is outside repo, test server stopped. No persisted facts, schema,
+  source policy or installed app changed; current native artifact predates this
+  batch. Remaining counting/coverage migration, performance and native acceptance
+  keep the complete goal ACTIVE.

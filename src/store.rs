@@ -28,6 +28,7 @@ mod overlap_repository;
 mod project_repository;
 mod receipt_repository;
 mod request_repository;
+mod snapshot_memo;
 mod union_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
@@ -615,6 +616,7 @@ pub struct CollectorStatus {
 
 pub struct LedgerStore {
     connection: Connection,
+    exact_series_memo: std::cell::RefCell<Option<snapshot_memo::SnapshotMemo>>,
 }
 
 const EVENT_SELECT_COLUMNS: &str = "event_id, observed_at, source_timestamp, thread_id, \
