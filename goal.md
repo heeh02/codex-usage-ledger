@@ -977,3 +977,16 @@ No live data migration, installed-app replacement or release has occurred.
   exit time for kernel-stuck processes. Pending user approval for a temporary
   native test window is separate from remaining useful accounting work; goal
   remains ACTIVE.
+- Batch 116: prior turn hardened native shutdown. Real-data query acceptance
+  found the previous system-temp migration copy absent. A prematurely parallel
+  service launch created an empty DB there; it was immediately stopped and
+  excluded from results. Created a fresh SQLite snapshot under a durable private
+  workspace directory, then upgraded/backfilled it with explicit empty Codex
+  home before serving. Added GET-only bundle-scope checks; all seven presets and
+  two selections each for account/project/model agreed across summary, curve
+  and breakdown token components (13 queries). Rolling7 was notably slower and
+  remains a performance follow-up. Synthetic test detects deliberate drift and
+  verifies no private dimension IDs are output. Private timing receipt/snapshot
+  location recorded outside the repo; isolated server stopped. This proves only
+  tested API consistency, not source accuracy, all filters or native/browser
+  usability. No production policy change or installed-app update; goal ACTIVE.
