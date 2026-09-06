@@ -8,7 +8,8 @@ live writer or assume that a temporary snapshot still exists before startup.
 
 Seven period presets and at most two available account/project/model selections
 are checked. Each compares summary token components to curve and three breakdown
-sums. Reports contain scope labels, elapsed time and mismatching field names,
+sums, plus the quality-page confirmed count/components. Reports contain scope
+labels, elapsed time and mismatching field names,
 not dimension identifiers or token values. `sourceAccuracyProven` remains false:
 internally consistent output can still reflect an incorrect source policy.
 This is neither all-filter coverage nor end-user browser acceptance. Dynamic

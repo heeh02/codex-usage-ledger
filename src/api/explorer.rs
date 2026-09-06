@@ -6,14 +6,15 @@ pub(super) fn http_explorer(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<serde_json::Value, StoreError> {
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     let lifetime = aggregate_for_period(store, query, "lifetime")?;
     let week = aggregate_for_period(store, query, "week")?;
     let today = aggregate_for_period(store, query, "today")?;
     let selected_period =
         aggregate_for_period(store, query, query.period.as_deref().unwrap_or("week"))?;
     let mut recent_filter = period_filter(query, "lifetime");
-    recent_filter.start_inclusive = Some(Utc::now() - ChronoDuration::minutes(15));
-    recent_filter.end_exclusive = Some(Utc::now() + ChronoDuration::seconds(1));
+    recent_filter.start_inclusive = Some(now - ChronoDuration::minutes(15));
+    recent_filter.end_exclusive = Some(now);
     let recent = store.aggregate_usage(&recent_filter)?;
     let active_sessions = store
         .aggregate_by(AggregateDimension::Thread, &recent_filter)?
@@ -133,6 +134,7 @@ fn explorer_projects(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<Vec<serde_json::Value>, StoreError> {
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     let mut projects = store
         .list_projects()?
         .into_iter()
@@ -232,8 +234,8 @@ fn explorer_projects(
         HashMap::new()
     };
     let mut recent_filter = period_filter(&all_projects_query, "lifetime");
-    recent_filter.start_inclusive = Some(Utc::now() - ChronoDuration::minutes(15));
-    recent_filter.end_exclusive = Some(Utc::now() + ChronoDuration::seconds(1));
+    recent_filter.start_inclusive = Some(now - ChronoDuration::minutes(15));
+    recent_filter.end_exclusive = Some(now);
     let recent_project_usage = store
         .aggregate_by(AggregateDimension::Project, &recent_filter)?
         .into_iter()
@@ -271,7 +273,7 @@ fn explorer_projects(
             .or_default()
             .push(bucket.usage.total_tokens);
     }
-    let active_cutoff = (Utc::now() - ChronoDuration::minutes(5)).to_rfc3339();
+    let active_cutoff = (now - ChronoDuration::minutes(5)).to_rfc3339();
     let active_project_sessions = store.active_project_session_counts(&active_cutoff)?;
     let lifetime_usage = usage_map("lifetime")?;
     let week_usage = usage_map("week")?;
@@ -404,7 +406,7 @@ fn explorer_sessions(
     })?;
     let page = serde_json::json!({ "total": total, "offset": offset, "limit": limit,
         "hasMore": (offset as u64).saturating_add(roots.len() as u64) < total, "search": search, "sort": sort });
-    let now = Utc::now();
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     if roots.is_empty() {
         return Ok((Vec::new(), page));
     }

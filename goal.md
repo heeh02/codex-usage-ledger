@@ -1005,3 +1005,16 @@ No live data migration, installed-app replacement or release has occurred.
   Rust 170 tests and Clippy pass. Server stopped; updated private receipts stay
   outside repo. Main day-max accuracy, interval coverage and native acceptance
   remain open; no original-ledger or installed-app upgrade occurred.
+- Batch 118: previous turn aligned bundle clocks and indexed exact windows.
+  A new boundary regression showed quality-page confirmed count 2 while the
+  same rolling scope contained only 1; that page still used day rollups. All
+  quality categories now use the shared selected-period aggregator, preserving
+  unknown token semantics. Explorer recent/project/session activity uses the
+  anchored bundle clock, and recent windows no longer include a future second.
+  Added historical-reference/future-boundary tests and expanded the HTTP audit
+  to quality confirmed count/components, with a deliberate quality-drift negative
+  test. Full Rust 172 tests, Clippy and synthetic audit pass; 13 private-copy HTTP
+  scopes also passed with the expanded checks. Unused old aggregate import was
+  removed. Isolated server stopped; no installed app, original ledger, schema
+  or main day-max source policy changed. Remaining source correctness, coverage
+  and native acceptance keep the goal ACTIVE.

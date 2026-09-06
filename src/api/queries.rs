@@ -521,9 +521,12 @@ pub(super) fn http_quality(
     query: &UsageQuery,
 ) -> Result<serde_json::Value, StoreError> {
     let (base, period) = filter_and_period(query, DataQuality::Confirmed);
-    let confirmed = store.aggregate_rollup_usage(&base)?;
-    let quarantined = aggregate_for_quality(store, &base, DataQuality::Quarantined)?;
-    let unknown = aggregate_for_quality(store, &base, DataQuality::Unknown)?;
+    let confirmed = aggregate_selected_period(store, query, &base, &period)?;
+    let mut quality_filter = base.clone();
+    quality_filter.quality = Some(DataQuality::Quarantined);
+    let quarantined = aggregate_selected_period(store, query, &quality_filter, &period)?;
+    quality_filter.quality = Some(DataQuality::Unknown);
+    let unknown = aggregate_selected_period(store, query, &quality_filter, &period)?;
     let issue_start = period
         .start
         .or_else(|| earliest_event_at(store).ok().flatten())

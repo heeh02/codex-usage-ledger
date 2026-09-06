@@ -1,6 +1,67 @@
 use super::*;
 
 #[test]
+fn recent_activity_uses_bundle_clock_without_adding_a_future_second() {
+    let now = Utc.with_ymd_and_hms(2026, 1, 3, 12, 0, 0).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (id, millis) in [("inside", -1), ("future", 500), ("outside", -900_001)] {
+        let mut fact = explorer_event(id, id, None);
+        fact.source_timestamp = Some(now + ChronoDuration::milliseconds(millis));
+        store.upsert_event(&fact).unwrap();
+    }
+    let query = UsageQuery {
+        period: Some("lifetime".into()),
+        reference_time: Some(now),
+        ..Default::default()
+    };
+    let explorer = http_explorer(&store, &query).unwrap();
+    assert_eq!(explorer["stats"]["localRecent15Events"], 1);
+    assert_eq!(explorer["stats"]["localRecent15Minutes"]["total"], 120);
+}
+
+#[test]
+fn quality_states_respect_exact_rolling_boundaries_for_every_quality() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (index, quality) in [
+        DataQuality::Confirmed,
+        DataQuality::Unknown,
+        DataQuality::Quarantined,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        for (label, minutes) in [("inside", 1), ("outside", -1)] {
+            let mut fact = explorer_event(
+                &format!("{index}-{label}"),
+                &format!("thread-{index}-{label}"),
+                None,
+            );
+            fact.quality = quality;
+            fact.source_timestamp =
+                Some(now - ChronoDuration::days(7) + ChronoDuration::minutes(minutes));
+            store.upsert_event(&fact).unwrap();
+        }
+    }
+    let query = UsageQuery {
+        period: Some("rolling7".into()),
+        reference_time: Some(now),
+        ..Default::default()
+    };
+    let bundle = http_bundle(&store, &query).unwrap();
+    for state in bundle["quality"]["states"].as_array().unwrap() {
+        assert_eq!(state["eventCount"], 1, "{}", state["state"]);
+        if state["state"] == "unknown" {
+            assert!(state["tokenCount"].is_null());
+        } else {
+            assert_eq!(state["tokenCount"], 120);
+        }
+    }
+    assert_eq!(bundle["summary"]["confirmedEvents"], 1);
+    assert_eq!(bundle["summary"]["unmatchedEvents"], 1);
+}
+
+#[test]
 fn bundle_uses_one_rolling_clock_and_does_not_accept_a_client_clock() {
     let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 34, 56).unwrap();
     let mut store = LedgerStore::open_in_memory().unwrap();

@@ -15,6 +15,12 @@ const inspect = bundle => {
   const errors = [];
   const expected = bundle.summary.usage.confirmed;
   const sources = { curve: bundle.timeseries.points.map(point=>point.confirmed) };
+  const confirmedState = bundle.quality.states.find(state=>state.state==='confirmed');
+  if (!confirmedState) errors.push('quality.missing_confirmed');
+  else {
+    sources.quality = [confirmedState.usage];
+    if (confirmedState.eventCount !== bundle.summary.confirmedEvents) errors.push('quality.confirmed_count');
+  }
   for (const dimension of ['account','project','model']) sources[dimension] = bundle.breakdowns[dimension].map(row=>row.usage.confirmed);
   for (const [source, rows] of Object.entries(sources)) for (const field of fields) {
     const total = rows.reduce((sum,row)=>sum+BigInt(row[field]),0n);

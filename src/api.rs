@@ -86,7 +86,6 @@ mod routes;
 use routes::accepts_local_origin;
 pub use routes::{ApiError, UsageQuery, router};
 mod snapshot;
-use snapshot::aggregate_for_quality;
 pub use snapshot::snapshot_from_store;
 mod summary;
 use summary::http_summary;
