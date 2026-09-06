@@ -1089,3 +1089,20 @@ No live data migration, installed-app replacement or release has occurred.
   broader evidence. No stored historical facts, database schema, day-max source
   policy, live ledger or installed app changed. Historical shadow migration,
   accounting owner review and native product acceptance remain open; ACTIVE.
+- Batch 123: prior turn fixed an explicit foreign-replay counting path. Native
+  app/process and fixed-port checks found no running ledger instance, but CUA
+  reported the Mac locked and unable to unlock. Requested manual unlock;
+  no UI launch/interaction was attempted through an alternate mechanism.
+  Continued non-UI work: App preference writes could throw from React effects,
+  and restored JSON was blindly merged. Guarded optional storage reads/writes,
+  whitelisted fields/types/enums and page bounds, and validated restored custom
+  dates. Unknown preference payload fields are dropped, never mixed with usage;
+  in-memory navigation survives persistence failures. Supported presets and
+  long valid identifiers retain their values. Frontend 63 tests/typecheck/build
+  passed. Three browser navigation scenarios are registered but NOT executed;
+  native window/zoom/scroll/bilingual acceptance remains unproven. Swift pure
+  state and owned-process stop tests passed. Final standard arm64/ad-hoc bundle
+  manifest: `ea3419fdfde18c921558fa261437a5dd98726f413f7c2895d799473ae018f475`.
+  No notarization, installed-app replacement or live-ledger modification. Goal
+  remains ACTIVE; lock-screen dependency affects UI acceptance, not remaining
+  useful accounting/coverage work. Resume native interaction after manual unlock.

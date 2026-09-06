@@ -20,6 +20,8 @@ import type { AppPage } from './page';
 import { exportUsageCsv, exportUsageJson } from './export';
 import { runScopedRequest } from './shared/requestLifecycle';
 import { parseChangeRevision } from './shared/changeRevision';
+import { oneOf, readSessionObject, writeSessionObjects } from './shared/sessionPreferences';
+import { restoreDashboardFilters } from './shared/dashboardPreferences';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -39,20 +41,15 @@ const INITIAL_SESSION_VIEW: SessionViewState = {
   scope: 'tree',
 };
 
-function restoredSessionValue<T>(key: string, fallback: T): T {
-  try {
-    const encoded = window.sessionStorage.getItem(key);
-    return encoded ? { ...fallback, ...JSON.parse(encoded) } : fallback;
-  } catch {
-    return fallback;
-  }
+function restoreFilters(): DashboardFilters {
+  return restoreDashboardFilters(INITIAL_FILTERS);
 }
 
 function App() {
   const { language, setLanguage, t } = useI18n();
   const api = useMemo(() => createLedgerApi(), []);
-  const [filters, setFilters] = useState<DashboardFilters>(() => restoredSessionValue('ledger.filters', INITIAL_FILTERS));
-  const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(() => restoredSessionValue('ledger.filters', INITIAL_FILTERS));
+  const [filters, setFilters] = useState<DashboardFilters>(restoreFilters);
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(restoreFilters);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,10 +58,10 @@ function App() {
   const [refreshFeedback, setRefreshFeedback] = useState('');
   const [officialSyncing, setOfficialSyncing] = useState(false);
   const [officialSyncFailed, setOfficialSyncFailed] = useState(false);
-  const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => restoredSessionValue('ledger.overviewTab', { value: 'projects' as const }).value);
-  const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => restoredSessionValue('ledger.projectTab', { value: 'overview' as const }).value);
-  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
-  const [sessionView, setSessionView] = useState<SessionViewState>(() => restoredSessionValue('ledger.sessionView', INITIAL_SESSION_VIEW));
+  const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => readSessionObject('ledger.overviewTab', { value: 'projects' as const }, { value: oneOf('projects', 'models', 'sessions') }).value);
+  const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => readSessionObject('ledger.projectTab', { value: 'overview' as const }, { value: oneOf('overview', 'sessions') }).value);
+  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => readSessionObject('ledger.primaryPage', { value: 'overview' as const }, { value: oneOf('overview', 'accounts', 'quality', 'chats', 'models') }).value);
+  const [sessionView, setSessionView] = useState<SessionViewState>(() => readSessionObject('ledger.sessionView', INITIAL_SESSION_VIEW, { scope: oneOf('own', 'tree'), sort: oneOf('hierarchy', 'own', 'tree', 'recent') }));
   const [privacyMode, setPrivacyMode] = useState(false);
   const [sessionTrail, setSessionTrail] = useState<Array<{ id: string; title: string }>>([]);
   const lastRevision = useRef<string | null>(null);
@@ -72,11 +69,8 @@ function App() {
   const savedScrollTop = useRef(0);
 
   useEffect(() => {
-    window.sessionStorage.setItem('ledger.filters', JSON.stringify(appliedFilters));
-    window.sessionStorage.setItem('ledger.overviewTab', JSON.stringify({ value: detailTab }));
-    window.sessionStorage.setItem('ledger.projectTab', JSON.stringify({ value: projectDetailTab }));
-    window.sessionStorage.setItem('ledger.primaryPage', JSON.stringify({ value: primaryPage }));
-    window.sessionStorage.setItem('ledger.sessionView', JSON.stringify(sessionView));
+    writeSessionObjects({ 'ledger.filters': appliedFilters, 'ledger.overviewTab': { value: detailTab },
+      'ledger.projectTab': { value: projectDetailTab }, 'ledger.primaryPage': { value: primaryPage }, 'ledger.sessionView': sessionView });
   }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView]);
 
   useEffect(() => {
