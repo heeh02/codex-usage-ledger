@@ -262,7 +262,9 @@ async fn refresh_official_thread(
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status": "ok", "service": "codex-usage-ledger"}))
+    Json(
+        serde_json::json!({"status": "ok", "service": "codex-usage-ledger", "processId": std::process::id()}),
+    )
 }
 
 async fn summary(
@@ -398,4 +400,16 @@ pub(super) fn accepts_local_origin(headers: &HeaderMap) -> bool {
     origin.starts_with("http://127.0.0.1:")
         || origin.starts_with("http://localhost:")
         || origin == "null"
+}
+
+#[cfg(test)]
+mod health_tests {
+    #[tokio::test]
+    async fn health_identifies_the_serving_process_without_ledger_data() {
+        let response = super::health().await.0;
+        assert_eq!(response["processId"], std::process::id());
+        assert_eq!(response["status"], "ok");
+        assert_eq!(response["service"], "codex-usage-ledger");
+        assert_eq!(response.as_object().unwrap().len(), 3);
+    }
 }

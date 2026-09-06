@@ -252,12 +252,13 @@ final class LedgerServiceController: ObservableObject {
             request.timeoutInterval = 0.45
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
-                let identity = try? JSONDecoder().decode(HealthIdentity.self, from: data)
+                // The awaited response can belong to another listener or an
+                // earlier launch generation. Never reveal a dashboard for it.
+                guard generation == expectedGeneration,
+                      self.child === child, child.isRunning, childMode == mode else { return }
                 if let http = response as? HTTPURLResponse,
-                   (200..<300).contains(http.statusCode),
-                   identity?.service == "codex-usage-ledger",
-                   identity?.status == "ok",
-                   child.isRunning {
+                   LedgerHealthIdentity.matches(data, statusCode: http.statusCode,
+                                                expectedProcessId: child.processIdentifier) {
                     state = .running(mode)
                     reloadToken = UUID()
                     try? LedgerRuntimePaths.resolve().secureDatabasePermissionsIfPresent()
@@ -276,11 +277,6 @@ final class LedgerServiceController: ObservableObject {
         expectedTermination = true
         state = .failed(message)
         child.terminate()
-    }
-
-    private struct HealthIdentity: Decodable {
-        let service: String
-        let status: String
     }
 
     private func handleTermination(of terminatedProcess: Process, generation terminatedGeneration: Int) {

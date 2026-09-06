@@ -10,8 +10,11 @@ directory. It contains `data/ledger.sqlite3` and a separate, initially empty
 `codex/` source directory. Serve and daemon modes both receive explicit paths.
 Inherited Codex-home, ledger and Web-root environment overrides are removed.
 Only bundled Rust/Web resources and the existing fixed loopback port are used;
-navigation, CSP, nonpersistent Web storage and health ownership checks remain
-unchanged. An existing listener is not permission to attach to another ledger.
+navigation, CSP and nonpersistent Web storage remain unchanged. Health readiness
+now checks the current launched process ID and generation before creating the
+WebView. Earlier service-name-only readiness was insufficient; see
+[the corrected process binding](../adr/0005-native-health-process-binding.md).
+An existing listener is not permission to attach to another ledger.
 
 The profile root/data/source directories are private. Existing symbolic links
 at the profile root, data, database or source boundary are refused, including

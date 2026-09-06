@@ -944,3 +944,18 @@ No live data migration, installed-app replacement or release has occurred.
   and process-restart evidence, not recovered deleted history, new source
   identity, main-policy correctness or installed/native acceptance. One isolated
   copy remains for data-query/native validation; full goal remains ACTIVE.
+- Batch 114: previous turn completed isolated detail backfill/restart. Live
+  process inspection showed the installed native app/service running; requested
+  user approval before temporarily closing it, and did not interrupt it. Review
+  exposed that earlier claimed health ownership was only service-name checking,
+  and WebView was eagerly created before readiness. Added serving PID to health,
+  required matching live child PID plus rechecked generation/child/mode after
+  await, and gated WebView creation on verified readiness. ADR 0005 documents
+  accidental cross-instance protection, not hostile-process authentication.
+  Swift pure tests and standard Mac bundle build/deep ad-hoc signature passed;
+  bundle manifest `d56c6a9ca4d6d707b65c31786d23fb47a3bf61e8d632b2f009996d4051323a8c`.
+  Rust 168 tests passed; Clippy caught test-module placement, corrected and
+  rechecked along with the health regression. Contracts/governance checks pass.
+  No new native instance launched against the occupied port, no installed
+  replacement or real-ledger write. Actual native startup/port-conflict/zoom/
+  exit acceptance still pending, alongside main accounting policy and coverage.

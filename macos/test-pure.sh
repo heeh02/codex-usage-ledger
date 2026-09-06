@@ -15,6 +15,7 @@ swiftc_bin="$(xcrun --sdk macosx --find swiftc)"
   -o "$test_binary" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/NativeLocalization.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerLaunchProfile.swift" \
+  "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerHealthIdentity.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerRuntimePaths.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/DashboardBridge.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerProcessDiagnostics.swift" \

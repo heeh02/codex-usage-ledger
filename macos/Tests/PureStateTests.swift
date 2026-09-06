@@ -4,6 +4,17 @@ import Foundation
 struct PureStateTests {
     static func main() {
         testIsolatedProfile()
+        let own = Data(#"{"service":"codex-usage-ledger","status":"ok","processId":1234}"#.utf8)
+        precondition(LedgerHealthIdentity.matches(own, statusCode: 200, expectedProcessId: 1234))
+        precondition(!LedgerHealthIdentity.matches(own, statusCode: 503, expectedProcessId: 1234))
+        precondition(!LedgerHealthIdentity.matches(own, statusCode: 200, expectedProcessId: 4321))
+        precondition(!LedgerHealthIdentity.matches(own, statusCode: 200, expectedProcessId: 0))
+        for text in [#"{"service":"codex-usage-ledger","status":"ok"}"#,
+                     #"{"service":"other","status":"ok","processId":1234}"#,
+                     #"{"service":"codex-usage-ledger","status":"failed","processId":1234}"#,
+                     #"{"service":"codex-usage-ledger","status":"ok","processId":"1234"}"#] {
+            precondition(!LedgerHealthIdentity.matches(Data(text.utf8), statusCode: 200, expectedProcessId: 1234))
+        }
         var diagnostics = LedgerProcessDiagnostics()
         _ = diagnostics.append("first\nsecond\nthird")
         precondition(diagnostics.tail(lineCount: 2) == "second third")

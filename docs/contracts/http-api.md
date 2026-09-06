@@ -36,6 +36,12 @@ requires an ADR and release boundary.
 
 ## Conversation pagination
 
+`GET /healthz` returns `service`, `status`, and integer `processId`. Native shells
+must verify the responding process is their current live child before loading
+the dashboard; service name alone does not distinguish instances on a reused
+port. This is an accidental-instance check, not an authentication token. See
+[the native process-binding decision](../adr/0005-native-health-process-binding.md).
+
 Summary `matchRate`, `cacheRate`, and `averagePerDay` are required nullable
 numbers. Empty denominators or absent confirmed samples return null, not a
 fabricated rate or average. `metrics.localAttributedTotal` is unknown/null
