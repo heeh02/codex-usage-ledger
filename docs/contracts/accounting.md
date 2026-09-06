@@ -85,6 +85,17 @@ must retain the pre-upgrade backup until upgrade acceptance.
 
 ## Source priority
 
+Sampling maturity is checked at full timestamp precision in log-ID order. The
+reader stops at the first not-yet-mature sampling row; it must not filter that
+row out and commit a later ID. Invalid seconds/nanoseconds fail without advancing
+the checkpoint, rather than clamping nanoseconds or substituting current time.
+Within a committed batch, observations are sorted by timestamp for candidate
+matching, then returned to log-ID order for durable cursor advancement. Report
+first/last timestamps are extrema, not assumed to follow row order. These guards
+prevent new gaps; they do not recover requests skipped by previous versions or
+prove complete clock/source coverage. A far-future row can defer later rows and
+needs operational clock diagnostics rather than silent skipping.
+
 The [local measurement union shadow](../architecture/source-union-shadow.md)
 resolves explicit source-record groups independently of the active day-max
 projection. It is a read-only diagnostic, not a new official/local total. Missing

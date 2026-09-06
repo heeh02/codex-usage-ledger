@@ -900,3 +900,18 @@ No live data migration, installed-app replacement or release has occurred.
   a proven incremental production projection. No actual ledger migration or
   installed application update occurred. Remaining replay/coverage validation,
   main-policy replacement and full product/native acceptance keep goal ACTIVE.
+- Batch 111: prior turn improved indexed shadow lookup. Synthetic RED tests
+  exposed timestamp-watermark holes: SQL maturity filtering returned IDs 1/3
+  while ID 2 was pending, and second-only comparison admitted a record one
+  nanosecond too new. Reader now stops at the first pending ID using exact time.
+  Invalid seconds/nanoseconds fail rather than clamp or become current time;
+  valid rows preceding an invalid row do not advance the persisted checkpoint.
+  A further reversed-time fixture matched only one of two mature observations;
+  matching now sorts by timestamp while commits remain log-ID ordered, and
+  report timestamps use extrema. All reproductions now pass, including total
+  and cursor preservation. Full Rust 166 tests, Clippy and contracts pass.
+  These are new-ingestion guards, not recovery of historical omissions. Far-
+  future source clocks can defer later rows and need operational diagnostics;
+  no live ledger, installed app or main day-max policy was changed. Remaining
+  source coverage/replay, shadow-to-production migration and GUI/native goals
+  stay ACTIVE.

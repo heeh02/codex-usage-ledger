@@ -204,8 +204,8 @@ fn ingest_post_sampling_source(
     if observations.is_empty() {
         return Ok(SamplingImportReport::default());
     }
-    let first_observed_at = observations.first().map(|value| value.observed_at);
-    let last_observed_at = observations.last().map(|value| value.observed_at);
+    let first_observed_at = observations.iter().map(|value| value.observed_at).min();
+    let last_observed_at = observations.iter().map(|value| value.observed_at).max();
     let max_log_id = observations
         .last()
         .map(|value| value.log_id)
@@ -237,7 +237,10 @@ fn ingest_post_sampling_source(
     };
     let mut events = Vec::<UsageEvent>::with_capacity(report.observations as usize);
     let mut candidate_cursors = Vec::<(FileCursor, bool)>::new();
-    for (thread_id, observations) in by_thread {
+    for (thread_id, mut observations) in by_thread {
+        // Candidate search uses a monotonic timestamp pointer, but log IDs may
+        // arrive out of timestamp order. Commit order is restored by log ID below.
+        observations.sort_by_key(|observation| (observation.observed_at, observation.log_id));
         let thread = thread_index.get(&thread_id).cloned().unwrap_or_default();
         let mut rollout_identity = None;
         let mut candidates = match thread.rollout_path.as_deref() {
@@ -516,8 +519,7 @@ fn read_observation_rows(
         "SELECT id, ts, ts_nanos, thread_id, feedback_log_body, {process_column}
          FROM logs
          WHERE id > ?1
-           AND id <= ?3
-           AND ts <= ?2
+           AND id <= ?2
            AND target = 'codex_core::session::turn'
            AND instr(feedback_log_body, ' post sampling token usage ') > 0
            AND thread_id IS NOT NULL
@@ -526,7 +528,6 @@ fn read_observation_rows(
     let rows = statement.query_map(
         params![
             i64::try_from(after_id).unwrap_or(i64::MAX),
-            safe_before.timestamp(),
             through_id
                 .and_then(|id| i64::try_from(id).ok())
                 .unwrap_or(i64::MAX)
@@ -538,6 +539,21 @@ fn read_observation_rows(
             let body: String = row.get(4)?;
             let thread_id: String = row.get(3)?;
             let process: Option<String> = row.get(5)?;
+            let observed_at = if (0..1_000_000_000).contains(&nanos) {
+                DateTime::<Utc>::from_timestamp(seconds, nanos as u32)
+            } else {
+                None
+            }
+            .ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Integer,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid sampling timestamp; source cursor must not advance",
+                    )),
+                )
+            })?;
             Ok(Observation {
                 // This checkpoint digest is not a cross-source receipt. Even
                 // weak sources can detect mutation, but cannot authorize replay.
@@ -555,18 +571,24 @@ fn read_observation_rows(
                     &body,
                 ),
                 log_id: u64::try_from(id).unwrap_or_default(),
-                observed_at: DateTime::<Utc>::from_timestamp(
-                    seconds,
-                    nanos.clamp(0, 999_999_999) as u32,
-                )
-                .unwrap_or_else(Utc::now),
+                observed_at,
                 thread_id,
                 turn_id: extract_field(&body, "turn.id="),
                 model: extract_field(&body, " model="),
             })
         },
     )?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    let mut ready = Vec::new();
+    for row in rows {
+        let observation = row?;
+        // Filtering timestamps in SQL can skip a lower row ID and permanently
+        // lose it after a later (but older-timestamped) row advances the cursor.
+        if observation.observed_at > safe_before {
+            break;
+        }
+        ready.push(observation);
+    }
+    Ok(ready)
 }
 
 fn source_receipt_key(
@@ -1000,6 +1022,139 @@ mod tests {
                 ],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn maturity_watermark_keeps_out_of_order_rows_pending() {
+        let (temporary, _store, at, _rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&connection, at + chrono::Duration::seconds(10), "pending");
+        insert_log(
+            &connection,
+            at + chrono::Duration::seconds(2),
+            "later-id-older-time",
+        );
+        let rows = read_observation_rows(
+            &connection,
+            0,
+            None,
+            at + chrono::Duration::seconds(5),
+            "machine",
+        )
+        .unwrap();
+        assert_eq!(rows.iter().map(|row| row.log_id).collect::<Vec<_>>(), [1]);
+        let resumed = read_observation_rows(
+            &connection,
+            1,
+            None,
+            at + chrono::Duration::seconds(11),
+            "machine",
+        )
+        .unwrap();
+        assert_eq!(
+            resumed.iter().map(|row| row.log_id).collect::<Vec<_>>(),
+            [2, 3]
+        );
+    }
+
+    #[test]
+    fn mature_rows_with_reversed_timestamps_match_without_skipping_candidates() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        for (seconds, tokens) in [(6, 180), (4, 200)] {
+            let time = at + chrono::Duration::seconds(seconds);
+            writeln!(
+                OpenOptions::new().append(true).open(&rollout).unwrap(),
+                "{}",
+                token_line(time, tokens)
+            )
+            .unwrap();
+            insert_log(&connection, time, &format!("out-of-order-{seconds}"));
+        }
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!(report.matched, 2);
+        assert_eq!(report.unmatched, 0);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            630
+        );
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            3
+        );
+    }
+
+    #[test]
+    fn invalid_appended_timestamp_keeps_committed_cursor_and_usage() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let valid_at = at + chrono::Duration::seconds(5);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(valid_at, 180)
+        )
+        .unwrap();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&connection, valid_at, "valid-before-invalid");
+        insert_log(
+            &connection,
+            at + chrono::Duration::seconds(6),
+            "invalid-appended",
+        );
+        connection
+            .execute("UPDATE logs SET ts_nanos=-1 WHERE id=3", [])
+            .unwrap();
+        assert!(ingest_post_sampling(&mut store, temporary.path(), "machine").is_err());
+        let preserved = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(preserved, checkpoint);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+    }
+
+    #[test]
+    fn source_timestamp_is_exact_and_invalid_time_does_not_become_now() {
+        let (temporary, _store, at, _rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        let rows = read_observation_rows(
+            &connection,
+            0,
+            None,
+            at - chrono::Duration::nanoseconds(1),
+            "machine",
+        )
+        .unwrap();
+        assert!(rows.is_empty());
+        for (seconds, nanos) in [
+            (at.timestamp(), -1),
+            (at.timestamp(), 1_000_000_000),
+            (i64::MIN, 0),
+        ] {
+            connection
+                .execute("UPDATE logs SET ts=?1,ts_nanos=?2", params![seconds, nanos])
+                .unwrap();
+            assert!(read_observation_rows(&connection, 0, None, Utc::now(), "machine").is_err());
+        }
     }
 
     #[test]
