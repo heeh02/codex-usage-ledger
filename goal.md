@@ -915,3 +915,17 @@ No live data migration, installed-app replacement or release has occurred.
   no live ledger, installed app or main day-max policy was changed. Remaining
   source coverage/replay, shadow-to-production migration and GUI/native goals
   stay ACTIVE.
+- Batch 112: previous turn fixed incremental time-watermark defects. Began a
+  real-data migration acceptance on an isolated SQLite backup, never the live
+  ledger. The copy passed quick_check and upgraded from schema 24 to 34. Nine
+  allowlisted usage fact/rollup tables preserved ordered row fingerprints and
+  counts exactly, also after normal startup's first bounded request backfill.
+  Original schema remained 24; no app install or source import occurred. Private
+  before/after/startup receipts and remaining-copy location are recorded outside
+  the public repo. Added a streaming read-only fact auditor with a synthetic
+  regression for missing-file refusal, opaque hashes, no writes and changed-row
+  detection. It requires a quiescent snapshot, not a live DB. WAL readback errors
+  were resolved only on the idle copy via checkpoint/DELETE journal mode; no
+  immutable shortcut was used. Full backfill/restart/native acceptance and
+  accounting-policy correctness remain open; preserved hashes are not proof of
+  correct historic usage. Retain one private copy for the next acceptance step.
