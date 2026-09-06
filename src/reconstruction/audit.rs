@@ -219,6 +219,118 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_invalid_saved_parser_state_never_restarts_from_zero() {
+        for state in [None, Some("{"), Some("{}")] {
+            let (temp, mut store, path) = fixture();
+            store
+                .connection()
+                .execute("UPDATE file_cursors SET parser_state_json=?1", [state])
+                .unwrap();
+            let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap()
+                .write_all(b"\n")
+                .unwrap();
+            let report =
+                ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+            assert_eq!(report.identity_review_sources, 1);
+            assert_eq!(report.bytes_read, 0);
+            assert_eq!(
+                store.get_cursor("machine", &source_id("root")).unwrap(),
+                saved
+            );
+        }
+    }
+
+    #[test]
+    fn structurally_inconsistent_checkpoint_cannot_replay_from_zero() {
+        let (temp, mut store, path) = fixture();
+        let target = load_targets(temp.path()).unwrap().remove(0);
+        let encoded = serde_json::to_string(&ReconstructionCheckpoint::new(&target)).unwrap();
+        store
+            .connection()
+            .execute("UPDATE file_cursors SET parser_state_json=?1", [encoded])
+            .unwrap();
+        let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        let report = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(report.identity_review_sources, 1);
+        assert_eq!(report.bytes_read, 0);
+        assert_eq!(
+            store.get_cursor("machine", &source_id("root")).unwrap(),
+            saved
+        );
+    }
+
+    #[test]
+    fn read_time_identity_conflict_preserves_the_saved_cursor() {
+        let (temp, mut store, path) = fixture();
+        store
+            .connection()
+            .execute("UPDATE file_cursors SET file_identity='older-identity'", [])
+            .unwrap();
+        let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"\n")
+            .unwrap();
+        let report = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(report.identity_review_sources, 1);
+        assert_eq!(
+            store.get_cursor("machine", &source_id("root")).unwrap(),
+            saved
+        );
+        let wrapped = source_read_error(std::io::Error::from(std::io::ErrorKind::NotFound), true)
+            .context("synthetic context");
+        assert!(wrapped.is::<SourceContinuityError>());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn review_survives_temporary_source_disappearance_and_return() {
+        let (temp, mut store, path) = fixture_with_device_drift(true);
+        ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+        let parked = temp.path().join("parked.jsonl");
+        fs::rename(&path, &parked).unwrap();
+        let missing = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(missing.identity_review_sources, 1);
+        fs::rename(parked, path).unwrap();
+        let restored = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(restored.identity_review_sources, 1);
+        assert_eq!(
+            store.get_cursor("machine", &source_id("root")).unwrap(),
+            saved
+        );
+    }
+
+    #[test]
+    fn in_place_truncation_preserves_the_checkpoint_for_verification() {
+        let (temp, mut store, path) = fixture();
+        let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+        fs::write(path, "{}\n").unwrap();
+        for _ in 0..2 {
+            let report =
+                ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+            assert_eq!(
+                store.get_cursor("machine", &source_id("root")).unwrap(),
+                saved
+            );
+            assert_eq!(report.identity_review_sources, 1);
+            assert_eq!(report.inserted_events, 0);
+        }
+    }
+
+    #[test]
     fn actual_file_replacement_also_preserves_existing_facts() {
         let (temp, mut store, path) = fixture();
         let saved = store.get_cursor("machine", &source_id("root")).unwrap();

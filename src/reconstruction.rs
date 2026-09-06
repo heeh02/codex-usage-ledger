@@ -88,6 +88,31 @@ enum ReconstructionPhase {
     Live,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum SourceContinuityError {
+    #[error("source identity changed during reconstruction")]
+    IdentityChanged,
+    #[error("source was truncated or rewritten during reconstruction")]
+    ContentChanged,
+    #[error("source became unavailable before continuity could be verified")]
+    Unavailable,
+    #[error("the saved reconstruction checkpoint cannot be verified by this reader")]
+    CheckpointUnavailable,
+}
+
+fn source_read_error(error: std::io::Error, has_checkpoint: bool) -> anyhow::Error {
+    if has_checkpoint
+        && matches!(
+            error.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+        )
+    {
+        SourceContinuityError::Unavailable.into()
+    } else {
+        error.into()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReconstructionCheckpoint {
     schema_version: u32,
@@ -375,19 +400,35 @@ pub fn ingest_reconstruction_batch_for_project(
                 }
             }
             Err(error) => {
+                // Storage errors/conflicts do not prove source corruption and
+                // cannot authorize removing a possibly newer committed cursor.
+                if error.is::<crate::store::StoreError>() || error.is::<rusqlite::Error>() {
+                    return Err(error);
+                }
+                let continuity_review = error.downcast_ref::<SourceContinuityError>().is_some();
                 let mut status = status_by_source
                     .get(&source_id(&target.thread_id))
                     .cloned()
                     .unwrap_or(previous_status);
                 status.status = ReconstructionStatus::Unrecoverable;
-                status.last_error = Some(error.to_string());
+                status.last_error = Some(if continuity_review {
+                    crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned()
+                } else {
+                    error.to_string()
+                });
                 status.updated_at = Utc::now();
                 store.upsert_reconstruction_source(&status)?;
-                // A replaced/truncated source cannot resume from its old
-                // parser state. Keep all derived facts, but discard the large
-                // checkpoint blob so an unrecoverable file cannot consume
-                // storage forever.
-                store.remove_cursor(machine_id, &status.source_id)?;
+                // Continuity failures retain the original checkpoint for
+                // review, including races after the earlier metadata scan.
+                if continuity_review {
+                    report.identity_review_sources =
+                        report.identity_review_sources.saturating_add(1);
+                    report
+                        .issues
+                        .push(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned());
+                } else {
+                    store.remove_cursor(machine_id, &status.source_id)?;
+                }
                 report.unrecoverable_sources = report.unrecoverable_sources.saturating_add(1);
                 report.issues.push(format!("{}: {error}", target.thread_id));
             }
@@ -421,34 +462,56 @@ fn ingest_target(
     account_epochs: &[AccountEpoch],
 ) -> Result<(BatchOutcome, ReconstructionSourceStatus, u64)> {
     let source_id = source_id(&target.thread_id);
-    let metadata = fs::metadata(&target.path)?;
+    let existing_cursor = store.get_cursor(machine_id, &source_id)?;
+    let metadata = fs::metadata(&target.path)
+        .map_err(|error| source_read_error(error, existing_cursor.is_some()))?;
     let current_file_len = metadata.len();
     let file_identity = physical_file_identity(&target.path, &metadata)?;
-    let existing_cursor = store.get_cursor(machine_id, &source_id)?;
     if let Some(cursor) = existing_cursor.as_ref()
         && cursor.file_identity != file_identity
     {
-        return Err(anyhow!(
-            "rollout file identity changed after reconstruction began"
-        ));
+        return Err(SourceContinuityError::IdentityChanged.into());
+    }
+    if existing_cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.byte_offset > current_file_len)
+    {
+        return Err(SourceContinuityError::ContentChanged.into());
     }
     let mut state = match existing_cursor
         .as_ref()
         .and_then(|cursor| cursor.parser_state_json.as_deref())
     {
         Some(encoded) => {
-            let state: ReconstructionCheckpoint =
-                serde_json::from_str(encoded).context("decode reconstruction checkpoint")?;
+            let state: ReconstructionCheckpoint = serde_json::from_str(encoded)
+                .map_err(|_| SourceContinuityError::CheckpointUnavailable)?;
             if state.schema_version != STATE_SCHEMA_VERSION {
-                return Err(anyhow!(
-                    "unsupported reconstruction checkpoint version {}",
-                    state.schema_version
-                ));
+                return Err(SourceContinuityError::CheckpointUnavailable.into());
             }
             state
         }
+        None if existing_cursor.is_some() => {
+            return Err(SourceContinuityError::CheckpointUnavailable.into());
+        }
         None => ReconstructionCheckpoint::new(target),
     };
+    if let Some(cursor) = &existing_cursor
+        && (state.tail.next_offset != cursor.byte_offset
+            || state.tail.completed_lines != cursor.line_number
+            || state
+                .tail
+                .file_identity
+                .as_ref()
+                .is_some_and(|identity| identity != &cursor.file_identity)
+            || (!state.tail.partial_line.is_empty()
+                && state
+                    .tail
+                    .partial_offset
+                    .checked_add(state.tail.partial_line.len() as u64)
+                    != Some(state.tail.next_offset)))
+    {
+        return Err(SourceContinuityError::CheckpointUnavailable.into());
+    }
     let before = state.tail.next_offset;
     if !state.tail.partial_line.is_empty() {
         // Older builds persisted incomplete records after every 4 MiB slice.
@@ -466,11 +529,28 @@ fn ingest_target(
     )?;
     let batch = tailer
         .poll_path(&target.path)
+        .map_err(|error| source_read_error(error, existing_cursor.is_some()))
         .with_context(|| format!("tail reconstruction {}", target.path.display()))?;
     if batch.reset.is_some() && existing_cursor.is_some() {
-        return Err(anyhow!(
-            "rollout truncated or replaced after reconstruction began"
-        ));
+        return Err(SourceContinuityError::ContentChanged.into());
+    }
+    let after = fs::metadata(&target.path).map_err(|_| SourceContinuityError::Unavailable)?;
+    if batch.checkpoint.file_identity.as_deref() != Some(file_identity.as_str())
+        || physical_file_identity(&target.path, &after)? != file_identity
+    {
+        return Err(SourceContinuityError::IdentityChanged.into());
+    }
+    if after.len() < current_file_len
+        || after.len() < batch.checkpoint.next_offset
+        || (after.len() == current_file_len
+            && after
+                .modified()
+                .map_err(|_| SourceContinuityError::Unavailable)?
+                != metadata
+                    .modified()
+                    .map_err(|_| SourceContinuityError::Unavailable)?)
+    {
+        return Err(SourceContinuityError::ContentChanged.into());
     }
 
     let attribution = target_attribution(store, target)?;

@@ -59,6 +59,21 @@ not repeated refresh, is required. Other independently valid collectors can
 continue. The explicit replacement primitive remains for receipt-reviewed
 maintenance, not automatic identity handling.
 
+Read-time continuity failures also retain checkpoints. A source that shrinks
+behind its committed cursor, changes identity around reading, becomes unavailable
+during a checkpointed read, or has unverifiable saved parser state is held for
+review. Tail offset/line count/identity and partial-buffer extent must agree with
+the outer cursor before resumption. Missing state is not permission to restart
+at zero. Storage errors/conflicts propagate without reclassifying the source or
+removing a possibly newer committed cursor. Ordinary append growth is allowed;
+the metadata checks are not a proof against every concurrent in-place rewrite.
+
+The existing message code now covers source identity, content and checkpoint
+continuity. Localized copy reflects that wider meaning rather than asserting
+that every failure was an actual file replacement. Verification/rebinding is
+still required before resuming held sources; returning to the same pathname
+does not automatically clear a prior review state.
+
 Synthetic tests cover legacy/proposed differences, byte and row limits, canonical
 mismatch, root containment, opt-in device drift, read-only source/index/ledger
 bytes, and preservation through repeated drift or actual file replacement.

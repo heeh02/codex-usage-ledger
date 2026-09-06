@@ -1,8 +1,8 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
-  "collection.identity_review": "Source file identity needs verification",
-  "collection.identity_review_detail": "A source file's identity changed. Historical usage is retained, and reconstruction for affected sources is paused for verification. No automatic clearing or recount.",
+  "collection.identity_review": "Source read continuity needs verification",
+  "collection.identity_review_detail": "Continuity of a source file or saved read checkpoint cannot be confirmed. Historical usage and read positions are retained; affected reconstruction is paused for verification. No automatic clearing or recount.",
   "app.time_precision_unavailable_title": "Time precision is unavailable for this range",
   "app.show_today_usage": "Show today's usage",
   "app.insufficient_time_precision": "The requested range lacks historical detail needed to split hours in this timezone, so an exact chart is unavailable. Try a shorter range; refreshing cannot recover missing detail.",

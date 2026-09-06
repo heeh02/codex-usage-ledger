@@ -1208,3 +1208,19 @@ No live data migration, installed-app replacement or release has occurred.
   No live ledger/source modifications, historical correction, automatic rebind
   or installed-app update occurred. Safe continuation binding, day-max overlap
   replacement, historical receipts and native acceptance remain open; ACTIVE.
+- Batch 129: prior turn prevented automatic replacement on identity drift.
+  Reproduced a remaining bypass: in-place truncation reached generic error
+  cleanup and removed the saved cursor. Typed read-continuity failures now hold
+  the source for review and preserve its checkpoint, including read-time identity
+  conflicts, unavailable checkpointed reads, truncation and detectable post-read
+  changes. Missing/unsupported/malformed parser state or inconsistent tail/cursor
+  offsets, line counts, identities or partial extents cannot restart at zero.
+  Storage failures/conflicts propagate without deleting a potentially newer
+  committed cursor. Review survives temporary file disappearance/return; normal
+  incremental append/restart regressions remain green. Bilingual copy now refers
+  to source/checkpoint continuity rather than assuming every issue is replacement.
+  Full Rust 195 tests, Web 70 tests/build, Clippy/contracts/governance checks pass.
+  No live source/ledger or installed application was changed; native bundle was
+  not rebuilt in this batch. This is preservation/validation, not approved safe
+  rebinding, full race-proof source snapshots, or historical counter correction.
+  Continuity recovery, source-union migration and native acceptance keep ACTIVE.
