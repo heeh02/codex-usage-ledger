@@ -1,4 +1,10 @@
 export const zhCNMessages = {
+  "app.time_precision_unavailable_title": "该范围的时间精度不足",
+  "app.show_today_usage": "查看今日用量",
+  "app.insufficient_time_precision": "刚请求的范围缺少按此时区拆分小时所需的历史明细，无法精确生成曲线。请缩短时间范围；重复刷新不会补回缺失明细。",
+  "app.invalid_usage_query": "请求参数不受支持，请检查填写的值或筛选条件后重试。",
+  "app.usage_request_http_failed": "本地用量服务请求失败（HTTP {status}），请稍后重试。",
+  "app.usage_request_connection_failed": "未能取得本地用量数据，请检查本地服务后重试。这不代表零用量。",
   "app.usage_workspace": "可滚动的用量工作区",
   "usage.no_confirmed_records": "此范围暂无已确认记录",
   "collection.degraded": "部分本地来源暂时无法采集",

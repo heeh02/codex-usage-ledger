@@ -1127,3 +1127,20 @@ No live data migration, installed-app replacement or release has occurred.
   Test server stopped. No schema/source-policy/history migration or installed
   app change; prior native bundle predates this batch. Accounting completeness,
   precision-aware GUI, broader performance and native acceptance remain ACTIVE.
+- Batch 125: previous turn added precision-aware calendar queries. Error responses
+  now include stable codes alongside the legacy diagnostic string. The HTTP
+  client carries typed precision/invalid-parameter/generic failures, validates
+  code/status pairs, and does not display raw response bodies. App error state
+  retains the cause so switching languages translates an existing error; failed
+  requests keep both accepted filters and data. First-load precision failure
+  offers an explicit today-range action without resetting account/project/model/
+  session scope. Existing-data notices are accessible alerts, not fabricated
+  zero responses. HTTP code, client/cancellation, bilingual component rendering
+  and preserved-snapshot tests pass: Rust 180, Web 69, Clippy and contract/
+  governance gates. CUA recheck still reported the Mac locked; no alternate UI
+  mechanism was used and browser/native task acceptance is NOT claimed. Final
+  arm64/ad-hoc bundle manifest:
+  `fc76a5131c3f1a6153fdf19ffa0307f294f481a545686205271e6e1f0f00c212`.
+  No live ledger or installed-app change, no notarization. Source accounting
+  migration/coverage, fractional-offset performance and native acceptance remain
+  open; full goal ACTIVE.

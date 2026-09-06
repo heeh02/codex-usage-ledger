@@ -89,6 +89,7 @@ async fn legacy_hourly_facts_remain_visible_but_unprovable_timezone_splits_retur
             assert_eq!(json["points"][0]["confirmed"]["total"], 120);
             assert_eq!(json["points"][0]["date"], "2026-01-01T00:00");
         } else {
+            assert_eq!(json["code"], "insufficient_time_precision");
             assert!(
                 json["error"]
                     .as_str()

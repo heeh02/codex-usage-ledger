@@ -22,6 +22,8 @@ import { runScopedRequest } from './shared/requestLifecycle';
 import { parseChangeRevision } from './shared/changeRevision';
 import { oneOf, readSessionObject, writeSessionObjects } from './shared/sessionPreferences';
 import { restoreDashboardFilters } from './shared/dashboardPreferences';
+import { requestFailureMessage } from './shared/requestFailureMessage';
+import { LedgerRequestError } from './api/errors';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -52,7 +54,9 @@ function App() {
   const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(restoreFilters);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [requestFailure, setRequestFailure] = useState<unknown>(null);
+  const error = requestFailure === null ? '' : requestFailureMessage(requestFailure, t);
+  const timePrecisionFailure = requestFailure instanceof LedgerRequestError && requestFailure.code === 'insufficient_time_precision';
   const [refreshKey, setRefreshKey] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshFeedback, setRefreshFeedback] = useState('');
@@ -75,7 +79,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setError('');
+    setRequestFailure(null);
     setLoading(true);
 
     void runScopedRequest(controller.signal,
@@ -85,7 +89,7 @@ function App() {
         setAppliedFilters(filters);
       },
       failure: (reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : t('app.unknown_dashboard_error'));
+        setRequestFailure(() => reason ?? new Error());
       },
       settled: () => {
         setManualRefreshing(false);
@@ -136,6 +140,7 @@ function App() {
     setManualRefreshing(true);
     setRefreshKey((value) => value + 1);
   };
+  const showToday = () => setFilters(value => ({ ...value, period: 'today', startDate: undefined, endDate: undefined, nodeOffset: 0, sessionOffset: 0 }));
   const syncOfficial = async () => {
     if (officialSyncing) return;
     setOfficialSyncing(true);
@@ -158,7 +163,7 @@ function App() {
       await api.setUserConfirmedAccountCount(count);
       setRefreshKey((value) => value + 1);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('app.account_count_calibration_failed'));
+      setRequestFailure(() => reason ?? new Error());
     } finally {
       setManualRefreshing(false);
     }
@@ -402,11 +407,13 @@ function App() {
           {bundle && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
-          {!bundle && error && <ErrorState message={error} onRetry={retry} />}
+          {!bundle && error && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
+            title={timePrecisionFailure ? t('app.time_precision_unavailable_title') : undefined}
+            actionLabel={timePrecisionFailure ? t('app.show_today_usage') : undefined} />}
 
           {bundle && (
             <>
-              {error && <div className="inline-error">{t('app.update_failed')}: {error}. {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
+              {error && <div className="inline-error" role="alert">{t('app.update_failed')}: {error} {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
               {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
               {currentPage === 'accounts' && <AccountsPage bundle={bundle} accountId={appliedFilters.account} onConfirmAccountCount={confirmAccountCount} />}
               {currentPage === 'chats' && <ConversationsPage bundle={bundle} filters={appliedFilters} onChange={setFilters} onOpenSession={openSession} />}

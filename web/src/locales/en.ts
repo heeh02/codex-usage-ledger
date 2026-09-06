@@ -1,6 +1,12 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "app.time_precision_unavailable_title": "Time precision is unavailable for this range",
+  "app.show_today_usage": "Show today's usage",
+  "app.insufficient_time_precision": "The requested range lacks historical detail needed to split hours in this timezone, so an exact chart is unavailable. Try a shorter range; refreshing cannot recover missing detail.",
+  "app.invalid_usage_query": "The request parameters are unsupported. Check the entered values or filters and try again.",
+  "app.usage_request_http_failed": "The local usage service request failed (HTTP {status}). Try again later.",
+  "app.usage_request_connection_failed": "Could not retrieve local usage data. Check the local service and try again. This does not mean zero usage.",
   "app.usage_workspace": "Scrollable usage workspace",
   "usage.no_confirmed_records": "No confirmed records in this scope",
   "collection.degraded": "Some local sources are unavailable",

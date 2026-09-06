@@ -252,16 +252,16 @@ export function LoadingState() {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function ErrorState({ message, onRetry, title, actionLabel }: { message: string; onRetry: () => void; title?: string; actionLabel?: string }) {
   const { t } = useI18n();
   return (
     <div className="error-state" role="alert">
       <div>
-        <strong>{t('components.ui.dashboard_data_is_temporarily_unavailable')}</strong>
+        <strong>{title ?? t('components.ui.dashboard_data_is_temporarily_unavailable')}</strong>
         <p>{message}</p>
       </div>
       <button type="button" onClick={onRetry}>
-        {t('components.ui.retry')}
+        {actionLabel ?? t('components.ui.retry')}
       </button>
     </div>
   );

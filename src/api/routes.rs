@@ -172,7 +172,16 @@ impl IntoResponse for ApiError {
             Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (status, Json(serde_json::json!({"error": self.to_string()}))).into_response()
+        let code = match &self {
+            Self::Store(StoreError::InsufficientTimePrecision) => "insufficient_time_precision",
+            Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => "invalid_query",
+            _ => "request_failed",
+        };
+        (
+            status,
+            Json(serde_json::json!({"error": self.to_string(), "code": code})),
+        )
+            .into_response()
     }
 }
 

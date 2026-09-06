@@ -131,6 +131,21 @@ accepted scope/response and show the error, not replace it with a zero or a
 smaller partial curve. Choose an hour-aligned timezone or a range with retained
 timestamp evidence. Ordinary schema validation errors remain HTTP 400.
 
+Error JSON adds a stable `code` alongside the existing diagnostic `error`:
+`insufficient_time_precision` for HTTP 422, `invalid_query` for invalid query or
+account-count HTTP 400, and `request_failed` for other failures. Older clients
+can still read `error`. New clients must handle unknown/missing codes generically
+and must not infer a precision failure from arbitrary error prose or HTTP status
+alone. The Web client accepts the precision code only with 422, renders localized
+copy, and does not expose raw response bodies as UI text.
+
+The dashboard retains a typed failure rather than a translated string so language
+switches update an already visible error. Accepted data and filters stay together
+on failure. With no accepted data, a precision error offers a user-triggered today
+range with account/project/model/session scope preserved; it does not silently
+reset scope or invent an empty successful response. Existing snapshots remain
+visible with an accessible error notice.
+
 ## CSV export format
 
 The dashboard CSV is a source-tagged table, not a join driven by official dates.

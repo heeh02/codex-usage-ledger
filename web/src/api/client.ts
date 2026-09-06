@@ -1,4 +1,5 @@
 import { MockLedgerApi } from './mock';
+import { ledgerResponseError } from './errors';
 import type {
   BreakdownsResponse,
   DashboardBundle,
@@ -48,8 +49,7 @@ class HttpLedgerApi implements LedgerApi {
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`${path} returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+      throw await ledgerResponseError(response);
     }
 
     return (await response.json()) as T;
@@ -86,8 +86,7 @@ class HttpLedgerApi implements LedgerApi {
       body: JSON.stringify({ userConfirmedAccountCount: count }),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`account registry returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+      throw await ledgerResponseError(response);
     }
   }
 
