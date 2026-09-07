@@ -6,6 +6,10 @@ source file when it fits explicit byte/Token-record budgets. It shares the same
 target containment, canonical-ID checks, reconstruction parser and per-record
 comparison logic; it never runs ingestion or changes source bindings.
 
+A [sealed correction draft](reconstruction-correction-draft.md) can now retain
+the individual comparison records for review and revalidate their expected old
+values against a read-only ledger. This does not apply corrections.
+
 ```sh
 codex-usage-ledger audit-reconstruction-file --db ./synthetic-ledger.sqlite3 \
   --codex-home ./synthetic-codex --thread synthetic-root \

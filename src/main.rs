@@ -23,7 +23,8 @@ use codex_usage_ledger::{
         ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
         ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
         load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
-        sync_account_history, sync_native_catalog,
+        sync_account_history, sync_native_catalog, verify_correction_against_ledger,
+        verify_correction_manifest, write_correction_manifest,
     },
 };
 use serde_json::json;
@@ -100,6 +101,31 @@ enum Command {
         max_bytes: usize,
         #[arg(long, default_value_t = 1_000_000)]
         max_tokens: usize,
+    },
+    /// Export a new private review-only JSONL draft; never applies corrections.
+    DraftReconstructionCorrection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_token_rows: usize,
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Validate a draft's structure/checksum; not source validation or approval.
+    VerifyReconstructionCorrection {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Also compare expected old records with one read-only ledger snapshot.
+        #[arg(long)]
+        against_db: Option<PathBuf>,
     },
     /// Resume retained request detail backfill in an existing current-schema ledger.
     /// Writes derived details, but never imports sources or changes token rollups.
@@ -316,6 +342,40 @@ async fn main() -> Result<()> {
                     max_bytes,
                     max_tokens
                 )?)?
+            );
+        }
+        Command::DraftReconstructionCorrection {
+            db,
+            codex_home,
+            thread,
+            output,
+            max_bytes,
+            max_token_rows,
+            allow_device_drift,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&write_correction_manifest(
+                    &db,
+                    &codex_home,
+                    &thread,
+                    max_bytes,
+                    max_token_rows,
+                    allow_device_drift,
+                    &output
+                )?)?
+            );
+        }
+        Command::VerifyReconstructionCorrection {
+            manifest,
+            against_db,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&match against_db {
+                    Some(db) => verify_correction_against_ledger(&manifest, &db)?,
+                    None => verify_correction_manifest(&manifest)?,
+                })?
             );
         }
         Command::QuotaHistory {

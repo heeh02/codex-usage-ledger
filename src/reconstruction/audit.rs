@@ -21,6 +21,112 @@ mod tests {
     }
 
     #[test]
+    fn correction_draft_roundtrips_without_changing_sources_or_overwriting_files() {
+        let (temp, store, path) = fixture();
+        let out = tempfile::tempdir().unwrap();
+        let draft = out.path().join("draft.jsonl");
+        let db = temp.path().join("ledger.sqlite3");
+        let before_source = fs::read(&path).unwrap();
+        let before_db = fs::read(&db).unwrap();
+        let changes = store.connection().total_changes();
+        let report = serde_json::to_value(
+            super::super::write_correction_manifest(
+                &db,
+                temp.path(),
+                "root",
+                4096,
+                100,
+                false,
+                &draft,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["records"], 1);
+        assert_eq!(report["fullSourceScan"], true);
+        assert_eq!(
+            report["categories"]["changed_candidate"]["storedUsage"]["total_tokens"],
+            1100
+        );
+        assert_eq!(
+            report["categories"]["changed_candidate"]["proposedUsage"]["total_tokens"],
+            100
+        );
+        assert_eq!(report["migrationAuthorized"], false);
+        assert_eq!(report["sourceRevalidated"], false);
+        let bytes = fs::read(&draft).unwrap();
+        assert!(
+            super::super::write_correction_manifest(
+                &db,
+                temp.path(),
+                "root",
+                4096,
+                100,
+                false,
+                &draft
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(&draft).unwrap(), bytes);
+        assert!(
+            super::super::write_correction_manifest(
+                &db,
+                temp.path(),
+                "root",
+                4096,
+                100,
+                false,
+                &temp.path().join("unsafe.jsonl")
+            )
+            .is_err()
+        );
+        assert!(!temp.path().join("unsafe.jsonl").exists());
+        let partial = out.path().join("partial-scan.jsonl");
+        let report = serde_json::to_value(
+            super::super::write_correction_manifest(
+                &db,
+                temp.path(),
+                "root",
+                1,
+                100,
+                false,
+                &partial,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["fullSourceScan"], false);
+        assert_eq!(report["records"], 0);
+        assert_eq!(store.connection().total_changes(), changes);
+        assert_eq!(fs::read(&path).unwrap(), before_source);
+        assert_eq!(fs::read(&db).unwrap(), before_db);
+        let checked = serde_json::to_value(
+            super::super::verify_correction_against_ledger(&draft, &db).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(checked["ledgerRowsRevalidated"], true);
+        assert_eq!(checked["sourceRevalidated"], false);
+        // Hash equality alone is not enough: metadata projections can change
+        // while an ingestion hash stays unchanged.
+        store
+            .connection()
+            .execute(
+                "UPDATE reconstruction_usage_events SET model='changed-after-draft'",
+                [],
+            )
+            .unwrap();
+        assert!(super::super::verify_correction_against_ledger(&draft, &db).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&draft).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
     fn streaming_audit_reaches_beyond_prefix_and_checks_unseen_stored_positions() {
         let (temp, store, path) = fixture();
         let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();

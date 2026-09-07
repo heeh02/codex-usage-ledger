@@ -320,7 +320,7 @@ pub struct ReconstructionEvent {
     pub counter_epoch: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReconstructionAuditFact {
     pub event_id: String,

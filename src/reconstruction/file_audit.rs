@@ -60,6 +60,26 @@ pub fn audit_reconstruction_file(
     max_token_rows: usize,
     allow_device_drift: bool,
 ) -> Result<ReconstructionFileAudit> {
+    run_file_audit(
+        db,
+        codex_home,
+        thread,
+        max_bytes,
+        max_token_rows,
+        allow_device_drift,
+        &mut correction_manifest::NoopSink,
+    )
+}
+
+pub(super) fn run_file_audit(
+    db: &Path,
+    codex_home: &Path,
+    thread: &str,
+    max_bytes: usize,
+    max_token_rows: usize,
+    allow_device_drift: bool,
+    sink: &mut dyn correction_manifest::EvidenceSink,
+) -> Result<ReconstructionFileAudit> {
     if thread.is_empty()
         || !(1..=2_147_483_648).contains(&max_bytes)
         || !(1..=10_000_000).contains(&max_token_rows)
@@ -89,6 +109,18 @@ pub fn audit_reconstruction_file(
             ));
         }
         let source = &sources[0];
+        sink.begin(correction_manifest::ManifestHeader {
+            version: 1,
+            policy: "reconstruction_uuid7_strict_v1".into(),
+            ledger_schema: store.schema_version()?,
+            machine_id: source.machine_id.clone(),
+            source_id: source.source_id.clone(),
+            thread: thread.into(),
+            stored_file_identity: source.file_identity.clone(),
+            observed_file_identity: identity.clone(),
+            file_bytes_at_start: before.len(),
+            created_at: Utc::now(),
+        })?;
         let attribution = target_attribution(store, &target)?;
         let epochs = load_account_epochs(store, &source.machine_id)?;
         let mut report = ReconstructionFileAudit {
@@ -192,6 +224,7 @@ pub fn audit_reconstruction_file(
                 report.token_records += 1;
                 let compared =
                     audit::compare_proposal(store, &target, source, line, &record, proposal)?;
+                let mut suppression_rule = None;
                 if compared.change == "suppressed_candidate" {
                     let rule = if state.foreign_replay {
                         "foreign_history_guard"
@@ -209,6 +242,7 @@ pub fn audit_reconstruction_file(
                         "unemitted_unknown_or_zero"
                     };
                     let suppressed = report.suppressed_by_rule.entry(rule).or_default();
+                    suppression_rule = Some(rule);
                     suppressed.records += 1;
                     crate::source_union::add(
                         &mut suppressed.stored_usage,
@@ -219,6 +253,14 @@ pub fn audit_reconstruction_file(
                             .usage,
                     )?;
                 }
+                sink.record(correction_manifest::ManifestRecord {
+                    byte_offset: line.byte_offset,
+                    source_json_digest: source_record_digest(&record),
+                    change: compared.change.into(),
+                    suppression_rule: suppression_rule.map(str::to_owned),
+                    stored: compared.stored.clone(),
+                    proposed: compared.proposed.clone(),
+                })?;
                 if compared.stored.is_some() {
                     report.stored_records_seen += 1;
                     match compared.record_key_matches {
@@ -271,6 +313,16 @@ pub fn audit_reconstruction_file(
             && report.stored_records_not_seen == 0;
         report.initial_counter_prefix = state.initial_counter_prefix;
         report.processed_records_digest = hex::encode(digest.finalize());
+        sink.finish(correction_manifest::ManifestCompletion {
+            token_records: report.token_records,
+            stored_records_seen: report.stored_records_seen,
+            stored_scope_records: report.stored_scope_records,
+            reached_file_end: report.reached_file_end,
+            canonical_seen: report.canonical_seen,
+            source_changed: report.source_changed_during_read,
+            malformed_records: report.malformed_records,
+            processed_records_digest: report.processed_records_digest.clone(),
+        })?;
         Ok(report)
     })
 }

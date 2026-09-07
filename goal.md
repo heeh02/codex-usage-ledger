@@ -92,6 +92,13 @@ parent comparisons also distinguish raw equality from zero-cache-write field
 expansion; a differing trailing rollback snapshot is not silently dropped.
 See [identity and prefix evidence](docs/architecture/inherited-prefix-audit.md).
 
+Per-record [sealed correction drafts](docs/architecture/reconstruction-correction-draft.md)
+now preserve those proposed changes and verify expected old ledger values in a
+single read snapshot. A private full-source draft passed both stream-integrity
+and old-fact revalidation. Next build a reversible reviewed correction projection
+from that evidence, then verify source-union scope/dimension parity. Draft seals
+are not approval, source revalidation, or permission to delete historical facts.
+
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
 inode values matched. The old automatic replacement path could delete derived
@@ -1576,3 +1583,21 @@ No live data migration, installed-app replacement or release has occurred.
   native edits remain separate. This repairs forward interpretation, not prior
   persisted facts: reviewed per-record historical correction, union promotion,
   real two-account reconciliation and native acceptance still remain. ACTIVE.
+- Batch 145: added streamed review-only correction JSONL drafts with a policy/
+  identity header, each source position and digest, nullable old/proposed facts,
+  suppression reason, coverage completion and a checksum seal. Output is exclusive
+  and outside the explicit source home, private mode on Unix; interrupted files
+  cannot pass the seal check. Bounded verification checks entry order, counts,
+  duplicate positions, identity/key derivation, action consistency and every
+  Token invariant. Optional old-ledger verification compares bindings, whole-
+  source row count and full old facts/expected absence in one read-only snapshot,
+  rejecting stale metadata even when ingestion hashes are unchanged. Generated
+  a private full-source draft and verified all represented old values against the
+  existing isolated ledger; exact counts/components/digests remain in the private
+  receipt. Isolated-ledger SHA-256 and schema are unchanged; no originals, source
+  bindings, production selectors or installed/native app were changed. Rust 247
+  tests, Clippy and contract/governance checks pass, including private-output,
+  non-overwrite, partial scan, tampering/resealed contradictions, truncation,
+  stale-fact and CLI cases. This exports and verifies a draft, not an apply path:
+  reversible correction projection/review, union promotion, two-account
+  reconciliation and native acceptance remain unfinished. Full goal ACTIVE.

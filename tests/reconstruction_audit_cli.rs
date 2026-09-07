@@ -90,6 +90,63 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     assert_eq!(fs::read(&db).unwrap(), before);
     assert_eq!(fs::read(&rollout).unwrap(), source);
     assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);
+    let output_dir = tempfile::tempdir().unwrap();
+    let draft = output_dir.path().join("correction.jsonl");
+    let draft_run = || {
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .arg("draft-reconstruction-correction")
+            .arg("--db")
+            .arg(&db)
+            .arg("--codex-home")
+            .arg(home)
+            .args(["--thread", "root", "--max-bytes", "4096"])
+            .arg("--output")
+            .arg(&draft)
+            .output()
+            .unwrap()
+    };
+    let generated = draft_run();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let generated: serde_json::Value = serde_json::from_slice(&generated.stdout).unwrap();
+    assert_eq!(generated["draftOnly"], true);
+    assert_eq!(generated["migrationAuthorized"], false);
+    let draft_before = fs::read(&draft).unwrap();
+    assert!(!draft_run().status.success());
+    assert_eq!(fs::read(&draft).unwrap(), draft_before);
+    let verified = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("verify-reconstruction-correction")
+        .arg("--manifest")
+        .arg(&draft)
+        .output()
+        .unwrap();
+    assert!(verified.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&verified.stdout).unwrap(),
+        generated
+    );
+    let checked = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("verify-reconstruction-correction")
+        .arg("--manifest")
+        .arg(&draft)
+        .arg("--against-db")
+        .arg(&db)
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    let checked: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
+    assert_eq!(checked["ledgerRowsRevalidated"], true);
+    assert_eq!(checked["migrationAuthorized"], false);
+    assert_eq!(fs::read(&db).unwrap(), before);
+    assert_eq!(fs::read(&rollout).unwrap(), source);
+    assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);
     let child = home.join("sessions/child.jsonl");
     let child_source = format!(
         "{{\"type\":\"session_meta\",\"timestamp\":\"2026-01-02T00:00:00Z\",\"payload\":{{\"id\":\"child\",\"forked_from_id\":\"root\"}}}}\n{}{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_started\",\"started_at\":1767312001}}}}\n",
