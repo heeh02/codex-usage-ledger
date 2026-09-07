@@ -638,7 +638,10 @@
 }
 
 @media (max-width: 900px) {
-  .topbar-actions { flex-wrap: wrap; }
+  .workspace-topbar { flex-direction: column; align-items: stretch; }
+  .workspace-heading { width: 100%; flex-shrink: 0; }
+  .viewed-account-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-actions { flex-wrap: wrap; width: 100%; }
   .export-menu { display: block; }
 }
 

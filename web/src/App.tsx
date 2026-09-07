@@ -22,6 +22,7 @@ import { runScopedRequest } from './shared/requestLifecycle';
 import { parseChangeRevision } from './shared/changeRevision';
 import { oneOf, readSessionObject, writeSessionObjects } from './shared/sessionPreferences';
 import { restoreDashboardFilters } from './shared/dashboardPreferences';
+import { AccountSwitcher, accountScopeLabel } from './components/AccountSwitcher';
 import { requestFailureMessage } from './shared/requestFailureMessage';
 import { LedgerRequestError } from './api/errors';
 
@@ -323,6 +324,11 @@ function App() {
     );
   }
 
+  const accountControl = <AccountSwitcher options={bundle?.summary.filters.accounts ?? []}
+    rows={bundle?.breakdowns.officialAccounts ?? []} selected={appliedFilters.account}
+    pending={loading} onSelect={account => setFilters(value => ({ ...value, account, sessionOffset: 0, nodeOffset: 0 }))}
+    onAccounts={openAccounts} />;
+
   return (
     <div className="app-shell">
       <LedgerSidebar
@@ -336,6 +342,7 @@ function App() {
         onProject={openProject}
         onAccounts={openAccounts}
         onQuality={openQuality}
+        accountControl={accountControl}
       />
 
       <main className="workspace-shell">
@@ -353,9 +360,11 @@ function App() {
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
             </div>
             <h1>{pageTitle}</h1>
+            <div className="viewed-account-label">{t('account-switcher.viewing')} {accountScopeLabel(appliedFilters.account, bundle?.summary.filters.accounts ?? [], bundle?.breakdowns.officialAccounts ?? [], t('components.ui.all_accounts'))}</div>
             <p>{pageCaption}</p>
           </div>
           <div className="topbar-actions">
+            <div className="mobile-account-switcher">{accountControl}</div>
             {currentPage === 'accounts' && <button type="button" onClick={syncOfficial} disabled={officialSyncing}>{t('app.sync_official')}</button>}
             <select className="mobile-page-select" aria-label={t('app.page_navigation')} value={mobilePageValue} onChange={(event) => navigateMobile(event.target.value)}>
               <option value="overview">{t('app.overview')}</option>

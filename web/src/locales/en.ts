@@ -1,6 +1,14 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "account-switcher.viewing": "Viewing:",
+  "account-switcher.title": "Choose usage accounts",
+  "account-switcher.close": "Close account selector",
+  "account-switcher.read_only": "Changes the reporting scope only, not your Codex login. Historical accounts retain their last observation, not live data.",
+  "account-switcher.observed_login": "Last observed login",
+  "account-switcher.login_unknown": "No single verified login observation",
+  "account-switcher.official_observed": "Official data observed:",
+  "account-switcher.applying": "Applying reporting scope…",
   "sessions.distributions": "Models and accounts used in this conversation",
   "sessions.distributions_own": "This conversation only · Local records in the selected dates and filters, excluding subagents.",
   "sessions.distributions_tree": "Including subagents · Local records in the selected dates and filters, aligned with this page's total.",

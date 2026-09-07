@@ -28,6 +28,9 @@ for active execution. This extends, rather than completes or resets, the work be
       implemented; remaining cards, charts, sidebar and native displays pending.
 - [ ] E02: bottom-left all/historical account selector; viewed scope is independent
       of observed login, with stale observations visible and no auth mutations.
+      Browser navigation/selector implemented; native and real-account acceptance
+      remain pending. Menu displays observed login independently and official
+      observation timestamps without promising historical accounts are live.
 - [ ] E03: shared overview/project/chat model breakdown, bucket detail and
       complete rankings; preserve own/tree and all applied filters.
 - [ ] E04: unified calendar trends and peak-to-chat navigation, responsive bilingual
@@ -1335,3 +1338,21 @@ No live data migration, installed-app replacement or release has occurred.
   language edits remain separate and uncommitted. No native build/install or
   whole-app visual acceptance is claimed. Remaining E01 surfaces, bottom-left
   account navigation, quota history and accounting migration remain open; ACTIVE.
+- Batch 135: moved reporting-account selection to a bottom-left dialog trigger,
+  with the same control in the narrow-window toolbar. Removed the old filter-row
+  selector, retained applied account scope beside the page title and kept account
+  changes independent from observed login. Source `active` account metadata,
+  plan labels and official observation timestamps are reused; no auth action,
+  inference assignment, schema or ledger change. Account selection preserves
+  project/chat/model/time scope and resets only pagination. Native dialog focus,
+  Escape and read-only explanatory labels are bilingual. Initial browser tests
+  exposed a 620/900px breakpoint gap; screenshot review additionally found a
+  compressed vertical title. Both were fixed and assertions now cover toolbar
+  height and page overflow. Test baselines wait for loaded account options rather
+  than comparing pre-load unknown login against later data. Web 76 unit tests,
+  typecheck/build and focused real-Chrome account/navigation/filter tests pass;
+  four widths and 80/100/160% filter layouts are exercised. Synthetic 560/1280px
+  screenshots were inspected. Module, link and privacy checks pass. Native
+  language edits remain untouched; no installed-app acceptance or accounting
+  correctness claim. E01 remaining surfaces, native account acceptance, source
+  policy migration and complete quota history remain open; ACTIVE.

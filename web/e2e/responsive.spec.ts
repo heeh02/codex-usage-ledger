@@ -103,17 +103,18 @@ test('language and project navigation preserve a complete page', async ({ page }
 test('account and model selection survive project and conversation navigation', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 820 });
   await page.goto('/');
-  await page.getByLabel('账号', { exact: true }).selectOption('acct-personal');
-  await expect(page.getByLabel('账号', { exact: true })).toHaveValue('acct-personal');
+  await page.locator('.account-switcher-trigger:visible').click();
+  await page.getByRole('dialog').getByLabel('账号', { exact: true }).selectOption('acct-personal');
+  await expect(page.locator('.account-switcher-trigger:visible')).toHaveAttribute('data-account', 'acct-personal');
   await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
   await expect(page.locator('.workspace-heading h1')).toHaveText('Project Atlas');
-  await expect(page.getByLabel('账号', { exact: true })).toHaveValue('acct-personal');
+  await expect(page.locator('.account-switcher-trigger:visible')).toHaveAttribute('data-account', 'acct-personal');
   await page.getByLabel('模型', { exact: true }).selectOption('gpt-5.6-sol');
   await expect(page.getByLabel('模型', { exact: true })).toHaveValue('gpt-5.6-sol');
   await page.locator('.project-view-tabs button').last().click();
   await page.locator('.session-row').first().click();
   await expect(page.locator('.session-detail-page')).toBeVisible();
-  await expect(page.getByLabel('账号', { exact: true })).toHaveValue('acct-personal');
+  await expect(page.locator('.account-switcher-trigger:visible')).toHaveAttribute('data-account', 'acct-personal');
   await expect(page.getByLabel('模型', { exact: true })).toHaveValue('gpt-5.6-sol');
 });
 

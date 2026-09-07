@@ -74,7 +74,7 @@ export function FilterBar({
   onChange: (value: DashboardFilters) => void;
   onRefresh: () => void;
 }) {
-  const { language, t } = useI18n();
+  const { t } = useI18n();
   const [startDate, setStartDate] = useState(value.startDate ?? '');
   const [endDate, setEndDate] = useState(value.endDate ?? '');
   useEffect(() => { setStartDate(value.startDate ?? ''); setEndDate(value.endDate ?? ''); }, [value.startDate, value.endDate]);
@@ -82,11 +82,6 @@ export function FilterBar({
   const showModel = page !== 'accounts' && page !== 'quality';
   const showMetric = page !== 'accounts';
   const showGrain = page !== 'accounts' && page !== 'quality';
-  const accountOptions = catalog.accounts.map((option) => {
-    if (option.id === 'all') return { ...option, label: t('components.ui.all_accounts') };
-    if (language === 'zh-CN') return option;
-    return { ...option, label: option.label.replace(/^当前账号\s*·\s*/, 'Current · ').replace(/^已校准账号\s*·\s*/, 'Calibrated · ').replace(/^历史账号\s*·\s*/, 'Historical · ') };
-  });
   const modelOptions = catalog.models.map((option) => option.id === 'all' ? { ...option, label: t('components.ui.all_models') } : option);
   return (
     <section className={`filter-bar filter-bar-${page}`} aria-label={t('components.ui.current_page_filters')}>
@@ -94,14 +89,6 @@ export function FilterBar({
         <div className="filter-scope-label">
           <strong>{t('components.ui.account_scope')}</strong>
           <span>{localScope ? t('app.local_attribution') : t('components.ui.official_total_all_devices')}</span>
-        </div>
-        <div className="account-filter-control">
-          <FilterSelect
-            label={t('components.ui.account')}
-            value={value.account}
-            options={accountOptions}
-            onChange={(account) => onChange({ ...value, account, sessionOffset: 0 })}
-          />
         </div>
         <div className="period-control" role="group" aria-label={t('components.ui.reporting_period')}>
           {catalog.periods.map((period) => (

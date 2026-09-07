@@ -61,6 +61,7 @@ export function LedgerSidebar({
   onProject,
   onAccounts,
   onQuality,
+  accountControl,
 }: {
   explorer: ExplorerResponse | null;
   selectedProject: string;
@@ -72,6 +73,7 @@ export function LedgerSidebar({
   onProject: (projectId: string) => void;
   onAccounts: () => void;
   onQuality: () => void;
+  accountControl?: ReactNode;
 }) {
   const { t } = useI18n();
   type RankingSort = 'tokens' | 'growth' | 'recent' | 'rate' | 'sessions';
@@ -179,6 +181,7 @@ export function LedgerSidebar({
           <span>{explorer ? `${t('components.explorer.current_codex_directory')} ${explorer.stats.subagentCount} subagents` : t('components.explorer.reading_subagent_directory')}</span>
         </div>
         {explorer && (explorer.stats.historicalSessionCount > 0 || explorer.stats.historicalSubagentCount > 0) && <div className="sidebar-history-count">{t('components.explorer.app_history_retains')} {explorer.stats.historicalSessionCount} sessions · {explorer.stats.historicalSubagentCount} subagents</div>}
+        {accountControl}
       </div>
     </aside>
   );

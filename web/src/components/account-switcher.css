@@ -1,0 +1,28 @@
+.account-switcher { min-width: 0; }
+.account-switcher-trigger { display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: transparent; text-align: left; }
+.account-switcher-trigger:hover { background: var(--surface-subtle); }
+.account-switcher-trigger > span:nth-child(2) { min-width: 0; flex: 1; display: grid; }
+.account-switcher-trigger small { font-size: 12px; color: var(--muted); }
+.account-switcher-trigger strong { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-switcher-avatar { border-radius: 50%; background: var(--surface-subtle); width: 30px; height: 30px; display: grid; place-items: center; flex-shrink: 0; }
+.account-switcher-dialog { position: fixed; margin: 0; inset: auto auto 16px 16px; width: 350px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 0; overflow: auto; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface-strong); box-shadow: 0 12px 40px #0002; }
+.account-switcher-dialog::backdrop { background: #0002; }
+.account-switcher-body { padding: 16px; }
+.account-switcher-body header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-switcher-body h2 { font-size: 16px; margin: 0; }
+.account-switcher-body header button { border: 0; background: transparent; font-size: 22px; }
+.account-switcher-body p, .account-switcher-records small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.account-switcher-body label { display: grid; gap: 6px; font-size: 13px; }
+.account-switcher-body select { width: 100%; min-width: 0; font-size: 14px; padding: 8px; }
+.account-switcher-login { display: grid; gap: 4px; padding: 14px 0; font-size: 13px; }
+.account-switcher-records { display: grid; gap: 12px; border-top: 1px solid var(--line); padding: 14px 0; }
+.account-switcher-records article { display: grid; gap: 3px; overflow-wrap: anywhere; font-size: 13px; }
+.account-switcher-records span { color: var(--muted); font-size: 12px; }
+.account-switcher-manage { width: 100%; padding: 9px; }
+.mobile-account-switcher { display: none; }
+.viewed-account-label { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .mobile-account-switcher { display: block; max-width: 180px; }
+  .mobile-account-switcher .account-switcher-trigger { padding: 4px; }
+  .mobile-account-switcher .account-switcher-avatar { display: none; }
+}

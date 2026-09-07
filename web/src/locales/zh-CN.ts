@@ -1,4 +1,12 @@
 export const zhCNMessages = {
+  "account-switcher.viewing": "查看：",
+  "account-switcher.title": "选择统计账号",
+  "account-switcher.close": "关闭账号选择",
+  "account-switcher.read_only": "只切换统计范围，不更改 Codex 登录。历史账号保留上次观测，不代表实时数据。",
+  "account-switcher.observed_login": "最近观测的登录账号",
+  "account-switcher.login_unknown": "暂无唯一可确认的登录账号",
+  "account-switcher.official_observed": "官方数据观测：",
+  "account-switcher.applying": "正在应用统计范围…",
   "sessions.distributions": "这段对话用了哪些模型与账号",
   "sessions.distributions_own": "仅此会话 · 当前时间和筛选范围内的本机记录，不含子代理。",
   "sessions.distributions_tree": "含子代理 · 当前时间和筛选范围内的本机记录，与此页合计一致。",
