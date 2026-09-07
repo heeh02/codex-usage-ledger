@@ -42,6 +42,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Create a new isolated review copy, preserving the source ledger.
+    CreateReviewShadow {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Apply a sealed correction only to a generated shadow, never an ordinary ledger.
+    ApplyShadowCorrection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+    },
     /// Requalify persisted sampling anchors against a complete rollout prefix; never writes.
     AuditLegacySampling {
         #[arg(long)]
@@ -430,6 +446,25 @@ async fn main() -> Result<()> {
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::CreateReviewShadow { db, output } => {
+            codex_usage_ledger::cli_support::create_review_shadow(&db, &output)?;
+            println!(
+                "{}",
+                json!({"status":"review_shadow_created","productionPolicyChanged":false})
+            );
+        }
+        Command::ApplyShadowCorrection {
+            db,
+            manifest,
+            expected_sha256,
+        } => {
+            let receipt = codex_usage_ledger::cli_support::apply_shadow_correction(
+                &db,
+                &manifest,
+                &expected_sha256,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         Command::PreviewUnionBundle { db, query } => {
             anyhow::ensure!(query.len() <= 8192, "query is too large");

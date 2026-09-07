@@ -59,7 +59,7 @@ pub mod cli_support {
         AggregateDimension, AggregateFilter, CollectorStatus, CorrectionPreviewFilter,
         CorrectionPreviewGrain, LedgerStore, LedgerTableCounts, QuotaHistoryCursor,
         QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain,
-        SourceUnionQuery, compare_preview_sampling, create_correction_preview,
-        read_correction_preview,
+        SourceUnionQuery, apply_shadow_correction, compare_preview_sampling,
+        create_correction_preview, create_review_shadow, read_correction_preview,
     };
 }

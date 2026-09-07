@@ -1983,3 +1983,22 @@ No live data migration, installed-app replacement or release has occurred.
   facts, account labels, installed application or production policy were changed.
   Historical correction application, namespace/occurrence linkage, two-account
   reconciliation and populated native delivery remain open. Full goal ACTIVE.
+- Batch 162 (2026-09-08): implemented and exercised [isolated shadow correction application](docs/architecture/review-shadow-corrections.md),
+  not just a report of proposed values. The new CLI creates a marked private copy
+  and only accepts sealed, explicitly bound corrections there; ordinary ledgers,
+  new historical insertions and account/project/thread relabeling are refused.
+  Every original row/key is archived before correction. Facts, restored source
+  keys, rebuilt day/hour rollups and a post-image receipt commit atomically.
+  Reapplication verifies the affected post-image and returns already-applied;
+  injected failure rolls back the complete operation. Synthetic nonzero component,
+  dimension, rowid, original-file and union-reader checks pass. Rust 319 tests,
+  Clippy and API contracts pass. On a newly generated private real shadow, a
+  previously sealed source snapshot was corrected successfully; repeat execution
+  did not change it again. The retained month's unaffected buckets remained
+  identical, while inherited-prefix contributions were removed in the affected
+  month. Original rows remain archived; account/project/model labels of surviving
+  rows did not change, and raw/day/hour components agree. A newer draft observed
+  source growth and was not applied. Installed/original ledgers and policy remain
+  unchanged. Next: sampling occurrence-key restoration against corrected facts,
+  scope-level union/coverage acceptance, real-account reconciliation and native
+  delivery. Full goal remains ACTIVE; shadow success is not production acceptance.
