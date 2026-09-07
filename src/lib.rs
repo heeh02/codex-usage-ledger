@@ -26,6 +26,7 @@ mod runtime;
 mod sampling;
 mod source_union;
 mod store;
+mod stream_boundary;
 mod types;
 
 pub use store::{

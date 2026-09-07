@@ -16,6 +16,7 @@ use crate::{
     ingest::physical_file_identity,
     project::{ProjectRecord, ProjectResolutionInput, resolve_project},
     store::{BatchOutcome, FileCursor, LedgerStore},
+    stream_boundary::{BoundaryAction, StreamBoundary, StreamPhase, record_timestamp},
     types::{
         AttributionConfidence, DataQuality, EventProvenance, ProjectAttribution, TokenUsage,
         UsageEvent,
@@ -78,16 +79,81 @@ struct CandidateCounterCheckpoint {
     previous_total: Option<TokenUsage>,
     cumulative_seen: bool,
     allow_initial_sample: bool,
+    #[serde(default = "unknown_stream_boundary")]
+    boundary: StreamBoundary,
+    #[serde(default)]
+    last_token_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    allow_unframed: bool,
+    #[serde(default)]
+    canonical_header_checked: bool,
+}
+
+fn unknown_stream_boundary() -> StreamBoundary {
+    StreamBoundary {
+        foreign_replay: true,
+        ..StreamBoundary::default()
+    }
 }
 
 impl CandidateCounterCheckpoint {
     fn new(start_offset: u64) -> Self {
         Self {
-            version: 2,
+            version: 3,
             previous_total: None,
             cumulative_seen: start_offset > 0,
             allow_initial_sample: start_offset == 0,
+            boundary: if start_offset == 0 {
+                StreamBoundary::default()
+            } else {
+                unknown_stream_boundary()
+            },
+            last_token_at: None,
+            allow_unframed: start_offset == 0,
+            canonical_header_checked: start_offset == 0,
         }
+    }
+
+    fn observe_record(
+        &mut self,
+        record: &Value,
+        thread_id: &str,
+        is_child: bool,
+    ) -> (Option<TokenUsage>, Option<&'static str>) {
+        let total = record
+            .pointer("/payload/info/total_token_usage")
+            .and_then(parse_candidate_usage);
+        if record.get("type").and_then(Value::as_str) == Some("session_meta") {
+            self.allow_unframed = false;
+        }
+        let action = self.boundary.classify(
+            record,
+            thread_id,
+            is_child,
+            self.last_token_at,
+            self.previous_total.is_some(),
+            total.is_some(),
+        );
+        let unframed_root = self.allow_unframed
+            && !is_child
+            && self.boundary.phase == StreamPhase::AwaitingCanonical
+            && record.get("type").and_then(Value::as_str) == Some("event_msg")
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+        if action == BoundaryAction::Usage || unframed_root {
+            let result = self.normalize(record);
+            if total.is_some() {
+                self.last_token_at = record_timestamp(record);
+            }
+            return result;
+        }
+        if action == BoundaryAction::Baseline {
+            self.previous_total = total;
+            self.cumulative_seen = true;
+            self.allow_initial_sample = false;
+            self.last_token_at = record_timestamp(record);
+            return (None, Some("post_sampling_inherited_history"));
+        }
+        (None, Some("post_sampling_unestablished_or_replayed_stream"))
     }
 
     fn normalize(&mut self, record: &Value) -> (Option<TokenUsage>, Option<&'static str>) {
@@ -394,7 +460,7 @@ fn ingest_post_sampling_source(
                             serde_json::from_str::<CandidateCounterCheckpoint>(value).ok()
                         })
                         .filter(|state| {
-                            state.version == 2
+                            matches!(state.version, 2 | 3)
                                 && state
                                     .previous_total
                                     .is_none_or(|usage| usage.validate().is_ok())
@@ -405,12 +471,24 @@ fn ingest_post_sampling_source(
                 } else {
                     CandidateCounterCheckpoint::new(stored_offset)
                 };
+                // Version 2 had numeric state only. Preserve its baseline but
+                // do not pretend its unknown stream/replay phase was live.
+                counter.version = 3;
+                if !counter.canonical_header_checked {
+                    if counter.boundary.canonical_at.is_none() {
+                        counter.boundary.canonical_at =
+                            read_canonical_header(path, &thread_id, &mut report.bytes_read)?;
+                    }
+                    counter.canonical_header_checked = true;
+                }
                 let (candidates, next_offset) = read_usage_candidates(
                     path,
                     stored_offset,
                     &mut report.bytes_read,
                     safe_before,
                     &mut counter,
+                    &thread_id,
+                    thread.parent_thread_id.is_some(),
                 )?;
                 let must_reset = existing.as_ref().is_some_and(|cursor| {
                     cursor.file_identity != candidate_identity || next_offset < cursor.byte_offset
@@ -537,6 +615,7 @@ fn ingest_post_sampling_source(
                     serde_json::json!({"source":"logs_2_post_sampling","version":4,
                         "associationPolicy":"mutual_unique_nearest_v2",
                         "counterPolicy":"shared_numeric_counter_v1",
+                        "boundaryPolicy":"shared_stream_boundary_v1",
                         "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
                         "anchorKey":anchor_keys.get(&max_log_id),
                         "generation":generation,"eventNamespace":namespace})
@@ -843,12 +922,42 @@ fn load_account_epochs(store: &LedgerStore, machine_id: &str) -> Result<Vec<Acco
     Ok(epochs)
 }
 
+/// One bounded header read when upgrading a numeric-only cursor. It recovers
+/// the creation timestamp, not a live/replay phase, and is never a full rescan.
+fn read_canonical_header(
+    path: &Path,
+    thread_id: &str,
+    bytes_read: &mut u64,
+) -> Result<Option<DateTime<Utc>>> {
+    let mut reader = BufReader::new(File::open(path)?.take(64 * 1024));
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let count = reader.read_until(b'\n', &mut line)?;
+        *bytes_read = bytes_read.saturating_add(count as u64);
+        if count == 0 || !line.ends_with(b"\n") {
+            return Ok(None);
+        }
+        let raw = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&line);
+        let Ok(record) = serde_json::from_slice::<Value>(raw) else {
+            continue;
+        };
+        if record.get("type").and_then(Value::as_str) == Some("session_meta")
+            && record.pointer("/payload/id").and_then(Value::as_str) == Some(thread_id)
+        {
+            return Ok(record_timestamp(&record));
+        }
+    }
+}
+
 fn read_usage_candidates(
     path: &Path,
     start_offset: u64,
     bytes_read: &mut u64,
     safe_before: DateTime<Utc>,
     counter: &mut CandidateCounterCheckpoint,
+    thread_id: &str,
+    is_child: bool,
 ) -> Result<(Vec<UsageCandidate>, u64)> {
     let mut file = File::open(path).with_context(|| format!("open rollout {}", path.display()))?;
     let file_len = file.metadata()?.len();
@@ -869,7 +978,6 @@ fn read_usage_candidates(
     }
     let mut candidates = Vec::new();
     let mut durable_offset = reader.stream_position()?;
-    let safe_before = safe_before.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
     let mut line = String::new();
     loop {
         let line_start = reader.stream_position()?;
@@ -882,18 +990,34 @@ fn read_usage_candidates(
             durable_offset = line_start;
             break;
         }
-        if extract_json_timestamp(&line).is_some_and(|timestamp| timestamp > safe_before.as_str()) {
+        if extract_json_timestamp(&line)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|timestamp| timestamp > safe_before)
+        {
             durable_offset = line_start;
             break;
         }
         durable_offset = reader.stream_position()?;
-        if !line.contains("token_count") {
+        if ![
+            "token_count",
+            "session_meta",
+            "task_started",
+            "turn_context",
+        ]
+        .iter()
+        .any(|kind| line.contains(kind))
+        {
             continue;
         }
         let value: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(_) => continue,
         };
+        if record_timestamp(&value).is_some_and(|timestamp| timestamp > safe_before) {
+            durable_offset = line_start;
+            break;
+        }
+        let (usage, unavailable_reason) = counter.observe_record(&value, thread_id, is_child);
         if value.get("type").and_then(Value::as_str) != Some("event_msg")
             || value.pointer("/payload/type").and_then(Value::as_str) != Some("token_count")
         {
@@ -907,7 +1031,6 @@ fn read_usage_candidates(
         else {
             continue;
         };
-        let (usage, unavailable_reason) = counter.normalize(&value);
         candidates.push(UsageCandidate {
             record_digest: crate::reconstruction::source_record_digest(&value),
             byte_offset: line_start,
@@ -1094,6 +1217,171 @@ mod tests {
 
     use super::*;
     use crate::store::AggregateFilter;
+
+    #[test]
+    fn bounded_header_recovery_does_not_assume_a_live_stream() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("legacy.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(1);
+        fs::write(&path,format!("{}\n",
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"legacy"}}))).unwrap();
+        let mut state = CandidateCounterCheckpoint::new(500);
+        let mut bytes = 0;
+        state.boundary.canonical_at = read_canonical_header(&path, "legacy", &mut bytes).unwrap();
+        assert_eq!(state.boundary.canonical_at, Some(at));
+        assert!(state.boundary.foreign_replay);
+        let start = serde_json::json!({"type":"event_msg","payload":{"type":"task_started",
+            "turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":at.timestamp()}});
+        state.observe_record(&start, "legacy", false);
+        assert_eq!(state.boundary.phase, StreamPhase::Live);
+        fs::write(&path, vec![b'x'; 100_000]).unwrap();
+        bytes = 0;
+        assert_eq!(
+            read_canonical_header(&path, "legacy", &mut bytes).unwrap(),
+            None
+        );
+        assert_eq!(bytes, 64 * 1024);
+    }
+
+    #[test]
+    fn numeric_only_checkpoint_requires_a_proven_stream_resume() {
+        let at = Utc::now();
+        let mut value: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        let mut state: CandidateCounterCheckpoint = serde_json::from_value(serde_json::json!({
+            "version":2,"previous_total":value["payload"]["info"]["last_token_usage"],
+            "cumulative_seen":true,"allow_initial_sample":false
+        }))
+        .unwrap();
+        let thread = "019b76da-a800-7000-8000-000000000000";
+        value["payload"]["info"]["total_token_usage"] = serde_json::json!({
+            "input_tokens":140,"cached_input_tokens":120,"output_tokens":10,
+            "reasoning_output_tokens":3,"total_tokens":150
+        });
+        assert!(state.observe_record(&value, thread, true).0.is_none());
+        let fake = serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"f1234567-89ab-4cde-8abc-0123456789ab"}});
+        state.observe_record(&fake, thread, true);
+        assert!(state.observe_record(&value, thread, true).0.is_none());
+        let own = serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"019b76da-a900-7000-8000-000000000000"}});
+        state.observe_record(&own, thread, true);
+        // Unknown pre-resume observations advance only the baseline. They
+        // cannot be assigned to the first identifiable post-resume request.
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            value["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                value["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 10
+            );
+        }
+        assert_eq!(
+            state
+                .observe_record(&value, thread, true)
+                .0
+                .unwrap()
+                .total_tokens,
+            10
+        );
+    }
+
+    #[test]
+    fn future_or_partial_boundary_records_do_not_advance_parser_state() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("root.jsonl");
+        let now = Utc::now();
+        let meta = serde_json::json!({"timestamp":(now-chrono::Duration::seconds(60)).to_rfc3339(),"type":"session_meta","payload":{"id":"root"}});
+        let future = serde_json::json!({"timestamp":(now+chrono::Duration::seconds(60)).to_rfc3339(),"type":"session_meta","payload":{"id":"parent"}}).to_string().replace("\":", "\": ");
+        fs::write(&path, format!("{meta}\n{future}\n")).unwrap();
+        let mut state = CandidateCounterCheckpoint::new(0);
+        let mut bytes = 0;
+        let (records, offset) =
+            read_usage_candidates(&path, 0, &mut bytes, now, &mut state, "root", false).unwrap();
+        assert!(records.is_empty());
+        assert_eq!(offset, meta.to_string().len() as u64 + 1);
+        assert_eq!(state.boundary.phase, StreamPhase::Live);
+        assert!(!state.boundary.foreign_replay);
+        fs::write(&path, format!("{meta}\n{future}")).unwrap();
+        let (_, next) = read_usage_candidates(
+            &path,
+            offset,
+            &mut bytes,
+            now + chrono::Duration::seconds(120),
+            &mut state,
+            "root",
+            false,
+        )
+        .unwrap();
+        assert_eq!(next, offset);
+        assert!(!state.boundary.foreign_replay);
+    }
+
+    #[test]
+    fn inherited_candidates_remain_blocked_after_gap_and_parser_restart() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("child.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(2);
+        let mut inherited: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        inherited["payload"]["info"]["total_token_usage"] =
+            inherited["payload"]["info"]["last_token_usage"].clone();
+        fs::write(&path, format!("{}\n{}\n{inherited}\n",
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"child"}}),
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"parent"}}),
+        )).unwrap();
+        let mut counter = CandidateCounterCheckpoint::new(0);
+        let mut bytes = 0;
+        let (first, offset) = read_usage_candidates(
+            &path,
+            0,
+            &mut bytes,
+            Utc::now(),
+            &mut counter,
+            "child",
+            true,
+        )
+        .unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(
+            first[0].usage.is_none(),
+            "copied ancestor quantity is not a child sample"
+        );
+        counter = serde_json::from_str(&serde_json::to_string(&counter).unwrap()).unwrap();
+        let later = at + chrono::Duration::seconds(10);
+        inherited["timestamp"] = serde_json::json!(later.to_rfc3339());
+        inherited["payload"]["info"]["total_token_usage"]["input_tokens"] = serde_json::json!(190);
+        inherited["payload"]["info"]["total_token_usage"]["cached_input_tokens"] =
+            serde_json::json!(170);
+        inherited["payload"]["info"]["total_token_usage"]["total_tokens"] = serde_json::json!(200);
+        let mut own = inherited.clone();
+        own["timestamp"] =
+            serde_json::json!((later + chrono::Duration::milliseconds(100)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            own["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                own["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        {
+            let mut append = OpenOptions::new().append(true).open(&path).unwrap();
+            writeln!(append,"{}\n{inherited}\n{}\n{own}",
+                serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":1}}),
+                serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":later.timestamp()}}),
+            ).unwrap();
+        }
+        let (next, _) = read_usage_candidates(
+            &path,
+            offset,
+            &mut bytes,
+            Utc::now(),
+            &mut counter,
+            "child",
+            true,
+        )
+        .unwrap();
+        assert_eq!(next.len(), 2);
+        assert!(next[0].usage.is_none());
+        assert_eq!(next[1].usage.unwrap().total_tokens, 50);
+    }
 
     #[test]
     fn counter_gaps_and_legacy_cursor_do_not_invent_continuity() {
@@ -1924,8 +2212,15 @@ mod tests {
         let stale: Value = serde_json::from_str(&token_line(at, 900)).unwrap();
         second["payload"]["info"]["last_token_usage"] =
             stale["payload"]["info"]["last_token_usage"].clone();
-        fs::write(&rollout, format!("{}\n{}\n{}\n{}\n",
+        let inherited_usage = serde_json::json!({"input_tokens":1000,"cached_input_tokens":1000,
+            "output_tokens":0,"reasoning_output_tokens":0,"total_tokens":1000});
+        let inherited = serde_json::json!({"timestamp":(at-chrono::Duration::milliseconds(500)).to_rfc3339(),
+            "type":"event_msg","payload":{"type":"token_count","info":{
+                "total_token_usage":inherited_usage,"last_token_usage":inherited_usage}}});
+        fs::write(&rollout, format!("{}\n{}\n{inherited}\n{}\n{}\n{}\n{}\n",
             serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),
+            serde_json::json!({"type":"session_meta","payload":{"id":"ancestor"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":at.timestamp()}}),
             serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}), first, second)).unwrap();
         let ledger_path = temporary.path().join("ledger.sqlite3");
         let mut store = LedgerStore::open(&ledger_path).unwrap();

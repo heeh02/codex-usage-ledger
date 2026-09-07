@@ -57,8 +57,8 @@ unknown reason and no numeric/candidate link; it cannot force association with a
 older row. This withholds the sampling anchor, not a confirmed zero-token call.
 The reconstruction occurrence can still represent the original increment.
 
-Candidate cursor JSON version 2 retains the cumulative baseline and continuity
-mode alongside the byte position. Existing version-1/unreadable checkpoints at
+Candidate cursor JSON version 3 retains the cumulative baseline, continuity
+mode and stream-boundary state alongside the byte position. Existing version-1/unreadable checkpoints at
 a nonzero offset establish a fresh baseline without re-reading or rewriting old
 facts. Their first cumulative snapshot is not attributed as a new amount.
 Last-only records remain supported for a whole stream observed from its start;
@@ -70,12 +70,42 @@ the facts and log cursor too. This is not yet a bounded-history scan/latency cla
 No SQL schema or public response field changes. Old confirmed facts/associations
 are not retroactively corrected or relabeled.
 
-**Stream/replay normalization remains unfinished.** Sampling still lacks the
-reconstruction adapter's canonical/foreign-history boundary state. Legacy
-last-only evidence, reset/rollback identification, cross-poll association coverage
-and unresolved anchors still require eligibility review before union promotion.
+## Shared stream-boundary decisions
+
+Both adapters now delegate canonical session, foreign replay, initial child
+prefix and live transitions to `src/stream_boundary.rs`. Replay token rows can
+advance a baseline but cannot emit consumption. A foreign segment does not end
+merely because timestamps have a long gap or the child's metadata reappears.
+An eligible own-task start exits both foreign replay and the initial child prefix;
+this fixes suppression of a real first child sample within 2 seconds of creation.
+Already-live task starts do not reset the current model context.
+
+The own-task predicate retains the existing strict UUIDv7/time-field rules; a
+UUIDv4's random leading bits are not a task clock. The initial child-prefix gap
+fallback remains a heuristic, not proof of upstream inference ownership.
+Future or incomplete records do not advance boundary state. Timestamp comparison
+uses parsed instants, including JSON with spaced separators, rather than lexical
+RFC3339 comparisons. Candidate parsing now observes metadata/task/context records
+in addition to token rows, without retaining prompt bodies in the checkpoint.
+
+Version-2 numeric-only candidate checkpoints retain their numeric baseline but
+start with unknown/protected boundary state. Pre-resume counters update only the
+baseline; the later identifiable request cannot claim that intervening usage.
+They need eligible task-start evidence to resume and are not silently treated as
+live. A one-time, at-most-64-KiB header read can recover a matching canonical
+creation timestamp, allowing the existing `started_at` predicate to work even
+when the task ID is not UUIDv7. It does not infer live state or replay the whole
+file. Header-attempt state is persisted with the cursor, including an unavailable
+result. The existing reconstruction checkpoint field layout stays compatible.
+Whole-file metadata-free root streams retain the legacy anchored path; this is
+not available to indexed children or offset-only unknown histories and is not
+full canonical provenance proof.
+
+**Production promotion remains gated.** Legacy last-only evidence, malformed
+field parity, reset/rollback identification, source continuity, cross-poll
+association coverage and unresolved anchors still require eligibility review.
 A local row/version key does not prove distinct consumption. Shared arithmetic
-alone does not close those semantic gaps or authorize the production switch.
+and boundary decisions do not certify missing history or authorize migration.
 
 ## Evidence and next gate
 
@@ -89,6 +119,10 @@ stale last amounts, broken cumulative continuity, legacy offset-only checkpoints
 coverage-only changes and cursor-write rollback/retry. A shared-origin synthetic
 stream has equal sampling/reconstruction component vectors and conserves account,
 project, model, thread and calendar aggregates despite a stale last snapshot.
+The same source fixture now contains foreign metadata and an inherited baseline
+before its own start. Dedicated regressions cover the child's fast first sample,
+foreign replay across a long gap and serialized restart, rejected UUIDv4 starts,
+numeric-only checkpoint upgrade and partial/future boundary records.
 
 Legacy association enrichment must use source observations and actual rollout
 positions with frozen-value validation; equality of copied numbers is not a

@@ -139,9 +139,10 @@ continuity/rebinding; matching inode alone is not sufficient. See the
 - Retained sampling amounts are derived from associated rollout usage in the
   current importer; agreement between these representations is not independent
   numeric calibration. See [sampling provenance](docs/architecture/sampling-value-provenance.md).
-  Shared numeric counter normalization is implemented for new sampling and
-  reconstruction reads; canonical/replay boundary normalization remains open.
-  Next accounting priority is shared stream ownership/replay handling, followed by legacy provenance enrichment and
+  Shared numeric normalization and canonical/replay boundary decisions are
+  implemented for new sampling and reconstruction reads. Legacy stream eligibility,
+  source continuity and malformed-counter parity remain open.
+  Next accounting priority is legacy provenance enrichment and
   reviewed promotion. Raw snapshot positions alone cannot prove independent
   quantities when counters are re-emitted or history is inherited.
 - Official reads now use an explicit observed-source binding, guarded before
@@ -1818,3 +1819,27 @@ No live data migration, installed-app replacement or release has occurred.
   anchors are withheld as unknown; this does not recover the missing request
   identity or certify history. No original/audit database, installed app or
   account state was changed. Full goal remains ACTIVE.
+- Batch 155: reproduced both inherited sampling being accepted as child usage
+  and a real fast child sample being suppressed after an eligible own-task start.
+  Sampling and reconstruction now share canonical/foreign/prefix/live boundary
+  decisions in one private module. Foreign history remains protected across
+  long gaps, repeated child metadata and serialized restart; an eligible start
+  also ends the initial child prefix without resetting already-live model context.
+  Candidate checkpoint version 3 persists boundary state with numeric state.
+  Numeric-only upgrades remain protected; intervening counters establish only
+  baselines, never usage assigned to the later resumed request. A one-time
+  64-KiB-capped matching header read restores a creation timestamp when needed
+  without declaring the stream live or re-reading whole history. Future/partial
+  records do not advance parser state, including spaced JSON timestamps.
+  The shared-origin fixture now includes foreign history and still conserves
+  all component/dimension totals. Rust 286 tests, Clippy and API contracts pass.
+  A private complete-source read-only comparison reached every stored position
+  and reproduced the previous correction preview's unchanged/suppressed cohorts;
+  both the framed source digest and audit-copy hash remain unchanged. Strict
+  source identity selection first refused device drift; the existing diagnostic
+  mode was used only after verifying device-only difference, not for rebinding.
+  Counts/identities remain in a private receipt outside the public repository.
+  This does not certify the initial-prefix heuristic, malformed-field parity,
+  legacy provenance, reset/rollback eligibility or complete account history.
+  Controlled union promotion, historical migration, real-account/native acceptance
+  and the full goal remain open. No live ledger or installed app was changed.

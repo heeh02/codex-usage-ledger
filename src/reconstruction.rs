@@ -27,6 +27,7 @@ use crate::{
         BatchOutcome, FileCursor, LedgerStore, ReconstructionEvent, ReconstructionSourceStatus,
         ReconstructionStatus,
     },
+    stream_boundary::{BoundaryAction, StreamBoundary, StreamPhase as ReconstructionPhase},
     types::{
         AttributionConfidence, DataQuality, EventProvenance, ProjectAttribution, TokenUsage,
         UsageEvent,
@@ -47,7 +48,6 @@ pub use correction_manifest::{
 
 pub const RECONSTRUCTION_SOURCE_PREFIX: &str = "rollout-reconstruction-v1";
 const STATE_SCHEMA_VERSION: u32 = 1;
-const INHERITED_PREFIX_GAP_MILLIS: i64 = 2_000;
 // Reconstruction must finish a complete JSONL record in one slice. Persisting
 // an unfinished multi-megabyte record as a JSON byte array can use more than
 // three times the source bytes and used to make a round-robin backfill grow the
@@ -86,15 +86,6 @@ struct AccountEpoch {
     observed_to: Option<DateTime<Utc>>,
     account_fingerprint: String,
     confidence: AttributionConfidence,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ReconstructionPhase {
-    #[default]
-    AwaitingCanonical,
-    ChildPrefix,
-    Live,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -647,115 +638,68 @@ fn process_line(
         Ok(record) => record,
         Err(_) => return Ok(None),
     };
-    let kind = record
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if kind == "session_meta" && state.phase == ReconstructionPhase::AwaitingCanonical {
-        let id = record
-            .pointer("/payload/id")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if id != target.thread_id {
+    let sample = parse_token_sample(&record);
+    let total = sample.total.filter(|usage| valid_usage(*usage));
+    let mut boundary = StreamBoundary {
+        phase: state.phase,
+        foreign_replay: state.foreign_replay,
+        canonical_at: state.canonical_at,
+    };
+    let action = boundary.classify(
+        &record,
+        &target.thread_id,
+        target.parent_thread_id.is_some(),
+        state.last_token_at,
+        state.previous_total.is_some(),
+        total.is_some(),
+    );
+    // Preserve the existing checkpoint field layout for audited history.
+    state.phase = boundary.phase;
+    state.foreign_replay = boundary.foreign_replay;
+    state.canonical_at = boundary.canonical_at;
+    match action {
+        BoundaryAction::Canonical => {
+            state.cwd = record
+                .pointer("/payload/cwd")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| state.cwd.clone());
             return Ok(None);
         }
-        state.canonical_at = source_timestamp(&record);
-        state.cwd = record
-            .pointer("/payload/cwd")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| state.cwd.clone());
-        state.phase = if target.parent_thread_id.is_some() {
-            ReconstructionPhase::ChildPrefix
-        } else {
-            ReconstructionPhase::Live
-        };
-        return Ok(None);
-    }
-    if kind == "session_meta" && state.phase != ReconstructionPhase::AwaitingCanonical {
-        if record
-            .pointer("/payload/id")
-            .and_then(Value::as_str)
-            .is_some_and(|id| id != target.thread_id)
-        {
-            state.foreign_replay = true;
-        }
-        return Ok(None);
-    }
-    if state.foreign_replay {
-        if kind == "event_msg"
-            && record.pointer("/payload/type").and_then(Value::as_str) == Some("task_started")
-            && crate::replay::task_belongs_to_canonical_stream(
-                &record,
-                &target.thread_id,
-                state.canonical_at,
-            )
-        {
-            state.foreign_replay = false;
-            state.phase = ReconstructionPhase::Live;
+        BoundaryAction::Resume => {
             state.model = target.model.clone();
-        } else if kind == "event_msg"
-            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count")
-            && let Some(total) = parse_token_sample(&record)
-                .total
-                .filter(|usage| valid_usage(*usage))
-        {
-            state.previous_total = Some(total);
-            state.last_token_at = source_timestamp(&record);
-            state.prefix_events = state.prefix_events.saturating_add(1);
+            return Ok(None);
         }
-        return Ok(None);
-    }
-    if kind == "turn_context" && state.phase == ReconstructionPhase::Live {
-        state.model = record
-            .pointer("/payload/model")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| state.model.clone());
-        state.cwd = record
-            .pointer("/payload/cwd")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| state.cwd.clone());
-        return Ok(None);
-    }
-    if kind != "event_msg"
-        || record.pointer("/payload/type").and_then(Value::as_str) != Some("token_count")
-        || state.phase == ReconstructionPhase::AwaitingCanonical
-    {
-        return Ok(None);
+        BoundaryAction::Context => {
+            state.model = record
+                .pointer("/payload/model")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| state.model.clone());
+            state.cwd = record
+                .pointer("/payload/cwd")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| state.cwd.clone());
+            return Ok(None);
+        }
+        BoundaryAction::Baseline => {
+            if let Some(total) = total {
+                state.previous_total = Some(total);
+                state.last_token_at = source_timestamp(&record);
+                state.prefix_events = state.prefix_events.saturating_add(1);
+            }
+            return Ok(None);
+        }
+        BoundaryAction::Ignore => return Ok(None),
+        BoundaryAction::Usage => {}
     }
     let Some(at) = source_timestamp(&record) else {
         return Ok(None);
     };
-    let sample = parse_token_sample(&record);
-    let Some(total) = sample.total.filter(|usage| valid_usage(*usage)) else {
+    let Some(total) = total else {
         return Ok(None);
     };
-
-    if state.phase == ReconstructionPhase::ChildPrefix {
-        let starts_immediately = state
-            .canonical_at
-            .is_some_and(|canonical| millis_between(canonical, at) <= INHERITED_PREFIX_GAP_MILLIS);
-        match (state.previous_total, state.last_token_at) {
-            (None, _) if !starts_immediately => state.phase = ReconstructionPhase::Live,
-            (None, _) => {
-                state.previous_total = Some(total);
-                state.last_token_at = Some(at);
-                state.prefix_events = state.prefix_events.saturating_add(1);
-                return Ok(None);
-            }
-            (Some(_), Some(previous_at))
-                if millis_between(previous_at, at) <= INHERITED_PREFIX_GAP_MILLIS =>
-            {
-                state.previous_total = Some(total);
-                state.last_token_at = Some(at);
-                state.prefix_events = state.prefix_events.saturating_add(1);
-                return Ok(None);
-            }
-            _ => state.phase = ReconstructionPhase::Live,
-        }
-    }
 
     let step = crate::counter::normalize_counter(state.previous_total, total, sample.last);
     if state.previous_total.is_none() {
@@ -972,13 +916,6 @@ fn source_timestamp(record: &Value) -> Option<DateTime<Utc>> {
         .map(|value| value.with_timezone(&Utc))
 }
 
-fn millis_between(earlier: DateTime<Utc>, later: DateTime<Utc>) -> i64 {
-    later
-        .signed_duration_since(earlier)
-        .num_milliseconds()
-        .max(0)
-}
-
 fn valid_usage(usage: TokenUsage) -> bool {
     usage.validate().is_ok()
 }
@@ -1077,6 +1014,40 @@ mod tests {
             cwd: Some("/tmp/project".to_owned()),
             model: Some("gpt-test".to_owned()),
         }
+    }
+
+    #[test]
+    fn verified_child_start_does_not_drop_a_fast_first_sample() {
+        let target = child_target();
+        let mut state = ReconstructionCheckpoint::new(&target);
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: target.parent_thread_id.clone(),
+        };
+        let at = DateTime::parse_from_rfc3339("2026-09-01T00:00:00Z").unwrap();
+        for (index, record) in [
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"child"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":at.timestamp()}}),
+        ].into_iter().enumerate() {
+            assert!(process_line(&mut state,&line(index as u64,record),&target,"m","s","f",&attribution,&[]).unwrap().is_none());
+        }
+        let own = process_line(
+            &mut state,
+            &line(3, token("2026-09-01T00:00:00.100Z", 100, 100)),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(own.unwrap().event.usage.total_tokens, 100);
     }
 
     #[test]
