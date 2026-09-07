@@ -1,9 +1,13 @@
 import Foundation
+import SwiftUI
+import WebKit
 
 @main
 struct PureStateTests {
     static func main() {
         testIsolatedProfile()
+        testLanguageBootstrap()
+        testWebViewBootstrapScripts()
         for mode in [LedgerServiceMode.serve, .daemon] {
             precondition(LedgerServiceLifecycle.decision(applicationIsTerminating: false, processIsRunning: true,
                 currentMode: .serve, requestedMode: mode, stopInProgress: true) == .updatePendingMode(mode))
@@ -64,6 +68,50 @@ struct PureStateTests {
 
         precondition(Set(DashboardBridgeMessage.allCases.map(\.rawValue)) == ["exportPNG", "languageChanged"])
         print("Swift pure-state tests passed.")
+    }
+
+    static func testLanguageBootstrap() {
+        var bootstrap = DashboardLanguageBootstrap()
+        precondition(bootstrap.language == nil)
+        let english = bootstrap.update("en")!
+        precondition(english.contains("'ledger.language', 'en'"))
+        precondition(bootstrap.language == .english)
+        precondition(bootstrap.update("en") == nil, "unrelated SwiftUI updates must not replace scripts")
+        let chinese = bootstrap.update("zh-CN")!
+        precondition(chinese.contains("'ledger.language', 'zh-CN'"))
+        precondition(bootstrap.language == .simplifiedChinese)
+        precondition(bootstrap.update("zh-CN") == nil)
+        precondition(bootstrap.update("invalid'); alert(1); //") == nil)
+        precondition(bootstrap.update("en") == english)
+        var reopened = DashboardLanguageBootstrap()
+        precondition(reopened.update("en") == english, "a new view must receive the saved language at document start")
+        var invalid = DashboardLanguageBootstrap()
+        let fallback = invalid.update("invalid'); alert(1); //")!
+        precondition(fallback == chinese && !fallback.contains("alert("))
+    }
+
+    static func testWebViewBootstrapScripts() {
+        let controller = WKUserContentController()
+        let coordinator = LockedDashboardWebView.Coordinator(
+            allowedURL: URL(string: "http://127.0.0.1:47127/")!,
+            isLoaded: .constant(false), onLanguageChange: { _ in }
+        )
+        coordinator.updateBootstrapLanguage("en", in: controller)
+        let original = controller.userScripts
+        precondition(original.count == 2)
+        precondition(original[0].source.contains("'ledger.language', 'en'"))
+        let policy = original[1].source
+        precondition(policy.contains("frame-src 'none'"))
+        precondition(policy.contains("connect-src 'self' http://127.0.0.1:47127"))
+        coordinator.updateBootstrapLanguage("en", in: controller)
+        precondition(controller.userScripts[0] === original[0], "unchanged language must retain scripts")
+        coordinator.updateBootstrapLanguage("zh-CN", in: controller)
+        precondition(controller.userScripts.count == 2)
+        precondition(controller.userScripts[0].source.contains("'ledger.language', 'zh-CN'"))
+        precondition(controller.userScripts[1].source == policy, "language update must preserve CSP")
+        for script in controller.userScripts {
+            precondition(script.injectionTime == .atDocumentStart && script.isForMainFrameOnly)
+        }
     }
 
     static func testIsolatedProfile() {

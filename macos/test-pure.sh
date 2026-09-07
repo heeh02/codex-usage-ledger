@@ -18,6 +18,7 @@ swiftc_bin="$(xcrun --sdk macosx --find swiftc)"
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerHealthIdentity.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerRuntimePaths.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/DashboardBridge.swift" \
+  "$repo_root/macos/Sources/CodexUsageLedgerApp/LockedDashboardWebView.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerProcessDiagnostics.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerServiceState.swift" \
   "$repo_root/macos/Sources/CodexUsageLedgerApp/LedgerServiceLifecycle.swift" \

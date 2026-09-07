@@ -28,15 +28,46 @@ and its separate preference domain persist until explicitly cleaned; restarting
 with the same UUID is intentional. Do not treat this as a production migration
 receipt or as representative token evidence without synthetic source fixtures.
 
-## Validation status
+## Language bootstrap
+
+The saved language is injected at document start into the nonpersistent Web
+store. After a validated language-change bridge message, Swift updates both
+its preference and the next document's bootstrap script. Merely updating the
+preference left the original script stale, allowing a later native reload to
+restore the previous language. An unchanged language now leaves scripts alone;
+a changed language replaces the language script and reinstalls the same CSP.
+Both scripts remain main-frame-only at document start. This does not trigger a
+navigation or reset React filters. Message handlers and the URL allowlist are
+unchanged. Pure/native-controller tests cover valid languages, invalid-string
+fallback, stable unchanged scripts and preserved CSP injection.
+
+## Validation status — 2026-09-07
 
 Pure Swift tests cover UUID validation, normal/isolated path separation, bundled
 resource identity, explicit serve/daemon source arguments, environment overrides,
-directory permissions and broken database-link refusal. The app builds through
-the standard script with arm64 and ad-hoc signature checks. A direct native
-launch attempt returned exit code 1 without diagnostics, before the isolated
-data directory was created. No successful native-window acceptance is claimed.
-Start/retry/mode switch/quit/port conflict, language persistence, zoom, export
-failure and installed-app migration acceptance remain required. Signing here
-does not mean notarization or public release. Identity/process-boundary changes
-still require code-owner review before release.
+directory permissions and broken database-link refusal. The owned-process stop
+tests pass. The standard build produced an arm64, macOS-13-minimum, ad-hoc-signed
+source bundle; deep signature verification passed. Its file-manifest SHA-256 is
+`41d6fa850935d0598d9e0e5241d4848d33a00fe065ac2b97da00ba60ff4a82a0`.
+
+The source bundle launched successfully using a fresh isolated UUID profile,
+superseding the earlier failed launch attempt. Native AX/window readback showed
+the isolation banner and empty-evidence states. Verified Chinese-to-English,
+English native reload, quit/reopen retaining English, English-to-Chinese and
+Chinese native reload. Command-plus/minus/reset changed 100/110/100 percent
+without losing the selected Today view; a 700-pixel narrow window at 160 percent
+retained readable controls and could scroll to the final overview sections.
+This is empty-ledger native evidence, not populated-project/model acceptance.
+
+The collection-dialog exercise did not establish a reliable cancellation
+result: enabled state was observed and explicitly returned to read-only mode.
+Final preference readback was collection disabled, Chinese, 100 percent. Both
+shutdowns completed; the owned app/service processes exited and port 47127 was
+released. Explicit runtime paths remained under the isolated profile, the source
+directory was empty, and raw/retained/reconstructed usage tables contained zero
+rows. No installed app replacement or real-ledger migration was performed.
+
+Retry/port-conflict scenarios, reliable modal cancellation, export-failure paths,
+populated-data native journeys and installed-app migration acceptance remain
+open. Signing here does not mean notarization or public release. Identity/
+process-boundary changes still require code-owner review before release.

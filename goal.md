@@ -1720,3 +1720,21 @@ No live data migration, installed-app replacement or release has occurred.
   Prior native-language work remains separate. Remaining gates are legacy
   eligibility/correction, controlled shadow promotion, real-account parity and
   native acceptance; full goal ACTIVE.
+- Batch 151: completed the pending native language-bootstrap correction and its
+  Swift/controller regressions. Language changes now refresh the next document's
+  initialization script without reloading the current React scope; unchanged
+  updates preserve script objects, and CSP/main-frame/document-start restrictions
+  remain intact. Standard arm64 native build and deep ad-hoc verification passed.
+  A new isolated profile launched the source bundle, showed empty-evidence state,
+  preserved English across native reload and quit/reopen, and returned to Chinese
+  across a further native reload. Command-plus/minus/reset, Today without a white
+  screen, and 700-pixel/160-percent overview scrolling to the bottom were checked
+  in the actual WKWebView. Both final app/service shutdowns released the port.
+  The collection-dialog exercise observed enabled state without establishing the
+  cancellation path; it was explicitly returned to read-only and is not counted
+  as a cancellation pass. Final isolated preferences were collection disabled,
+  Chinese and 100 percent; the isolated source directory and all three usage
+  evidence tables were empty. See the updated native-preview contract for the
+  artifact hash and limits. No installed application or real ledger was replaced.
+  Populated native journeys, modal/export/retry acceptance, historical accounting
+  promotion and real-account parity remain open; the full goal stays ACTIVE.
