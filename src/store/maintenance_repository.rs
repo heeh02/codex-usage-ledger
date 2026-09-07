@@ -42,12 +42,21 @@ impl LedgerStore {
             .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         for id in &ids {
-            let event = transaction.query_row(
-                &format!("SELECT {EVENT_SELECT_COLUMNS} FROM usage_events WHERE rowid=?1"),
-                params![id],
-                row_to_event,
-            )?;
-            retain_request_evidence_in(&transaction, &event, false)?;
+            // Raw identity hashes may predate a metadata-only SQL projection.
+            // Copy the persisted hash verbatim; don't manufacture a new hash
+            // from projected fields or overwrite an existing observed record.
+            transaction.execute("INSERT INTO retained_request_evidence(
+                event_id,event_hash,effective_at,thread_id,model,account_fingerprint,project_id,quality,
+                input_tokens,cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+                output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence)
+                SELECT event_id,event_hash,COALESCE(source_timestamp,observed_at),thread_id,model,account_fingerprint,project_id,quality,
+                input_tokens,cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+                output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence
+                FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
+            transaction.execute("INSERT INTO retained_request_origins(event_id,machine_id)
+                SELECT event_id,machine_id FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
+            transaction.execute("INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+                SELECT event_id,account_fingerprint,project_id FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
         }
         let next = ids.last().copied().unwrap_or(target);
         let complete = next >= target;

@@ -1006,6 +1006,119 @@ fn upgrades_v15_to_cache_write_buckets_without_changing_old_totals() {
 }
 
 #[test]
+fn hash_audit_explains_projection_rehashes_and_backfill_preserves_existing_observations() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (offset, id) in [(1, "a"), (2, "b")] {
+        store
+            .upsert_event(&event(id, DataQuality::Confirmed, offset))
+            .unwrap();
+    }
+    store
+        .connection
+        .execute(
+            "UPDATE usage_events SET project_id='projected' WHERE event_id='a'",
+            [],
+        )
+        .unwrap();
+    let projected = store.get_event("a").unwrap().unwrap();
+    let rehashed = event_hash(&projected).unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE retained_request_evidence SET event_hash=?1 WHERE event_id='a'",
+            [&rehashed],
+        )
+        .unwrap();
+    let changes = store.connection.total_changes();
+    let first = store.audit_retained_hashes(0, 1).unwrap();
+    assert_eq!(first.compared_rows, 1);
+    assert_eq!(first.mismatched_hashes, 1);
+    assert_eq!(first.current_serialization_matches_raw, 0);
+    assert_eq!(first.current_serialization_matches_retained, 1);
+    assert!(!first.repair_authorized);
+    let second = store
+        .audit_retained_hashes(first.next_after_rowid.unwrap(), 1)
+        .unwrap();
+    assert_eq!(second.compared_rows, 1);
+    assert_eq!(second.mismatched_hashes, 0);
+    assert!(second.next_after_rowid.is_none());
+    assert_eq!(store.connection.total_changes(), changes);
+    assert!(store.audit_retained_hashes(-1, 1).is_err());
+    assert!(store.audit_retained_hashes(0, 1001).is_err());
+    store
+        .connection
+        .execute_batch(
+            "DELETE FROM retained_request_origins;
+        UPDATE retained_request_assignments SET project_id='reviewed-assignment';
+        UPDATE request_backfill_state SET last_rowid=0,target_rowid=2,complete=0;",
+        )
+        .unwrap();
+    while !store.backfill_request_evidence_chunk(100).unwrap() {}
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT event_hash FROM retained_request_evidence WHERE event_id='a'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        rehashed
+    );
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT project_id FROM retained_request_assignments WHERE event_id='a'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "reviewed-assignment"
+    );
+}
+
+#[test]
+fn request_backfill_preserves_raw_identity_hash_after_metadata_projection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("projected", DataQuality::Confirmed, 1))
+        .unwrap();
+    let original_hash: String = store
+        .connection
+        .query_row("SELECT event_hash FROM usage_events", [], |row| row.get(0))
+        .unwrap();
+    // Model the existing direct SQL project projection and an older ledger
+    // whose retained details have not yet been backfilled.
+    store.connection.execute_batch("UPDATE usage_events SET project_id='new-project',project_name='New';
+        DELETE FROM retained_request_evidence; DELETE FROM retained_request_origins; DELETE FROM retained_request_assignments;
+        UPDATE request_backfill_state SET last_rowid=0,target_rowid=1,complete=0;").unwrap();
+    let current = store.get_event("projected").unwrap().unwrap();
+    assert_ne!(event_hash(&current).unwrap(), original_hash);
+    while !store.backfill_request_evidence_chunk(100).unwrap() {}
+    let kept_hash: String = store
+        .connection
+        .query_row(
+            "SELECT event_hash FROM retained_request_evidence",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        kept_hash, original_hash,
+        "backfill must preserve the stored identity hash, not hash today's projection"
+    );
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    assert_eq!(
+        store
+            .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn compaction_reports_retained_conflicts_without_weakening_or_consuming_evidence() {
     for mismatch in [
         "event_hash='different'",

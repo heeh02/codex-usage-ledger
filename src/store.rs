@@ -592,6 +592,18 @@ pub struct LedgerTableCounts {
     pub file_cursors: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainedHashAudit {
+    pub version: u32,
+    pub compared_rows: u64,
+    pub mismatched_hashes: u64,
+    pub current_serialization_matches_raw: u64,
+    pub current_serialization_matches_retained: u64,
+    pub next_after_rowid: Option<i64>,
+    pub repair_authorized: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthTimelineRow {
     pub epoch_id: i64,

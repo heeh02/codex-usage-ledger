@@ -38,6 +38,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read-only paired raw/retained hash audit. Does not authorize repair.
+    AuditRetainedHashes {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        after_rowid: i64,
+        #[arg(long, default_value_t = 1000)]
+        limit: usize,
+    },
     /// Compare a bounded retained rollout prefix with existing reconstructed facts; never writes.
     AuditReconstruction {
         #[arg(long)]
@@ -197,6 +206,17 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::AuditRetainedHashes {
+            db,
+            after_rowid,
+            limit,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&store.audit_retained_hashes(after_rowid, limit)?)?
+            );
+        }
         Command::AuditReconstruction {
             db,
             codex_home,

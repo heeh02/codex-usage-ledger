@@ -23,3 +23,7 @@ explicit compaction still fails and rolls back for hash or token-field conflicts
 This does not resolve historical hash provenance, verify independent inference
 usage, or guarantee that other startup preparation failures are nonfatal. Such
 integrity failures still require a documented reconciliation/migration receipt.
+
+The request-backfill rehash mechanism and read-only provenance diagnostic are
+documented in [retained hash provenance](retained-hash-provenance.md). Its forward
+fix does not silently normalize old mismatches.

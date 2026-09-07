@@ -1279,3 +1279,20 @@ No live data migration, installed-app replacement or release has occurred.
   app or original-ledger modification, no native rebuild in this batch. Historical
   hash provenance, safe source rebinding and union/migration accuracy remain open;
   this is a dashboard availability fix, not evidence repair. Full goal ACTIVE.
+- Batch 133: data-quality guidance separated metadata identity from token-field
+  agreement. A RED synthetic SQL-project-projection/backfill fixture proved the
+  old backfill recomputed retained hashes from current projected fields instead
+  of preserving raw ingestion hashes, blocking later guarded compaction. Missing
+  request detail now copies persisted raw fields/hash directly; filling absent
+  companion origin/assignment rows no longer overwrites retained observations or
+  reviewed assignments. Existing mismatches are not repaired automatically.
+  Added a bounded read-only paginated hash-provenance CLI. On the idle private
+  copy, every previously mismatching pair matched current-row serialization on
+  the retained side, consistent with the reproduced mechanism; whole-file bytes
+  remained unchanged. Exact counts and invocation evidence are in the private
+  receipt, not public repo. This does not prove source identity/history or grant
+  bulk-repair authority. Full Rust 202 tests, Clippy/contracts/governance pass;
+  an initial test fixture reused a unique source position and was corrected to
+  distinct positions without changing production constraints. No source/schema/
+  installed-app change or historical hash repair occurred. Safe receipt-controlled
+  remediation, source-union migration and native acceptance remain open; ACTIVE.

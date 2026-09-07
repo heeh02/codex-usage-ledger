@@ -1,6 +1,36 @@
 use super::*;
 
 impl LedgerStore {
+    /// Bounded read-only hash provenance diagnostic. Counts are not repair proof.
+    pub fn audit_retained_hashes(
+        &self,
+        after_rowid: i64,
+        limit: usize,
+    ) -> StoreResult<RetainedHashAudit> {
+        if after_rowid < 0 || !(1..=1000).contains(&limit) {
+            return Err(StoreError::InvalidRequestQuery(
+                "hash audit needs nonnegative cursor and limit 1..1000",
+            ));
+        }
+        self.with_source_audit_snapshot(|store| {
+            let mut statement=store.connection.prepare("SELECT raw.rowid,raw.event_hash,kept.event_hash FROM usage_events raw
+                JOIN retained_request_evidence kept USING(event_id) WHERE raw.rowid>?1 ORDER BY raw.rowid LIMIT ?2")?;
+            let mut rows=statement.query_map(params![after_rowid,(limit+1) as i64],|row|Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+            let more=rows.len()>limit;rows.truncate(limit);
+            let mut report=RetainedHashAudit {version:1,compared_rows:rows.len() as u64,mismatched_hashes:0,current_serialization_matches_raw:0,
+                current_serialization_matches_retained:0,next_after_rowid:if more {rows.last().map(|row|row.0)} else {None},repair_authorized:false};
+            let mut raw_query=store.connection.prepare(&format!("SELECT {EVENT_SELECT_COLUMNS} FROM usage_events WHERE rowid=?1"))?;
+            for (id,raw,kept) in rows {
+                if raw==kept { continue; }
+                report.mismatched_hashes+=1;
+                let event=raw_query.query_row([id],row_to_event)?;let current=event_hash(&event)?;
+                report.current_serialization_matches_raw+=u64::from(current==raw);
+                report.current_serialization_matches_retained+=u64::from(current==kept);
+            }
+            Ok(report)
+        })
+    }
+
     /// Audit-only snapshot: no selector refresh, migration or cache preparation.
     pub(crate) fn with_source_audit_snapshot<T, E: From<StoreError>>(
         &self,
