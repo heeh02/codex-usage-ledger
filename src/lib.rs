@@ -51,7 +51,10 @@ pub mod cli_support {
         load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
         prepare_store, sync_native_catalog,
     };
-    pub use crate::sampling::{POST_SAMPLING_SOURCE_ID, ingest_post_sampling};
+    pub use crate::sampling::{
+        LegacySamplingAuditOptions, POST_SAMPLING_SOURCE_ID, audit_legacy_sampling,
+        ingest_post_sampling,
+    };
     pub use crate::store::{
         AggregateDimension, AggregateFilter, CollectorStatus, CorrectionPreviewFilter,
         CorrectionPreviewGrain, LedgerStore, LedgerTableCounts, QuotaHistoryCursor,

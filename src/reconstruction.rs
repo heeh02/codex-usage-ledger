@@ -82,6 +82,14 @@ struct Target {
     model: Option<String>,
 }
 
+pub(crate) fn indexed_rollout_for_sampling_audit(
+    home: &Path,
+    thread: &str,
+) -> Result<(PathBuf, bool)> {
+    let target = audit::resolve_target(home, thread)?;
+    Ok((target.path, target.parent_thread_id.is_some()))
+}
+
 #[derive(Debug, Clone)]
 struct AccountEpoch {
     observed_from: DateTime<Utc>,

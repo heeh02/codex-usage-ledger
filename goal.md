@@ -1964,3 +1964,22 @@ No live data migration, installed-app replacement or release has occurred.
   Next critical path is reviewed historical correction and occurrence linkage,
   then real-account/product reconciliation and populated native installation.
   This is not production promotion or historical completeness; goal stays ACTIVE.
+- Batch 161 (2026-09-08): implemented [legacy sampling requalification](docs/architecture/legacy-sampling-requalification.md)
+  using retained observation anchors and the same counter/replay/association
+  mechanism as live sampling. Missing identity tables no longer end the
+  investigation: full-prefix parsing can locate candidate source occurrences
+  without requiring expired raw logs to remain present. Unknown anchors and
+  invalid/inherited/unchanged candidates remain in the mutual-nearest competition;
+  amount equality never selects the candidate. Bounded CLI diagnostics distinguish
+  matching amounts, changed amounts, unavailable/ambiguous candidates and original
+  unconfirmed records, with write-field coverage changes separate from consumption.
+  Optional private links expose offsets/digests for the subsequent reviewed
+  migration, not automatic source-key writes or quality upgrades. Synthetic stale
+  last-value/re-emit, competing-unknown, read-only, missing-log and budget/schema
+  tests pass; Rust 316 tests, Clippy and API contracts pass. Real retained anchors
+  were also checked against available primary logs, and one complete retained
+  rollout prefix was requalified without source changes. Matching legacy amounts
+  and previously unconfirmed proposals were separated; no original/shadow usage
+  facts, account labels, installed application or production policy were changed.
+  Historical correction application, namespace/occurrence linkage, two-account
+  reconciliation and populated native delivery remain open. Full goal ACTIVE.

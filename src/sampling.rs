@@ -24,6 +24,8 @@ use crate::{
 };
 
 pub const POST_SAMPLING_SOURCE_ID: &str = "logs2-post-sampling-v1";
+mod legacy_requalification;
+pub use legacy_requalification::{LegacySamplingAuditOptions, audit_legacy_sampling};
 const MATCH_TOLERANCE_NANOS: i64 = 250_000_000;
 const NEW_THREAD_TAIL_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_JOIN_WINDOW_RECORDS: usize = 10_000;
@@ -1168,6 +1170,37 @@ fn read_usage_candidates(
     thread_id: &str,
     is_child: bool,
 ) -> Result<(Vec<UsageCandidate>, u64)> {
+    read_usage_candidates_bounded(
+        path,
+        start_offset,
+        bytes_read,
+        CandidateReadWindow {
+            safe_before,
+            max_bytes: None,
+            max_candidates: None,
+        },
+        counter,
+        thread_id,
+        is_child,
+    )
+}
+
+struct CandidateReadWindow {
+    safe_before: DateTime<Utc>,
+    max_bytes: Option<u64>,
+    max_candidates: Option<usize>,
+}
+
+fn read_usage_candidates_bounded(
+    path: &Path,
+    start_offset: u64,
+    bytes_read: &mut u64,
+    window: CandidateReadWindow,
+    counter: &mut CandidateCounterCheckpoint,
+    thread_id: &str,
+    is_child: bool,
+) -> Result<(Vec<UsageCandidate>, u64)> {
+    let safe_before = window.safe_before;
     let mut file = File::open(path).with_context(|| format!("open rollout {}", path.display()))?;
     let file_len = file.metadata()?.len();
     let start_offset = start_offset.min(file_len);
@@ -1191,7 +1224,20 @@ fn read_usage_candidates(
     loop {
         let line_start = reader.stream_position()?;
         line.clear();
-        let count = reader.read_line(&mut line)?;
+        let count = if let Some(max_bytes) = window.max_bytes {
+            let remaining = max_bytes.saturating_sub(line_start);
+            if remaining == 0 {
+                if line_start == file_len {
+                    break;
+                }
+                return Err(anyhow!("candidate byte budget exhausted"));
+            }
+            Read::by_ref(&mut reader)
+                .take(remaining)
+                .read_line(&mut line)?
+        } else {
+            reader.read_line(&mut line)?
+        };
         if count == 0 {
             break;
         }
@@ -1262,6 +1308,12 @@ fn read_usage_candidates(
             unavailable_reason: unavailable_reason.map(str::to_owned),
             claimed: false,
         });
+        if window
+            .max_candidates
+            .is_some_and(|limit| candidates.len() > limit)
+        {
+            return Err(anyhow!("candidate count budget exhausted"));
+        }
     }
     let next_offset = durable_offset;
     *bytes_read = bytes_read.saturating_add(next_offset.saturating_sub(start_offset));

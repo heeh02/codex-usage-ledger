@@ -42,6 +42,25 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Requalify persisted sampling anchors against a complete rollout prefix; never writes.
+    AuditLegacySampling {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 100000)]
+        limit: usize,
+        #[arg(long, default_value_t = 1073741824)]
+        max_bytes: u64,
+        #[arg(long)]
+        include_links: bool,
+    },
     /// Read the actual dashboard bundle through the resolved union, without promoting policy.
     PreviewUnionBundle {
         #[arg(long)]
@@ -385,6 +404,30 @@ async fn main() -> Result<()> {
                 max_bytes,
                 limit,
                 allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditLegacySampling {
+            db,
+            codex_home,
+            thread,
+            start,
+            end,
+            limit,
+            max_bytes,
+            include_links,
+        } => {
+            let report = codex_usage_ledger::cli_support::audit_legacy_sampling(
+                &db,
+                &codex_home,
+                &thread,
+                codex_usage_ledger::cli_support::LegacySamplingAuditOptions {
+                    start,
+                    end,
+                    limit,
+                    max_bytes,
+                    include_links,
+                },
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
