@@ -5,6 +5,10 @@ This is a durable per-record artifact from the
 It prepares historical correction review without altering old facts, assignments,
 source bindings, rollups, or the production source-selection policy.
 
+An [isolated before/after preview](correction-preview.md) can now materialize a
+revalidated complete draft into a separate review database and query its scoped
+time/account/project/model/thread distributions. It still does not apply changes.
+
 ```sh
 codex-usage-ledger draft-reconstruction-correction \
   --db ./synthetic-ledger.sqlite3 --codex-home ./synthetic-codex \

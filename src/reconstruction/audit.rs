@@ -127,6 +127,68 @@ mod tests {
     }
 
     #[test]
+    fn correction_preview_is_separate_and_failed_seals_roll_back_candidate_rows() {
+        let (temp, store, path) = fixture();
+        let out = tempfile::tempdir().unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        let draft = out.path().join("draft.jsonl");
+        let preview = out.path().join("preview.sqlite3");
+        super::super::write_correction_manifest(&db, temp.path(), "root", 4096, 100, false, &draft)
+            .unwrap();
+        let db_before = fs::read(&db).unwrap();
+        let source_before = fs::read(&path).unwrap();
+        let changes = store.connection().total_changes();
+        let report = serde_json::to_value(
+            crate::store::create_correction_preview(&draft, &db, &preview).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["old"]["usage"]["total_tokens"], 1100);
+        assert_eq!(report["candidate"]["usage"]["total_tokens"], 100);
+        assert_eq!(report["migrationAuthorized"], false);
+        let preview_before = fs::read(&preview).unwrap();
+        assert!(crate::store::create_correction_preview(&draft, &db, &preview).is_err());
+        assert_eq!(fs::read(&preview).unwrap(), preview_before);
+        let mut bytes = fs::read(&draft).unwrap();
+        bytes.pop();
+        fs::write(&draft, bytes).unwrap();
+        let failed = out.path().join("failed.sqlite3");
+        assert!(crate::store::create_correction_preview(&draft, &db, &failed).is_err());
+        assert!(
+            crate::store::read_correction_preview(
+                &failed,
+                &crate::store::CorrectionPreviewFilter::default()
+            )
+            .is_err()
+        );
+        let connection = Connection::open(&failed).unwrap();
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM preview_facts", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT ready FROM preview_meta", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(store.connection().total_changes(), changes);
+        assert_eq!(fs::read(&db).unwrap(), db_before);
+        assert_eq!(fs::read(&path).unwrap(), source_before);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&preview).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
     fn streaming_audit_reaches_beyond_prefix_and_checks_unseen_stored_positions() {
         let (temp, store, path) = fixture();
         let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();

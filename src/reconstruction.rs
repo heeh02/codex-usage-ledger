@@ -40,6 +40,7 @@ pub use file_audit::audit_reconstruction_file;
 mod inheritance_audit;
 pub use inheritance_audit::audit_inherited_prefix;
 mod correction_manifest;
+pub(crate) use correction_manifest::visit_correction_records;
 pub use correction_manifest::{
     verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
 };

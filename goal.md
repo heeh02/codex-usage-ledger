@@ -99,6 +99,15 @@ and old-fact revalidation. Next build a reversible reviewed correction projectio
 from that evidence, then verify source-union scope/dimension parity. Draft seals
 are not approval, source revalidation, or permission to delete historical facts.
 
+An [isolated correction preview](docs/architecture/correction-preview.md) now
+materializes both alternatives from a complete, old-fact-revalidated draft.
+It supports exact filters and timezone-aware day/week/month/year distributions
+without reopening source logs. A private preview conserves every dimension and
+component, and an unaffected later calendar month stays identical across sides.
+Next compare this candidate with the other evidence source and resolve identity
+eligibility before promoting a unified selection policy; the live max policy is
+still not repaired by the existence of a preview artifact.
+
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
 inode values matched. The old automatic replacement path could delete derived
@@ -1601,3 +1610,23 @@ No live data migration, installed-app replacement or release has occurred.
   stale-fact and CLI cases. This exports and verifies a draft, not an apply path:
   reversible correction projection/review, union promotion, two-account
   reconciliation and native acceptance remain unfinished. Full goal ACTIVE.
+- Batch 146: built a separate private SQLite correction-preview artifact with
+  old/candidate facts, source-position actions and draft provenance. A single
+  input snapshot revalidates the sealed stream; output rows/readiness commit
+  together only after verification and full-source coverage checks. Failed seals
+  roll back all candidate rows, existing outputs cannot be overwritten, and
+  unready/foreign files are rejected. The read-only preview reader opens no
+  original ledger/logs and provides exact half-open filters, timezone-aware
+  day/Monday-week/month/year buckets and full account/project/model/thread
+  distributions. Null identifiers, observed zero and empty results remain
+  distinct; every component conserves on each alternative separately. A real
+  single-source preview passed all four grains and all dimension/component
+  checks; an unaffected subsequent calendar month had equal old/candidate
+  records and amounts. Exact private totals and artifact paths remain outside
+  the public repository. Rust 251 tests, Clippy and contract/governance checks
+  pass, including CLI, source preservation, rollback, timezone, subsecond and
+  parameterized-filter cases. The original audit-ledger hash is unchanged;
+  no production schema/facts/selector or installed app changed. Prior native
+  work remains separate. Source-union comparison/promotion, reviewed historical
+  application, two-account reconciliation and native acceptance remain open.
+  Full goal ACTIVE.

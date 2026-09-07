@@ -144,6 +144,51 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     let checked: serde_json::Value = serde_json::from_slice(&checked.stdout).unwrap();
     assert_eq!(checked["ledgerRowsRevalidated"], true);
     assert_eq!(checked["migrationAuthorized"], false);
+    let preview = output_dir.path().join("preview.sqlite3");
+    let built = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("create-correction-preview")
+        .arg("--manifest")
+        .arg(&draft)
+        .arg("--against-db")
+        .arg(&db)
+        .arg("--output")
+        .arg(&preview)
+        .output()
+        .unwrap();
+    assert!(
+        built.status.success(),
+        "{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let built: serde_json::Value = serde_json::from_slice(&built.stdout).unwrap();
+    assert_eq!(built["scope"], "single_source_correction_preview");
+    assert_eq!(built["old"]["usage"]["total_tokens"], 100);
+    let preview_before = fs::read(&preview).unwrap();
+    let read = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("read-correction-preview")
+        .arg("--preview")
+        .arg(&preview)
+        .args([
+            "--grain",
+            "month",
+            "--timezone",
+            "UTC",
+            "--start",
+            "2026-01-01T00:00:00Z",
+            "--end",
+            "2026-01-02T00:00:00Z",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        read.status.success(),
+        "{}",
+        String::from_utf8_lossy(&read.stderr)
+    );
+    let read: serde_json::Value = serde_json::from_slice(&read.stdout).unwrap();
+    assert_eq!(read["candidate"]["usage"]["total_tokens"], 100);
+    assert_eq!(read["candidate"]["byTime"][0]["key"], "2026-01");
+    assert_eq!(fs::read(&preview).unwrap(), preview_before);
     assert_eq!(fs::read(&db).unwrap(), before);
     assert_eq!(fs::read(&rollout).unwrap(), source);
     assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);

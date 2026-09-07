@@ -50,7 +50,9 @@ pub mod cli_support {
     };
     pub use crate::sampling::{POST_SAMPLING_SOURCE_ID, ingest_post_sampling};
     pub use crate::store::{
-        AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore, LedgerTableCounts,
-        QuotaHistoryCursor, QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope,
+        AggregateDimension, AggregateFilter, CollectorStatus, CorrectionPreviewFilter,
+        CorrectionPreviewGrain, LedgerStore, LedgerTableCounts, QuotaHistoryCursor,
+        QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, create_correction_preview,
+        read_correction_preview,
     };
 }

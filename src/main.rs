@@ -16,15 +16,16 @@ use clap::{Parser, Subcommand};
 use codex_usage_ledger::{
     api::{self, ApiState, UsageQuery},
     cli_support::{
-        AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
-        POST_SAMPLING_SOURCE_ID, RetainedRequestCursor, RetainedRequestScope,
-        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
-        compact_expired_raw_events, discover_rollouts, fetch_official_account_usage,
+        AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus,
+        CorrectionPreviewFilter, CorrectionPreviewGrain, LedgerStore, POST_SAMPLING_SOURCE_ID,
+        RetainedRequestCursor, RetainedRequestScope, audit_inherited_prefix,
+        audit_reconstruction_file, audit_reconstruction_prefix, compact_expired_raw_events,
+        create_correction_preview, discover_rollouts, fetch_official_account_usage,
         ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
         ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
         load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
-        sync_account_history, sync_native_catalog, verify_correction_against_ledger,
-        verify_correction_manifest, write_correction_manifest,
+        read_correction_preview, sync_account_history, sync_native_catalog,
+        verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
     },
 };
 use serde_json::json;
@@ -126,6 +127,36 @@ enum Command {
         /// Also compare expected old records with one read-only ledger snapshot.
         #[arg(long)]
         against_db: Option<PathBuf>,
+    },
+    /// Build a separate review-only SQLite preview from a revalidated full draft.
+    CreateCorrectionPreview {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        against_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Read old/candidate dimensions from a preview; never opens the source ledger.
+    ReadCorrectionPreview {
+        #[arg(long)]
+        preview: PathBuf,
+        #[arg(long)]
+        start: Option<chrono::DateTime<chrono::Utc>>,
+        #[arg(long)]
+        end: Option<chrono::DateTime<chrono::Utc>>,
+        #[arg(long, default_value = "Asia/Shanghai")]
+        timezone: String,
+        #[arg(long, default_value = "day")]
+        grain: CorrectionPreviewGrain,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        thread: Option<String>,
     },
     /// Resume retained request detail backfill in an existing current-schema ledger.
     /// Writes derived details, but never imports sources or changes token rollups.
@@ -376,6 +407,48 @@ async fn main() -> Result<()> {
                     Some(db) => verify_correction_against_ledger(&manifest, &db)?,
                     None => verify_correction_manifest(&manifest)?,
                 })?
+            );
+        }
+        Command::CreateCorrectionPreview {
+            manifest,
+            against_db,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&create_correction_preview(
+                    &manifest,
+                    &against_db,
+                    &output
+                )?)?
+            );
+        }
+        Command::ReadCorrectionPreview {
+            preview,
+            start,
+            end,
+            timezone,
+            grain,
+            account,
+            project,
+            model,
+            thread,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&read_correction_preview(
+                    &preview,
+                    &CorrectionPreviewFilter {
+                        start,
+                        end,
+                        timezone,
+                        grain,
+                        account,
+                        project,
+                        model,
+                        thread
+                    }
+                )?)?
             );
         }
         Command::QuotaHistory {

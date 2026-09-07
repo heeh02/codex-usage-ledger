@@ -25,7 +25,7 @@ pub(super) struct ManifestHeader {
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct ManifestRecord {
+pub(crate) struct ManifestRecord {
     pub byte_offset: u64,
     pub source_json_digest: String,
     pub change: String,
@@ -88,9 +88,9 @@ pub struct ManifestCategory {
 #[serde(rename_all = "camelCase")]
 pub struct ManifestVerification {
     scope: &'static str,
-    records: u64,
-    body_sha256: String,
-    full_source_scan: bool,
+    pub(crate) records: u64,
+    pub(crate) body_sha256: String,
+    pub(crate) full_source_scan: bool,
     draft_only: bool,
     migration_authorized: bool,
     source_revalidated: bool,
@@ -204,15 +204,30 @@ impl EvidenceSink for DraftWriter {
 }
 
 pub fn verify_correction_manifest(path: &Path) -> Result<ManifestVerification> {
-    verify_with_store(path, None)
+    verify_with_store(path, None, None)
 }
 
 pub fn verify_correction_against_ledger(path: &Path, db: &Path) -> Result<ManifestVerification> {
     let store = LedgerStore::open_reconstruction_audit(db)?;
-    store.with_source_audit_snapshot(|store| verify_with_store(path, Some(store)))
+    store.with_source_audit_snapshot(|store| verify_with_store(path, Some(store), None))
 }
 
-fn verify_with_store(path: &Path, store: Option<&LedgerStore>) -> Result<ManifestVerification> {
+/// Callbacks run before the final seal. Callers must stage transactionally and
+/// commit only after this returns successfully and required coverage is checked.
+pub(crate) fn visit_correction_records(
+    path: &Path,
+    store: &LedgerStore,
+    mut visit: impl FnMut(&ManifestRecord) -> Result<()>,
+) -> Result<ManifestVerification> {
+    verify_with_store(path, Some(store), Some(&mut visit))
+}
+
+type RecordVisitor<'a> = &'a mut dyn FnMut(&ManifestRecord) -> Result<()>;
+fn verify_with_store(
+    path: &Path,
+    store: Option<&LedgerStore>,
+    mut visitor: Option<RecordVisitor<'_>>,
+) -> Result<ManifestVerification> {
     let mut reader = BufReader::new(fs::File::open(path)?);
     let mut digest = Sha256::new();
     let mut header = None;
@@ -311,6 +326,9 @@ fn verify_with_store(path: &Path, store: Option<&LedgerStore>) -> Result<Manifes
                             row.byte_offset
                         ));
                     }
+                }
+                if let Some(visit) = visitor.as_mut() {
+                    visit(&row)?;
                 }
                 last_offset = Some(row.byte_offset);
                 records += 1;

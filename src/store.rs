@@ -20,6 +20,11 @@ use crate::types::{
 mod account_repository;
 mod candidate_comparison;
 mod core_repository;
+mod correction_preview;
+pub use correction_preview::{
+    CorrectionPreviewFilter, CorrectionPreviewGrain, create_correction_preview,
+    read_correction_preview,
+};
 mod dashboard_repository;
 mod ingest_repository;
 mod maintenance_repository;
