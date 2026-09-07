@@ -136,6 +136,13 @@ continuity/rebinding; matching inode alone is not sufficient. See the
 [prefix audit and identity-review contract](docs/architecture/reconstruction-prefix-audit.md).
 
 - Official account totals and local activity have explicit, independent scopes.
+- Retained sampling amounts are copied from associated rollout rows in the
+  current importer; agreement between these representations is not independent
+  numeric calibration. See [sampling provenance](docs/architecture/sampling-value-provenance.md).
+  Next accounting priority is shared counter/replay normalization for sampling
+  candidates and reconstruction, followed by legacy provenance enrichment and
+  reviewed promotion. Raw snapshot positions alone cannot prove independent
+  quantities when counters are re-emitted or history is inherited.
 - Official reads now use an explicit observed-source binding, guarded before
   and after the RPC; see [account binding](docs/architecture/official-account-binding.md).
   This fixes a forward attribution risk, not historical account calibration.
@@ -1764,3 +1771,28 @@ No live data migration, installed-app replacement or release has occurred.
   installed protocol schema were inspected; no authenticated real-account query,
   real credential inspection, quota reset, source migration or installed-app
   replacement was performed. Full historical parity and the goal remain open.
+- Batch 153: tested the long-inferred-epoch hypothesis instead of assuming it
+  caused the account discrepancy. The unchanged private audit copy had zero
+  stored reconstruction or retained-assignment mismatches against a unique
+  matching verified epoch; current resolvers already prioritize verified
+  intervals. Preserved that behavior. A source trace then established that
+  retained-sampling quantities are copied from rollout last-usage records, not
+  independently emitted input/cache/output counters in the sampling log. Prior
+  equal-value comparisons remain consistency checks, not independent accuracy
+  proof. Corrected the associated greedy matching defect: a consumed nearest
+  candidate cannot force another anchor onto a farther unused row. New batches
+  require mutual unique nearest neighbors within the supplied mature thread
+  cohort, mark ambiguity unknown without candidate links, use exact wide-integer
+  timestamps and record the policy in cursor metadata. Synthetic ingestion
+  rejects the spurious leftover quantity/context counter and remains zero-read
+  on the next unchanged tick. This does not repair or retroactively certify old
+  associations. Legacy enrichment must use source occurrences and actual
+  rollout positions with frozen-value validation before reviewed migration.
+  Private findings remain outside the repository. Full goal remains ACTIVE.
+  Also rejected null/partial/malformed standard usage fields as unknown rather
+  than synthesizing confirmed zero. Invalid nearest snapshots retain their place
+  in association checks so they cannot be skipped in favor of older quantities.
+  Rust 276 tests, Clippy and API contracts pass, including wide-date association
+  and invalid-neighbor regressions. No original/audit ledger,
+  source binding or installed app was rewritten. The shared-normalization gap
+  remains an explicit production-switch blocker, not a completed calibration.

@@ -67,8 +67,64 @@ struct UsageCandidate {
     record_digest: String,
     byte_offset: u64,
     observed_at: DateTime<Utc>,
-    usage: TokenUsage,
-    used: bool,
+    usage: Option<TokenUsage>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Nearest {
+    Missing,
+    Ambiguous,
+    Unique(usize),
+}
+
+fn nearest(times: &[i128], at: i128) -> Nearest {
+    let right = times.partition_point(|value| *value < at);
+    let mut best: Option<(u128, usize)> = None;
+    let mut tied = false;
+    for index in [right.checked_sub(1), (right < times.len()).then_some(right)]
+        .into_iter()
+        .flatten()
+    {
+        let distance = times[index].abs_diff(at);
+        if distance > MATCH_TOLERANCE_NANOS as u128 {
+            continue;
+        }
+        if best.is_none_or(|(previous, _)| distance < previous) {
+            best = Some((distance, index));
+            tied = false;
+        } else if best.is_some_and(|(previous, _)| distance == previous) {
+            tied = true;
+        }
+    }
+    let Some((_, index)) = best else {
+        return Nearest::Missing;
+    };
+    if tied
+        || (index > 0 && times[index - 1] == times[index])
+        || (index + 1 < times.len() && times[index + 1] == times[index])
+    {
+        Nearest::Ambiguous
+    } else {
+        Nearest::Unique(index)
+    }
+}
+
+/// Associations within the supplied mature cohort, not proof of model calls.
+/// A used nearest candidate must never force a farther replacement match.
+fn mutual_matches(observations: &[i128], candidates: &[i128]) -> Vec<Nearest> {
+    observations
+        .iter()
+        .enumerate()
+        .map(|(index, at)| match nearest(candidates, *at) {
+            Nearest::Unique(candidate)
+                if nearest(observations, candidates[candidate]) == Nearest::Unique(index) =>
+            {
+                Nearest::Unique(candidate)
+            }
+            Nearest::Unique(_) => Nearest::Ambiguous,
+            other => other,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -298,44 +354,39 @@ fn ingest_post_sampling_source(
             }
         };
         candidates.sort_by_key(|candidate| candidate.observed_at);
-        let mut start = 0_usize;
-        for observation in observations {
-            let observed_nanos = timestamp_nanos(observation.observed_at);
-            while start < candidates.len()
-                && timestamp_nanos(candidates[start].observed_at)
-                    < observed_nanos.saturating_sub(MATCH_TOLERANCE_NANOS)
-            {
-                start += 1;
-            }
-            let mut best: Option<(i64, usize)> = None;
-            let mut ambiguous = false;
-            for (index, candidate) in candidates.iter().enumerate().skip(start) {
-                let candidate_nanos = timestamp_nanos(candidate.observed_at);
-                if candidate_nanos > observed_nanos.saturating_add(MATCH_TOLERANCE_NANOS) {
-                    break;
-                }
-                if candidate.used {
-                    continue;
-                }
-                let delta = candidate_nanos.abs_diff(observed_nanos) as i64;
-                if best.is_none_or(|(best_delta, _)| delta < best_delta) {
-                    best = Some((delta, index));
-                    ambiguous = false;
-                } else if best.is_some_and(|(best_delta, _)| delta == best_delta) {
-                    ambiguous = true;
-                }
-            }
-            let (usage, quality, reason) = if let Some((_, index)) = best.filter(|_| !ambiguous) {
-                candidates[index].used = true;
+        let matches = mutual_matches(
+            &observations
+                .iter()
+                .map(|value| timestamp_nanos(value.observed_at))
+                .collect::<Vec<_>>(),
+            &candidates
+                .iter()
+                .map(|value| timestamp_nanos(value.observed_at))
+                .collect::<Vec<_>>(),
+        );
+        for (observation, association) in observations.into_iter().zip(matches) {
+            let invalid =
+                matches!(association, Nearest::Unique(index) if candidates[index].usage.is_none());
+            let matched = match association {
+                Nearest::Unique(index) if !invalid => Some(index),
+                _ => None,
+            };
+            let (usage, quality, reason) = if let Some(index) = matched {
                 report.matched = report.matched.saturating_add(1);
-                (candidates[index].usage, DataQuality::Confirmed, None)
+                (
+                    candidates[index].usage.expect("validated candidate"),
+                    DataQuality::Confirmed,
+                    None,
+                )
             } else {
                 report.unmatched = report.unmatched.saturating_add(1);
                 (
                     TokenUsage::default(),
                     DataQuality::Unknown,
                     Some(
-                        if ambiguous {
+                        if invalid {
+                            "post_sampling_invalid_nearby_last_token_usage"
+                        } else if association == Nearest::Ambiguous {
                             "post_sampling_ambiguous_nearby_last_token_usage"
                         } else {
                             "post_sampling_without_nearby_last_token_usage"
@@ -362,7 +413,7 @@ fn ingest_post_sampling_source(
                     event.provenance.file_identity
                 );
             }
-            if !ambiguous && let Some((_, index)) = best {
+            if let Some(index) = matched {
                 event.provenance.source_record_key = rollout_identity.as_deref().map(|identity| {
                     crate::reconstruction::source_record_key(
                         machine_id,
@@ -403,6 +454,7 @@ fn ingest_post_sampling_source(
                 line_number: batch_end,
                 parser_state_json: Some(
                     serde_json::json!({"source":"logs_2_post_sampling","version":4,
+                        "associationPolicy":"mutual_unique_nearest_v2",
                         "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
                         "anchorKey":anchor_keys.get(&batch_end),
                         "generation":generation,"eventNamespace":namespace})
@@ -422,6 +474,7 @@ fn ingest_post_sampling_source(
             line_number: max_log_id,
             parser_state_json: Some(
                 serde_json::json!({"source":"logs_2_post_sampling","version":4,
+                "associationPolicy":"mutual_unique_nearest_v2",
                 "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
                 "anchorKey":anchor_keys.get(&max_log_id),
                 "generation":generation,"eventNamespace":namespace})
@@ -776,16 +829,18 @@ fn read_usage_candidates(
             break;
         }
         durable_offset = reader.stream_position()?;
-        if !line.contains(r#""type":"token_count""#) {
+        if !line.contains("token_count") {
             continue;
         }
         let value: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(_) => continue,
         };
-        let Some(usage) = value.pointer("/payload/info/last_token_usage") else {
+        if value.get("type").and_then(Value::as_str) != Some("event_msg")
+            || value.pointer("/payload/type").and_then(Value::as_str) != Some("token_count")
+        {
             continue;
-        };
+        }
         let Some(observed_at) = value
             .get("timestamp")
             .and_then(Value::as_str)
@@ -794,28 +849,14 @@ fn read_usage_candidates(
         else {
             continue;
         };
-        let cache_write = usage
-            .get("cache_write_input_tokens")
-            .and_then(Value::as_u64);
-        let input_tokens = usage_u64(usage, "input_tokens");
-        let usage = TokenUsage {
-            input_tokens,
-            cached_input_tokens: usage_u64(usage, "cached_input_tokens"),
-            cache_write_input_tokens: cache_write.unwrap_or_default(),
-            cache_write_observed_input_tokens: cache_write.map_or(0, |_| input_tokens),
-            output_tokens: usage_u64(usage, "output_tokens"),
-            reasoning_output_tokens: usage_u64(usage, "reasoning_output_tokens"),
-            total_tokens: usage_u64(usage, "total_tokens"),
-        };
-        if usage.validate().is_err() {
-            continue;
-        }
+        let usage = value
+            .pointer("/payload/info/last_token_usage")
+            .and_then(parse_candidate_usage);
         candidates.push(UsageCandidate {
             record_digest: crate::reconstruction::source_record_digest(&value),
             byte_offset: line_start,
             observed_at,
             usage,
-            used: false,
         });
     }
     let next_offset = durable_offset;
@@ -927,17 +968,27 @@ fn extract_field(body: &str, marker: &str) -> Option<String> {
     (end > 0).then(|| tail[..end].trim_matches('"').to_owned())
 }
 
-fn usage_u64(value: &Value, field: &str) -> u64 {
-    value.get(field).and_then(Value::as_u64).unwrap_or_default()
+fn parse_candidate_usage(value: &Value) -> Option<TokenUsage> {
+    let input_tokens = value.get("input_tokens")?.as_u64()?;
+    let cache_write = match value.get("cache_write_input_tokens") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(value.as_u64()?),
+    };
+    let usage = TokenUsage {
+        input_tokens,
+        cached_input_tokens: value.get("cached_input_tokens")?.as_u64()?,
+        cache_write_input_tokens: cache_write.unwrap_or_default(),
+        cache_write_observed_input_tokens: cache_write.map_or(0, |_| input_tokens),
+        output_tokens: value.get("output_tokens")?.as_u64()?,
+        reasoning_output_tokens: value.get("reasoning_output_tokens")?.as_u64()?,
+        total_tokens: value.get("total_tokens")?.as_u64()?,
+    };
+    usage.validate().ok()?;
+    Some(usage)
 }
 
-fn timestamp_nanos(value: DateTime<Utc>) -> i64 {
-    value.timestamp_nanos_opt().unwrap_or_else(|| {
-        value
-            .timestamp()
-            .saturating_mul(1_000_000_000)
-            .saturating_add(i64::from(value.timestamp_subsec_nanos()))
-    })
+fn timestamp_nanos(value: DateTime<Utc>) -> i128 {
+    i128::from(value.timestamp()) * 1_000_000_000 + i128::from(value.timestamp_subsec_nanos())
 }
 
 fn observe_batch(report: &mut SamplingImportReport, outcome: BatchOutcome) {
@@ -986,6 +1037,166 @@ mod tests {
 
     use super::*;
     use crate::store::AggregateFilter;
+
+    #[test]
+    fn missing_or_malformed_usage_is_not_a_confirmed_zero() {
+        assert!(parse_candidate_usage(&Value::Null).is_none());
+        assert!(parse_candidate_usage(&serde_json::json!({})).is_none());
+        let good = serde_json::json!({"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":0});
+        assert_eq!(parse_candidate_usage(&good), Some(TokenUsage::default()));
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            let mut bad = good.clone();
+            bad.as_object_mut().unwrap().remove(field);
+            assert!(parse_candidate_usage(&bad).is_none());
+            bad = good.clone();
+            bad[field] = serde_json::json!(-1);
+            assert!(parse_candidate_usage(&bad).is_none());
+        }
+        let mut bad = good;
+        bad["cache_write_input_tokens"] = serde_json::json!("invalid");
+        assert!(parse_candidate_usage(&bad).is_none());
+    }
+
+    #[test]
+    fn invalid_nearest_snapshot_does_not_fall_back_to_an_older_amount() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(30);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(append, "{}", token_line(base, 900)).unwrap();
+        let mut bad: Value =
+            serde_json::from_str(&token_line(base + chrono::Duration::milliseconds(10), 100))
+                .unwrap();
+        bad["payload"]["info"]["last_token_usage"]["total_tokens"] = serde_json::json!(999);
+        writeln!(append, "{bad}").unwrap();
+        drop(append);
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(11),
+            "invalid-neighbor",
+        );
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((report.matched, report.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let quality: String = store
+            .connection()
+            .query_row(
+                "SELECT quality FROM retained_request_evidence WHERE turn_id='invalid-neighbor'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(quality, "unknown");
+    }
+
+    #[test]
+    fn matching_is_mutual_and_never_uses_a_farther_candidate_after_consumption() {
+        let ms = 1_000_000;
+        assert_eq!(
+            mutual_matches(&[0, 20 * ms], &[15 * ms, 150 * ms]),
+            vec![Nearest::Ambiguous, Nearest::Unique(0)]
+        );
+        assert_eq!(
+            mutual_matches(&[0, 10 * ms], &[5 * ms]),
+            vec![Nearest::Ambiguous, Nearest::Ambiguous]
+        );
+        assert_eq!(
+            mutual_matches(&[0, 0], &[0]),
+            vec![Nearest::Ambiguous, Nearest::Ambiguous]
+        );
+        assert_eq!(mutual_matches(&[0], &[0, 0]), vec![Nearest::Ambiguous]);
+        assert_eq!(mutual_matches(&[0], &[250 * ms]), vec![Nearest::Unique(0)]);
+        assert_eq!(
+            mutual_matches(&[0], &[250 * ms + 1]),
+            vec![Nearest::Missing]
+        );
+        assert_eq!(nearest(&[i128::MAX], i128::MIN), Nearest::Missing);
+        assert_eq!(nearest(&[], 0), Nearest::Missing);
+        let distant = "2400-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        assert_eq!(
+            nearest(
+                &[timestamp_nanos(distant + chrono::Duration::seconds(1))],
+                timestamp_nanos(distant)
+            ),
+            Nearest::Missing
+        );
+        assert_eq!(
+            nearest(
+                &[timestamp_nanos(
+                    distant + chrono::Duration::milliseconds(250)
+                )],
+                timestamp_nanos(distant)
+            ),
+            Nearest::Unique(0)
+        );
+    }
+
+    #[test]
+    fn ambiguous_anchor_does_not_import_an_unrelated_amount_or_a_context_counter() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(30);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(
+            append,
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(15), 300)
+        )
+        .unwrap();
+        writeln!(
+            append,
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(150), 900)
+        )
+        .unwrap();
+        drop(append);
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "earlier-anchor");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(20),
+            "nearer-anchor",
+        );
+        logs.execute("UPDATE logs SET feedback_log_body=replace(feedback_log_body,'total_usage_tokens=100','total_usage_tokens=9000000000000') WHERE id>1",[]).unwrap();
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!(
+            (report.observations, report.matched, report.unmatched),
+            (2, 1, 1)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            550
+        );
+        let rows:Vec<(Option<String>,String,i64)>=store.connection().prepare("SELECT turn_id,quality,total_tokens FROM retained_request_evidence WHERE turn_id IN ('earlier-anchor','nearer-anchor') ORDER BY turn_id")
+            .unwrap().query_map([],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (Some("earlier-anchor".into()), "unknown".into(), 0),
+                (Some("nearer-anchor".into()), "confirmed".into(), 300)
+            ]
+        );
+        let unknown_link:i64=store.connection().query_row("SELECT COUNT(*) FROM sampling_candidate_links l JOIN retained_request_evidence r USING(event_id) WHERE r.turn_id='earlier-anchor'",[],|r|r.get(0)).unwrap();
+        assert_eq!(unknown_link, 0);
+        let next = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((next.observations, next.bytes_read), (0, 0));
+    }
 
     fn token_line(at: DateTime<Utc>, total: u64) -> String {
         let input = total - 10;

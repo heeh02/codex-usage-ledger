@@ -42,6 +42,11 @@ Use this result to investigate conflicts before any reviewed union promotion.
 Mutually unique neighbors and equal values alone never create a shared key or
 authorize deleting, relabeling or adding historical facts.
 
+The current sampling importer's quantities themselves originate in rollout
+records. This comparison therefore checks consistency of stored representations,
+not independent measurement accuracy; see
+[sampling value provenance](sampling-value-provenance.md).
+
 ```sh
 codex-usage-ledger create-correction-preview \
   --manifest ./correction-draft.jsonl --against-db ./synthetic-ledger.sqlite3 \

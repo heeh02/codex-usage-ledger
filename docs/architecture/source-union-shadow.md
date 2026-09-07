@@ -2,6 +2,11 @@
 
 Status: diagnostic implementation, not the production accounting policy.
 
+Important: sampling values in the current importer are taken from associated
+rollout rows, not independently measured in the log. See
+[numeric provenance and association](sampling-value-provenance.md). Matching
+numbers across these representations are not independent accuracy evidence.
+
 The same planner now feeds a [durable incremental candidate projection](source-union-projection.md).
 That staging path does not promote this report into production accounting.
 
