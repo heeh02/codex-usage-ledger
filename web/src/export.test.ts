@@ -12,6 +12,19 @@ beforeAll(async () => {
 afterAll(() => vi.unstubAllGlobals());
 
 describe('scoped usage export', () => {
+  it('retains positive write amounts with unknown coverage in CSV and JSON', () => {
+    const sample = structuredClone(bundle);
+    sample.timeseries.points = [sample.timeseries.points[0]];
+    sample.timeseries.points[0].confirmed = { input: 100, cached: 40, cacheWrite: 10,
+      cacheWriteCoverage: 0, cacheWriteObservedInput: 0, uncached: 50, output: 20, reasoning: 5, total: 120 };
+    const row = usageExportRows(sample, filters)[0];
+    expect(row[6]).toBe(10);
+    expect(row[7]).toBe(0);
+    expect(row.at(-1)).toBe('local_cache_write_partial');
+    const json = JSON.parse(exportUsageJson(sample, filters));
+    expect(json.rows[0].cache_write_observed).toBe(10);
+    expect(json.rows[0].cache_write_coverage).toBe(0);
+  });
   it('exports versioned JSON rows without unrelated catalogs or raw bundle data', () => {
     const sample = structuredClone(bundle);
     sample.explorer.projects[0].label = 'DO-NOT-EXPORT-CATALOG-TITLE';

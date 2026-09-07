@@ -1,3 +1,4 @@
+import { hasCacheWriteAmount } from '../shared/cacheWriteDisplay';
 import { useEffect, useRef, useState } from 'react';
 import type { ExplorerResponse, MetricKey, TimeseriesResponse } from '../api/types';
 import { formatMetricAmount, metricAxisGutter, dimensionLabel, formatDateTime, formatPercent, metricLabel, metricValue, shortDate } from '../lib';
@@ -65,7 +66,7 @@ function CompositionChart({ data }: { data: TimeseriesResponse }) {
           const usage = point.confirmed;
           const barWidth = Math.max(2, Math.min(44, (nextBucket(point.date, data.grain) - civilTime(point.date)) / Math.max(domain[1] - domain[0], 1) * (width - padding.left - padding.right) * 0.8));
           let lower = 0;
-          return <g key={point.date}><title>{point.date} · {usage.total.toLocaleString()} · {t('components.explorer.input')} {usage.uncached.toLocaleString()} · {t('components.explorer.cache_read')} {usage.cached.toLocaleString()} · {t('components.explorer.cache_write')} {usage.cacheWriteCoverage > 0 ? usage.cacheWrite.toLocaleString() : '—'} · {t('components.explorer.output')} {usage.output.toLocaleString()}</title>
+          return <g key={point.date}><title>{point.date} · {usage.total.toLocaleString()} · {t('components.explorer.input')} {usage.uncached.toLocaleString()} · {t('components.explorer.cache_read')} {usage.cached.toLocaleString()} · {t('components.explorer.cache_write')} {hasCacheWriteAmount(usage) ? usage.cacheWrite.toLocaleString() : '—'} · {t('components.explorer.output')} {usage.output.toLocaleString()}</title>
             {([['uncached', usage.uncached], ['cached', usage.cached], ['cache-write', usage.cacheWrite], ['output', usage.output]] as const).map(([kind, value]) => {
               const upper = lower + value;
               const bottomY = pointY(lower, max, geometry);

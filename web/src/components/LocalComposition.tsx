@@ -1,3 +1,4 @@
+import { hasCacheWriteAmount } from '../shared/cacheWriteDisplay';
 import type { TokenUsage } from '../api/types';
 import { exactNumber, formatTokenMillions, formatPercent } from '../lib';
 import { useI18n } from '../i18n';
@@ -6,9 +7,9 @@ export function LocalComposition({ usage, eventCount }: { usage: TokenUsage; eve
   const { t } = useI18n();
   if (eventCount === 0) return <section className="local-composition"><p>{t('usage.no_confirmed_records')}</p></section>;
   const rows = [
-    { label: t(usage.cacheWriteCoverage >= 0.999 ? 'components.ui.input_uncached' : 'components.explorer.input_unsplit'), value: usage.uncached, color: 'var(--orange)' },
+    { label: t(usage.cacheWriteCoverage >= 1 ? 'components.ui.input_uncached' : 'components.explorer.input_unsplit'), value: usage.uncached, color: 'var(--orange)' },
     { label: t('components.explorer.cache_read'), value: usage.cached, color: 'var(--accent)' },
-    { label: t('components.explorer.cache_write'), value: usage.cacheWriteCoverage > 0 ? usage.cacheWrite : null, color: 'var(--purple)' },
+    { label: t('components.explorer.cache_write'), value: hasCacheWriteAmount(usage) ? usage.cacheWrite : null, color: 'var(--purple)' },
     { label: t('components.explorer.output'), value: usage.output, color: 'var(--blue)' },
   ];
   return <section className="local-composition">

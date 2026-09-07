@@ -15,6 +15,9 @@ const rows: BreakdownRow[] = Array.from({ length: 45 }, (_, index) => {
       cacheWriteObservedInput: input, output, reasoning: 0, total: input + output }, quarantined: zero, unknown: zero } };
 });
 rows.push({ id: 'no-evidence', label: 'No evidence', confirmedEvents: 0, shareOfConfirmed: 0, usage: { confirmed: zero, quarantined: zero, unknown: zero } });
+// A recorded positive write must remain visible after coverage-only reconciliation.
+rows[0].usage.confirmed.cacheWriteCoverage = 0;
+rows[0].usage.confirmed.cacheWriteObservedInput = 0;
 
 function Fixture() {
   const { language, setLanguage } = useI18n();

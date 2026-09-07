@@ -12,5 +12,6 @@ it('keeps unknown placeholders distinct from observed zero', () => {
   expect(requestTokenDisplay(row, 'reasoning', 'exact')).toBe('5');
   expect(requestTokenDisplay({ ...row, quality: 'unknown' }, 'total', 'exact')).toBe('—');
   expect(requestTokenDisplay({ ...row, usage: { ...row.usage, output: 0 } }, 'output')).toBe('0 M');
-  expect(requestTokenDisplay({ ...row, usage: { ...row.usage, cacheWriteCoverage: 0 } }, 'cacheWrite')).toBe('—');
+  expect(requestTokenDisplay({ ...row, usage: { ...row.usage, cacheWrite: 0, cacheWriteCoverage: 0 } }, 'cacheWrite')).toBe('—');
+  expect(requestTokenDisplay({ ...row, usage: { ...row.usage, cacheWrite: 10, cacheWriteCoverage: 0 } }, 'cacheWrite', 'exact')).toBe('10');
 });

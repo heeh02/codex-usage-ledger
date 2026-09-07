@@ -1,3 +1,4 @@
+import { hasCacheWriteAmount } from './shared/cacheWriteDisplay';
 import type { DashboardBundle, DashboardFilters, TokenUsage } from './api/types';
 
 // Machine-readable columns intentionally stay stable across interface languages.
@@ -14,9 +15,9 @@ export function usageExportRows(bundle: DashboardBundle, filters: DashboardFilte
     filters.session !== 'all' ? scope : '', window.start, window.end, window.timezone];
   const localRow = (bucket: string, grain: string, usage: TokenUsage, requests: number) => [
     bucket, 'local', grain, usage.total, usage.input, usage.cached,
-    usage.cacheWriteCoverage > 0 ? usage.cacheWrite : '', usage.cacheWriteCoverage,
+    hasCacheWriteAmount(usage) ? usage.cacheWrite : '', usage.cacheWriteCoverage,
     usage.uncached, usage.output, usage.reasoning, requests, ...context,
-    usage.cacheWriteCoverage >= 0.999 ? 'local_recorded' : 'local_cache_write_partial',
+    usage.cacheWriteCoverage >= 1 ? 'local_recorded' : 'local_cache_write_partial',
   ];
   const detail = bundle.explorer.selectedSession;
   const rows = filters.session !== 'all'

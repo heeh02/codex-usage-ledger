@@ -1681,3 +1681,16 @@ No live data migration, installed-app replacement or release has occurred.
   ledger, active selector, installed app or account state changed. Legacy
   identity/correction eligibility, candidate query parity, controlled promotion
   and real-account/native acceptance remain unfinished; full goal ACTIVE.
+- Batch 149: closed the UI/export consequence of coverage reconciliation. A
+  positive recorded cache-write amount remains visible even when its observation
+  coverage is zero/uncertain; zero with no coverage remains unavailable and
+  observed zero remains zero. Shared display logic now covers model tables,
+  composition, project/chat summaries, turns/requests, quota samples, chart
+  details and CSV/JSON export. Partial coverage is not rounded up to complete
+  at 99.9 percent. Regression checks conserve the displayed four buckets, retain
+  exact positive write values and export partial status in both languages.
+  Typecheck/build, 88 Web unit tests and 26 browser checks pass; the updated
+  positive-write/zero-coverage fixture also passed all three dedicated browser
+  checks after its final edit. The installed/native bundle and real ledger are
+  unchanged. This is presentation of existing facts, not reconstructed missing
+  amounts or account calibration. Full goal remains ACTIVE.

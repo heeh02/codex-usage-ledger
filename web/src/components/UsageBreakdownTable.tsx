@@ -1,3 +1,4 @@
+import { hasCacheWriteAmount } from '../shared/cacheWriteDisplay';
 import type { MetricKey, TokenUsage } from '../api/types';
 import { useEffect, useRef } from 'react';
 import { exactNumber, formatTokenMillions, metricValue } from '../lib';
@@ -23,9 +24,9 @@ export function UsageBreakdownTable({ rows, identityLabel, resolveLabel, metric 
       <tbody>{sorted.slice(paging.offset, paging.end).map(row => <tr key={JSON.stringify(row.id)}>
         <td>{onSelect && row.id !== null ? <button className="usage-breakdown-link" type="button" onClick={() => onSelect(row.id!)}>{resolveLabel ? resolveLabel(row) : row.label ?? row.id}</button> : resolveLabel ? resolveLabel(row) : row.id === null ? t('sessions.unknown_dimension') : row.label ?? row.id}
           {row.available === false && <small>{t('usage.no_confirmed_records')}</small>}</td>
-        {(['total', 'uncached', 'cached', 'cacheWrite', 'output'] as const).map(key => <td key={key} title={row.available === false || (key === 'cacheWrite' && row.usage.cacheWriteCoverage === 0) ? undefined : exactNumber(row.usage[key])}>
-          {row.available === false || (key === 'cacheWrite' && row.usage.cacheWriteCoverage === 0) ? '—' : formatTokenMillions(row.usage[key])}
-          {row.available !== false && key === 'cacheWrite' && row.usage.cacheWriteCoverage > 0 && row.usage.cacheWriteCoverage < 1 ? ` (${t('sessions.partial_split')})` : ''}
+        {(['total', 'uncached', 'cached', 'cacheWrite', 'output'] as const).map(key => <td key={key} title={row.available === false || (key === 'cacheWrite' && !hasCacheWriteAmount(row.usage)) ? undefined : exactNumber(row.usage[key])}>
+          {row.available === false || (key === 'cacheWrite' && !hasCacheWriteAmount(row.usage)) ? '—' : formatTokenMillions(row.usage[key])}
+          {row.available !== false && key === 'cacheWrite' && hasCacheWriteAmount(row.usage) && row.usage.cacheWriteCoverage < 1 ? ` (${t('sessions.partial_split')})` : ''}
         </td>)}<td>{exactNumber(row.events)}</td>
       </tr>)}</tbody></table>
     </div><BreakdownPagination count={rows.length} {...paging} />

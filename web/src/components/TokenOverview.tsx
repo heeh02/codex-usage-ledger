@@ -1,3 +1,4 @@
+import { hasCacheWriteAmount } from '../shared/cacheWriteDisplay';
 import type { MetricKey, SummaryResponse } from '../api/types';
 import { formatTokenMillions, exactNumber, formatPercent, metricLabel, periodLabel, tokenComposition } from '../lib';
 import { useI18n } from '../i18n';
@@ -16,8 +17,8 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
   const uncachedShare = confirmed.total ? confirmed.uncached / confirmed.total : 0;
   const outputShare = confirmed.total ? confirmed.output / confirmed.total : 0;
   const reasoningShare = confirmed.output ? confirmed.reasoning / confirmed.output : 0;
-  const cacheWriteComplete = confirmed.cacheWriteCoverage >= 0.999;
-  const cacheWriteObserved = confirmed.cacheWriteCoverage > 0;
+  const cacheWriteComplete = confirmed.cacheWriteCoverage >= 1;
+  const cacheWriteObserved = hasCacheWriteAmount(confirmed);
   const accountHeading = accountTotal.status === 'exact'
     ? t('components.token-overview.official_account_usage')
     : accountTotal.source === 'reconciled'
@@ -78,7 +79,7 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
             <div><i className="legend-cache-write" /><span>{t('components.explorer.cache_write')}</span><strong>{cacheWriteObserved ? `${cacheWriteComplete ? '' : '≥ '}${formatPercent(cacheWriteShare)}` : '—'}</strong></div>
             <div><i className="legend-output" /><span>{t('components.explorer.output')}</span><strong>{formatPercent(outputShare)}</strong></div>
           </div>
-          <p className="cache-write-coverage">{confirmed.cacheWriteCoverage >= 0.999
+          <p className="cache-write-coverage">{confirmed.cacheWriteCoverage >= 1
             ? t('components.token-overview.the_cache_write_field_covers_the_current')
             : t('components.token-overview.cache_write_coverage_note', { coverage: formatPercent(confirmed.cacheWriteCoverage) })}</p>
           <div className="reasoning-meter">

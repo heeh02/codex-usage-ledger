@@ -5,6 +5,8 @@ test('complete ranking and model pages preserve global ranks, shares, refresh an
   const projects = page.locator('.breakdown-project');
   const models = page.locator('.breakdown-model');
   await expect(projects.locator('.breakdown-row')).toHaveCount(20);
+  await expect(models.locator('tbody tr').first().locator('td').nth(4)).toHaveAttribute('title', '4,500,000');
+  await expect(models.locator('tbody tr').first().locator('td').nth(4)).toContainText('4.5 M');
   const share = await projects.locator('.breakdown-values span').first().textContent();
   // First row is about 4.3% of all 45 confirmed rows, not the first 20.
   expect(parseFloat(share!)).toBeLessThan(5);
