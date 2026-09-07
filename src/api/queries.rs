@@ -258,7 +258,8 @@ fn http_bundle_in_snapshot(
         "quality": http_quality(store, query)?,
         "explorer": http_explorer(store, query)?,
         "collection": {
-            "mode": collector.mode,
+            "usagePolicy": if store.is_source_union_main_preview() {"request_union_v2"} else {"max_thread_day_v1"},
+            "mode": if store.is_source_union_main_preview() {"union-preview"} else {&collector.mode},
             "phase": collector.phase,
             "itemsTotal": collector.items_total,
             "itemsCompleted": collector.items_completed,

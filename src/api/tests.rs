@@ -97,6 +97,16 @@ fn session_distributions_follow_actual_models_accounts_and_full_descendant_scope
             ..Default::default()
         };
         let bundle = http_bundle(&store, &query).unwrap();
+        let root_row = bundle["explorer"]["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == "root")
+            .unwrap();
+        assert_eq!(
+            root_row["actualModels"],
+            serde_json::json!(["model-a", "model-b"])
+        );
         let detail = &bundle["explorer"]["selectedSession"];
         for (scope, expected, events) in [("own", "ownUsage", 2), ("tree", "treeUsage", 3)] {
             for dim in ["models", "accounts"] {

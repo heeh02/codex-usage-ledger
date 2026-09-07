@@ -330,6 +330,9 @@ enum Command {
         listen: SocketAddr,
         #[arg(long)]
         web_root: Option<PathBuf>,
+        /// Read-only request-union UI acceptance; no collection, auth or migration.
+        #[arg(long,requires_all=["db","web_root"])]
+        union_preview: bool,
     },
     /// Print one filtered replay-safe snapshot as JSON.
     Summary {
@@ -789,10 +792,23 @@ async fn main() -> Result<()> {
             codex_home,
             listen,
             web_root,
+            union_preview,
         } => {
             ensure_loopback(listen)?;
-            let paths = RuntimePaths::resolve(codex_home, db, web_root)?;
-            run_dashboard_only(paths, listen).await?;
+            if union_preview {
+                let store =
+                    LedgerStore::open_source_union_main_preview(db.expect("explicit preview DB"))?;
+                serve_http_mode(
+                    ApiState::with_store(store),
+                    listen,
+                    web_root.expect("explicit preview web root"),
+                    true,
+                )
+                .await?;
+            } else {
+                let paths = RuntimePaths::resolve(codex_home, db, web_root)?;
+                run_dashboard_only(paths, listen).await?;
+            }
         }
         Command::Summary {
             db,
@@ -1421,11 +1437,39 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
 }
 
 async fn serve_http(state: ApiState, listen: SocketAddr, web_root: PathBuf) -> Result<()> {
+    serve_http_mode(state, listen, web_root, false).await
+}
+
+async fn serve_http_mode(
+    state: ApiState,
+    listen: SocketAddr,
+    web_root: PathBuf,
+    read_only: bool,
+) -> Result<()> {
     let index = web_root.join("index.html");
-    let app = Router::new()
+    let mut app = Router::new()
         .merge(api::router(state))
         .fallback_service(ServeDir::new(&web_root).fallback(ServeFile::new(index)))
         .layer(middleware::from_fn(enforce_local_http_identity));
+    if read_only {
+        app = app.layer(middleware::from_fn(
+            |request: Request<Body>, next: Next| async move {
+                if !matches!(
+                    *request.method(),
+                    axum::http::Method::GET
+                        | axum::http::Method::HEAD
+                        | axum::http::Method::OPTIONS
+                ) {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        axum::Json(json!({"error":"read_only_preview"})),
+                    )
+                        .into_response();
+                }
+                next.run(request).await
+            },
+        ));
+    }
     let listener = tokio::net::TcpListener::bind(listen).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

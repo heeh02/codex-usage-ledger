@@ -330,6 +330,12 @@
         },
         "updatedAt": {
           "type": "string"
+        },
+        "usagePolicy": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -693,6 +699,18 @@
       "properties": {
         "active": {
           "type": "boolean"
+        },
+        "actualModels": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "archived": {
           "type": "boolean"

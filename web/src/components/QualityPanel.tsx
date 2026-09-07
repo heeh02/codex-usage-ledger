@@ -1,4 +1,5 @@
 import type { MetricKey, QualityIssue, QualityResponse, QualityStateSummary, SourceHealth } from '../api/types';
+import { sourcePolicyCopy } from '../shared/sourcePolicy';
 import { formatTokenMillions, exactNumber, formatDateTime, metricLabel, metricValue, qualityLabel } from '../lib';
 import { EmptyState, Panel } from './Ui';
 import { useI18n } from '../i18n';
@@ -9,7 +10,7 @@ function formatBytes(value: number): string {
   return `${Math.round(value / 1024)} KB`;
 }
 
-function QualityStateCard({ item, metric }: { item: QualityStateSummary; metric: MetricKey }) {
+function QualityStateCard({ item, metric, usagePolicy }: { item: QualityStateSummary; metric: MetricKey; usagePolicy?: string | null }) {
   const { t } = useI18n();
   const value = metric === 'requests'
     ? exactNumber(item.eventCount)
@@ -24,7 +25,7 @@ function QualityStateCard({ item, metric }: { item: QualityStateSummary; metric:
       </div>
       <strong>{value}</strong>
       <small>{exactNumber(item.eventCount)} {t('components.quality-panel.requests')}{item.tokenCount === null && metric !== 'requests' ? ` · ${t('components.quality-panel.token_count_unknown')}` : ''}</small>
-      <p>{item.state === 'confirmed' ? t('components.quality-panel.only_the_more_complete_record_source_is') : item.state === 'quarantined' ? t('components.quality-panel.replay_or_source_conflicts_were_detected_quarantined') : t('components.quality-panel.safely_matched_token_details_are_unavailable_and')}</p>
+      <p>{item.state === 'confirmed' ? t(sourcePolicyCopy(usagePolicy).description) : item.state === 'quarantined' ? t('components.quality-panel.replay_or_source_conflicts_were_detected_quarantined') : t('components.quality-panel.safely_matched_token_details_are_unavailable_and')}</p>
     </article>
   );
 }
@@ -65,7 +66,7 @@ function SourceRow({ source }: { source: SourceHealth }) {
   );
 }
 
-export function QualityPanel({ data, metric }: { data: QualityResponse; metric: MetricKey }) {
+export function QualityPanel({ data, metric, usagePolicy }: { data: QualityResponse; metric: MetricKey; usagePolicy?: string | null }) {
   const { t } = useI18n();
   const reconstruction = data.reconstruction;
   const reconstructionProgress = reconstruction.bytesTotal > 0
@@ -79,9 +80,9 @@ export function QualityPanel({ data, metric }: { data: QualityResponse; metric: 
         meta={<span className="trusted-policy">{metricLabel(metric)} · {t('components.quality-panel.selected_valid_source')}</span>}
         className="quality-panel"
       >
-        <p className="quality-policy">{t('components.quality-panel.only_one_record_source_is_selected_per')}</p>
+        <p className="quality-policy">{t(sourcePolicyCopy(usagePolicy).description)}</p>
         <div className="quality-state-grid">
-          {data.states.map((item) => <QualityStateCard key={item.state} item={item} metric={metric} />)}
+          {data.states.map((item) => <QualityStateCard key={item.state} item={item} metric={metric} usagePolicy={usagePolicy} />)}
         </div>
         <section className="reconstruction-summary" aria-labelledby="reconstruction-summary-heading">
           <header>

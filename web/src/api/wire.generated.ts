@@ -123,6 +123,7 @@ export interface CollectionStatus {
   rollupItemsCompleted: number;
   rollupItemsTotal: number;
   updatedAt: string;
+  usagePolicy?: string | null;
 }
 export interface ExplorerResponse {
   generatedAt: string;
@@ -256,6 +257,7 @@ export interface SamplingTimelinePoint {
 }
 export interface ExplorerSession {
   active: boolean;
+  actualModels?: (string | null)[] | null;
   archived: boolean;
   createdAt: string;
   eventCount: number;

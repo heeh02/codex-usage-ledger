@@ -52,6 +52,21 @@ fn dashboard_catalog_counts_from_row(
 }
 
 impl LedgerStore {
+    pub(crate) fn root_thread_members(
+        &self,
+        roots: &[String],
+    ) -> StoreResult<BTreeMap<String, Vec<String>>> {
+        let mut result = BTreeMap::<String, Vec<String>>::new();
+        let mut statement=self.connection.prepare("SELECT root_thread_id,thread_id FROM thread_root_membership WHERE root_thread_id IN (SELECT value FROM json_each(?1)) ORDER BY root_thread_id,thread_id")?;
+        let rows = statement.query_map([serde_json::to_string(roots)?], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (root, thread) = row?;
+            result.entry(root).or_default().push(thread);
+        }
+        Ok(result)
+    }
     pub(crate) fn database_path(&self) -> Option<PathBuf> {
         self.connection
             .path()

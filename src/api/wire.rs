@@ -782,6 +782,8 @@ pub struct QualityResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_policy: Option<String>,
     pub mode: String,
     pub phase: CollectionPhase,
     pub items_total: f64,
@@ -878,6 +880,8 @@ pub struct ExplorerProject {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerSession {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_models: Option<Vec<Option<String>>>,
     pub id: String,
     pub title: String,
     pub model: Nullable<String>,

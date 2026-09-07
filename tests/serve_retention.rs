@@ -150,3 +150,71 @@ fn dashboard_startup_does_not_compact_or_erase_conflicting_retained_history() {
         0
     );
 }
+
+#[test]
+fn union_preview_serves_real_bundle_read_only_without_auth_or_startup_writes() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("preview.sqlite3");
+    drop(LedgerStore::open(&db).unwrap());
+    let original = std::fs::read(&db).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let mut server = OwnedServer(
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .arg("serve")
+            .arg("--union-preview")
+            .arg("--db")
+            .arg(&db)
+            .arg("--web-root")
+            .arg(temp.path())
+            .arg("--listen")
+            .arg(address.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let request = |method: &str, path: &str, host: &str| -> std::io::Result<String> {
+        let mut socket =
+            std::net::TcpStream::connect_timeout(&address, Duration::from_millis(200))?;
+        socket.set_read_timeout(Some(Duration::from_secs(1)))?;
+        write!(
+            socket,
+            "{method} {path} HTTP/1.0\r\nHost: {host}\r\nContent-Length: 0\r\n\r\n"
+        )?;
+        let mut data = String::new();
+        socket.read_to_string(&mut data)?;
+        Ok(data)
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut ready = false;
+    while Instant::now() < deadline {
+        assert!(server.0.try_wait().unwrap().is_none());
+        if let Ok(response) = request("GET", "/v1/bundle?period=today", "127.0.0.1")
+            && let Some((_, body)) = response.split_once("\r\n\r\n")
+            && let Ok(data) = serde_json::from_str::<serde_json::Value>(body)
+        {
+            assert_eq!(data["collection"]["mode"], "union-preview");
+            assert_eq!(data["collection"]["usagePolicy"], "request_union_v2");
+            ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(ready);
+    for path in ["/v1/account-registry", "/v1/official/refresh"] {
+        let response = request("POST", path, "127.0.0.1").unwrap();
+        assert!(response.starts_with("HTTP/1.0 403"));
+        assert!(response.contains("read_only_preview"));
+    }
+    assert!(
+        request("GET", "/v1/bundle", "foreign.example")
+            .unwrap()
+            .starts_with("HTTP/1.0 403")
+    );
+    drop(server);
+    assert_eq!(std::fs::read(&db).unwrap(), original);
+    assert!(!temp.path().join("identity.key").exists());
+    assert!(!temp.path().join("machine-id").exists());
+}

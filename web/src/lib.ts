@@ -1,4 +1,6 @@
 import type { DataQuality, MetricKey, PeriodKey, PeriodWindow, TokenUsage } from './api/types';
+import { enMessages } from './locales/en';
+import { zhCNMessages } from './locales/zh-CN';
 
 export type UiLanguage = 'zh-CN' | 'en';
 let uiLanguage: UiLanguage = 'zh-CN';
@@ -120,6 +122,7 @@ export function metricValue(usage: TokenUsage, metric: MetricKey, events = 0): n
 }
 
 export function metricLabel(metric: MetricKey): string {
+  if (metric === 'requests') return (uiLanguage === 'zh-CN' ? zhCNMessages : enMessages)['components.ui.requests'];
   const chinese = {
     total: 'Token 总量',
     input: '输入（含缓存）',
@@ -128,7 +131,6 @@ export function metricLabel(metric: MetricKey): string {
     uncached: '输入（非缓存）',
     output: '输出',
     reasoning: 'Reasoning',
-    requests: 'Sampling 请求',
   }[metric];
   const english = {
     total: 'Total tokens',
@@ -138,7 +140,6 @@ export function metricLabel(metric: MetricKey): string {
     uncached: 'Input (uncached)',
     output: 'Output',
     reasoning: 'Reasoning',
-    requests: 'Sampling requests',
   }[metric];
   return uiLanguage === 'zh-CN' ? chinese : english;
 }

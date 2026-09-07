@@ -477,10 +477,14 @@ fn explorer_sessions(
         .map(|bucket| (bucket.root_thread_id.clone(), bucket))
         .collect::<HashMap<_, _>>();
     let node_counts = store.root_thread_member_counts(&root_ids)?;
+    let members = store.root_thread_members(&root_ids)?;
 
     let sessions = roots
         .into_iter()
         .map(|root| {
+            let actual_models=members.get(&root.thread_id).map(|threads|store.conversation_dimension_usage(
+                AggregateDimension::Model,threads,&filter,requires_exact_window(query)
+            ).map(|rows|rows.into_iter().map(|row|row.key).collect::<Vec<_>>())).transpose()?;
             let usage = usage_by_root
                 .get(&root.thread_id)
                 .cloned();
@@ -493,6 +497,7 @@ fn explorer_sessions(
                 "id": root.thread_id,
                 "title": thread_label(&root),
                 "model": root.model,
+                "actualModels":actual_models,
                 "createdAt": root.created_at,
                 "updatedAt": root.updated_at,
                 "archived": root.archived,

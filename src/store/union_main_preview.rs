@@ -82,6 +82,149 @@ mod tests {
     use super::*;
     use crate::store::tests::event;
 
+    /// Optional private GUI fixture export; never reads a real Codex home.
+    #[test]
+    fn populated_ui_review_fixture() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("synthetic.sqlite3");
+        let mut store = LedgerStore::open(&path).unwrap();
+        let now = Utc::now();
+        for (id, name) in [("demo-alpha", "Demo Alpha"), ("demo-beta", "Demo Beta")] {
+            store
+                .upsert_project(
+                    &ProjectRecord {
+                        project_id: id.into(),
+                        project_name: name.into(),
+                        roots: vec![],
+                        git_identities: vec![],
+                    },
+                    now,
+                )
+                .unwrap();
+        }
+        let nodes = [
+            ("alpha", None, Some("demo-alpha")),
+            ("alpha-worker", Some("alpha"), Some("demo-alpha")),
+            ("beta", None, Some("demo-beta")),
+            ("beta-worker", Some("beta"), Some("demo-beta")),
+            ("chat", None, None),
+            ("chat-worker", Some("chat"), None),
+        ];
+        store
+            .upsert_thread_catalog_batch(
+                &nodes
+                    .iter()
+                    .map(|(id, parent, project)| ThreadCatalogRecord {
+                        thread_id: (*id).into(),
+                        parent_thread_id: parent.map(str::to_owned),
+                        project_id: project.map(str::to_owned),
+                        project_name: project.map(str::to_owned),
+                        title: Some(format!("Demo · {id}")),
+                        model: None,
+                        agent_nickname: None,
+                        agent_role: None,
+                        agent_path: None,
+                        depth: Some(u32::from(parent.is_some())),
+                        created_at: now - ChronoDuration::days(400),
+                        updated_at: now,
+                        archived: false,
+                        has_user_event: parent.is_none(),
+                        source_kind: "state_5".into(),
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
+        let mut expected = 0;
+        for day in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 20, 40, 90, 400] {
+            for (node, (thread, parent, project)) in nodes.iter().enumerate() {
+                for occurrence in 0..3 {
+                    let id = format!("demo-{day}-{node}-{occurrence}");
+                    let mut row = event(
+                        &id,
+                        DataQuality::Confirmed,
+                        (day * 100 + node as i64 * 10 + occurrence + 1) as u64,
+                    );
+                    let at = now
+                        - ChronoDuration::days(day)
+                        - ChronoDuration::minutes(node as i64 * 3 + occurrence + 1);
+                    row.observed_at = at;
+                    row.source_timestamp = Some(at);
+                    row.thread_id = Some((*thread).into());
+                    row.parent_thread_id = parent.map(str::to_owned);
+                    row.model = Some(
+                        ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-6-astra"]
+                            [(node + occurrence as usize) % 3]
+                            .into(),
+                    );
+                    row.account_fingerprint = Some(
+                        if (day + node as i64) % 2 == 0 {
+                            "demoA000-account"
+                        } else {
+                            "demoB000-account"
+                        }
+                        .into(),
+                    );
+                    row.project.project_id = project.map(str::to_owned);
+                    row.project.project_name = project.map(str::to_owned);
+                    let input = (1_000_000 * (1 + day % 5)
+                        + node as i64 * 111_000
+                        + occurrence * 333_000) as u64;
+                    row.usage = TokenUsage {
+                        input_tokens: input,
+                        cached_input_tokens: input * 9 / 10,
+                        cache_write_input_tokens: input / 100,
+                        cache_write_observed_input_tokens: if day % 2 == 0 { input } else { 0 },
+                        output_tokens: 20_000,
+                        reasoning_output_tokens: 8_000,
+                        total_tokens: input + 20_000,
+                    };
+                    row.provenance.source_record_key = Some(id.clone());
+                    expected += row.usage.total_tokens;
+                    if occurrence != 1 {
+                        store.upsert_event(&row).unwrap();
+                    }
+                    if occurrence != 0 {
+                        row.event_id = format!("r-{id}");
+                        let tx = store.connection.unchecked_transaction().unwrap();
+                        upsert_reconstruction_event_in(
+                            &tx,
+                            &ReconstructionEvent {
+                                event: row,
+                                counter_epoch: 0,
+                            },
+                        )
+                        .unwrap();
+                        tx.commit().unwrap();
+                    }
+                }
+            }
+        }
+        store.set_user_confirmed_account_count(Some(2)).unwrap();
+        for _ in 0..100 {
+            if store
+                .stage_source_union_batch(1000, 1000, 10000)
+                .unwrap()
+                .projection_ready
+            {
+                break;
+            }
+        }
+        drop(store);
+        let preview = LedgerStore::open_source_union_main_preview(&path).unwrap();
+        assert_eq!(
+            preview
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            expected
+        );
+        drop(preview);
+        if let Some(output) = std::env::var_os("LEDGER_UI_REVIEW_FIXTURE_PATH") {
+            create_review_shadow(&path, Path::new(&output)).unwrap();
+        }
+    }
+
     fn fixture(path: &Path) {
         let mut store = LedgerStore::open(path).unwrap();
         let at = "2026-04-01T00:00:00Z".parse().unwrap();
@@ -273,6 +416,8 @@ mod tests {
                     ..Default::default()
                 };
                 let bundle = state.bundle_json(query).await.unwrap();
+                assert_eq!(bundle["collection"]["usagePolicy"], "request_union_v2");
+                assert_eq!(bundle["collection"]["mode"], "union-preview");
                 assert_eq!(bundle["summary"]["usage"]["confirmed"]["total"], total);
                 assert_eq!(
                     bundle["explorer"]["selectedSession"]["treeUsage"]["total"],

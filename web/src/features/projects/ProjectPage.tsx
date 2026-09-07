@@ -45,6 +45,7 @@ export function ProjectPage({
     <ProjectExplorer
       key={selectedProject?.id ?? projectId}
       explorer={bundle.explorer}
+      usagePolicy={bundle.collection.usagePolicy}
       period={period}
       periodWindow={bundle.summary.period}
       scopeKind={selectedProject?.kind ?? 'project'}

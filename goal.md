@@ -2039,3 +2039,20 @@ No live data migration, installed-app replacement or release has occurred.
   including a scope larger than the immediate-read cap. Rust 326 tests, Clippy
   and API contracts pass. This fixes the reader prerequisite, not the installed GUI or
   full product-query promotion. Full goal remains ACTIVE.
+- Batch 165 (2026-09-08): connected the resolved union query to the existing HTTP
+  and React stack through an explicit [read-only preview](docs/architecture/union-http-preview.md).
+  Writes and official refresh are disabled; collection is not started. Additive
+  policy/model fields make source explanations and actual scoped model labels
+  consistent with the data, without using catalog models as usage evidence or
+  calling record counts independent requests. Synthetic populated browser journeys
+  exercised account, month, model and child drilldown. A real UI regression was
+  reproduced: returning from a child changed the parent's Own scope to Subtree.
+  Navigation now retains parent view, node filters and scroll; the repeated
+  browser journey returns to the original Own total and matching trend. This is
+  software QA with synthetic facts, not proof of real-account totals. Production
+  query promotion, remaining historical reconciliation, controlled migration and
+  populated native acceptance remain open. Rust 328 tests, Web 92 tests, production
+  web build, formatting, Clippy, API contracts, current-tree privacy, documentation
+  links, module boundaries, generated-file and version checks pass. The synthetic
+  browser tab and its owned preview server were closed after verification.
+  Full goal stays ACTIVE.

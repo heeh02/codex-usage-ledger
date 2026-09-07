@@ -25,6 +25,7 @@ import { restoreDashboardFilters } from './shared/dashboardPreferences';
 import { AccountSwitcher, accountScopeLabel } from './components/AccountSwitcher';
 import { requestFailureMessage } from './shared/requestFailureMessage';
 import { LedgerRequestError } from './api/errors';
+import { parentSessionFilters, type SessionTrailEntry } from './shared/sessionTrail';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -69,7 +70,9 @@ function App() {
   const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => readSessionObject('ledger.primaryPage', { value: 'overview' as const }, { value: oneOf('overview', 'accounts', 'quality', 'chats', 'models') }).value);
   const [sessionView, setSessionView] = useState<SessionViewState>(() => readSessionObject('ledger.sessionView', INITIAL_SESSION_VIEW, { scope: oneOf('own', 'tree'), sort: oneOf('hierarchy', 'own', 'tree', 'recent') }));
   const [privacyMode, setPrivacyMode] = useState(false);
-  const [sessionTrail, setSessionTrail] = useState<Array<{ id: string; title: string }>>([]);
+  const [sessionTrail, setSessionTrail] = useState<Array<SessionTrailEntry<SessionViewState>>>([]);
+  const pendingSessionReturn = useRef<SessionTrailEntry<SessionViewState> | null>(null);
+  const returnedScroll = useRef<{ id: string; top: number } | null>(null);
   const lastRevision = useRef<string | null>(null);
   const backgroundRefreshTimer = useRef<number | null>(null);
   const savedScrollTop = useRef(0);
@@ -81,6 +84,7 @@ function App() {
 
   useEffect(() => {
     const controller = new AbortController();
+    if (pendingSessionReturn.current?.id !== filters.session) pendingSessionReturn.current = null;
     setRequestFailure(null);
     setLoading(true);
 
@@ -89,6 +93,17 @@ function App() {
       success: (nextBundle) => {
         setBundle(nextBundle);
         setAppliedFilters(filters);
+        const nextSession = nextBundle.explorer.selectedSession;
+        if (nextSession) {
+          const restore = pendingSessionReturn.current;
+          if (restore?.id === nextSession.id) {
+            setSessionView(restore.view);
+            returnedScroll.current = { id: restore.id, top: restore.scrollTop };
+            pendingSessionReturn.current = null;
+          } else {
+            setSessionView(value => value.sessionId === nextSession.id ? value : { ...INITIAL_SESSION_VIEW, sessionId: nextSession.id });
+          }
+        }
       },
       failure: (reason: unknown) => {
         setRequestFailure(() => reason ?? new Error());
@@ -201,12 +216,22 @@ function App() {
   const openSession = (session: string) => {
     const current = bundle?.explorer.selectedSession;
     if (current && current.id !== session) {
-      setSessionTrail(trail => [...trail, { id: current.id, title: current.title }]);
+      setSessionTrail(trail => [...trail, { id: current.id, title: current.title, view: { ...sessionView, sessionId: current.id },
+        nodes: { nodeOffset: appliedFilters.nodeOffset, nodeLimit: appliedFilters.nodeLimit, nodeSearch: appliedFilters.nodeSearch },
+        scrollTop: document.querySelector<HTMLElement>('.workspace-scroll')?.scrollTop ?? 0 }]);
     }
     setFilters((value) => ({ ...value, session, nodeOffset: 0, nodeSearch: '' }));
+    if (bundle?.collection.mode === 'union-preview') return;
     api.refreshOfficialThread(session)
       .then(() => setRefreshKey((value) => value + 1))
       .catch(() => { /* Thread billing detail can legitimately be unavailable. */ });
+  };
+  const returnToSession = (index: number) => {
+    const parent = sessionTrail[index];
+    if (!parent) return;
+    pendingSessionReturn.current = parent;
+    setSessionTrail(trail => trail.slice(0, index));
+    setFilters(value => parentSessionFilters(value, parent));
   };
   const selectBreakdown = (dimension: 'account' | 'project' | 'model', id: string) => {
     if (dimension === 'project') {
@@ -265,7 +290,9 @@ function App() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const scroller = document.querySelector<HTMLElement>('.workspace-scroll');
-      if (scroller) scroller.scrollTo({ top: 0, behavior: 'auto' });
+      const restore = returnedScroll.current;
+      if (scroller) scroller.scrollTo({ top: restore?.id === appliedFilters.session ? restore.top : 0, behavior: 'auto' });
+      returnedScroll.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pageIdentity]);
@@ -283,7 +310,7 @@ function App() {
     : currentPage === 'quality'
       ? t('app.sources_freshness_unmatched_records_reconstruction_and_r')
       : selectedSession
-    ? `${t('app.local_attribution')} · ${periodCaption} · ${selectedSession.subagentCount} subagents · ${selectedSession.model ?? t('app.model_unknown')}`
+    ? `${t('app.local_attribution')} · ${periodCaption} · ${selectedSession.subagentCount} subagents`
     : selectedProject
       ? `${selectedProject.kind === 'standalone_conversations' ? t('app.standalone_conversation_attribution') : selectedProject.kind === 'unmatched_records' ? t('app.local_unmatched_records') : t('app.local_project_attribution')} · ${periodCaption} · ${bundle?.explorer.stats.sessionCount ?? 0} ${t('app.current_sessions')} · ${bundle?.explorer.stats.historicalSessionCount ?? 0} ${t('app.historical_sessions')} · ${bundle?.explorer.stats.subagentCount ?? 0} subagents`
       : t('app.official_account_totals_with_local_project_session');
@@ -354,10 +381,7 @@ function App() {
               <button onClick={openOverview} type="button">Usage</button>
               {selectedProject && <><span>›</span><button onClick={() => openProject(selectedProject.id)} type="button">{selectedProject.label}</button></>}
               {selectedSession && <><span>›</span><strong>Session</strong></>}
-              {selectedSession && sessionTrail.map((ancestor, index) => <button key={`${ancestor.id}-${index}`} onClick={() => {
-                setSessionTrail(trail => trail.slice(0, index));
-                setFilters(value => ({ ...value, session: ancestor.id, nodeOffset: 0, nodeSearch: '' }));
-              }} type="button">{ancestor.title}</button>)}
+              {selectedSession && sessionTrail.map((ancestor, index) => <button key={`${ancestor.id}-${index}`} onClick={() => returnToSession(index)} type="button">{ancestor.title}</button>)}
               {currentPage === 'accounts' && <><span>›</span><strong>{t('app.accounts_quota')}</strong></>}
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
             </div>
@@ -415,7 +439,8 @@ function App() {
             </aside>
           )}
 
-          {bundle && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
+          {bundle?.collection.mode === 'union-preview' && <aside className="account-coverage-alert" role="status"><div><strong>{t('app.union_preview_title')}</strong><span>{t('app.union_preview_description')}</span></div></aside>}
+          {bundle && bundle.collection.mode !== 'union-preview' && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
           {!bundle && error && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
@@ -433,11 +458,7 @@ function App() {
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
                 <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
               )}
-              {currentPage === 'session' && <SessionPage dataMode={api.mode} filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => {
-                const parent = sessionTrail.at(-1)!;
-                setSessionTrail(trail => trail.slice(0, -1));
-                setFilters(value => ({ ...value, session: parent.id, nodeOffset: 0, nodeSearch: '' }));
-              } : undefined} />}
+              {currentPage === 'session' && <SessionPage dataMode={api.mode} filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => returnToSession(sessionTrail.length - 1) : undefined} />}
             </>
           )}
 
