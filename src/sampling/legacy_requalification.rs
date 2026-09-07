@@ -16,12 +16,12 @@ pub struct Group {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Link {
-    event_id: String,
-    at: DateTime<Utc>,
-    status: &'static str,
-    byte_offset: Option<u64>,
-    record_digest: Option<String>,
-    stored_usage: TokenUsage,
+    pub(crate) event_id: String,
+    pub(crate) at: DateTime<Utc>,
+    pub(crate) status: &'static str,
+    pub(crate) byte_offset: Option<u64>,
+    pub(crate) record_digest: Option<String>,
+    pub(crate) stored_usage: TokenUsage,
     proposed_usage: Option<TokenUsage>,
 }
 
@@ -32,13 +32,14 @@ pub struct Report {
     thread: String,
     scope_start: DateTime<Utc>,
     scope_end: DateTime<Utc>,
-    source_identity: String,
+    pub(crate) source_identity: String,
     bytes_read: u64,
-    source_changed: bool,
+    pub(crate) source_changed: bool,
+    pub(crate) source_extended: bool,
     loaded_anchors: usize,
     loaded_candidates: usize,
     groups: BTreeMap<&'static str, Group>,
-    links: Option<Vec<Link>>,
+    pub(crate) links: Option<Vec<Link>>,
     history_complete: bool,
     migration_authorized: bool,
 }
@@ -134,6 +135,8 @@ pub fn audit_legacy_sampling(
     let mut report = compare(&anchors, &candidates, thread, start, end, include_links)?;
     report.source_identity = identity;
     report.source_changed = changed;
+    report.source_extended = current.len() > metadata.len()
+        && report.source_identity == physical_file_identity(&path, &current)?;
     report.bytes_read = bytes;
     Ok(report)
 }
@@ -225,6 +228,7 @@ fn compare(
         source_identity: String::new(),
         bytes_read: 0,
         source_changed: false,
+        source_extended: false,
         loaded_anchors: anchors.len(),
         loaded_candidates: candidates.len(),
         groups,

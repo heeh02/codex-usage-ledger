@@ -2002,3 +2002,21 @@ No live data migration, installed-app replacement or release has occurred.
   unchanged. Next: sampling occurrence-key restoration against corrected facts,
   scope-level union/coverage acceptance, real-account reconciliation and native
   delivery. Full goal remains ACTIVE; shadow success is not production acceptance.
+- Batch 163 (2026-09-08): restored sampling occurrence links in the corrected
+  [review shadow](docs/architecture/review-shadow-corrections.md) using retained
+  anchors, exact source digests/offsets, the sealed correction's file namespace and
+  a unique primary-machine binding. The operation rechecks corrected post-images
+  and anchor amounts/times under one transaction; it does not update Token facts,
+  quality or account/project/model assignments. Review-artifact version 2 adds
+  per-link receipts with original keys/hashes. Reapplication is idempotent, failure
+  rolls back the complete metadata upgrade, and metadata disagreements remain
+  visible union conflicts rather than being relabeled. Synthetic tests cover
+  component conservation, coverage uncertainty, conflict preservation and ambiguous
+  machine refusal; Rust 323 tests, Clippy and API contracts pass. Real matching
+  associations were restored and repeated without additional writes; all retained
+  fact hashes/totals match the source copy. A real hour's two-source rows collapse
+  one-to-one and all five aggregate dimensions agree. The same hour still returns
+  pending through the materialized reader because readiness is currently global:
+  scope-local readiness and treatment of nonconfirmed observations are now the
+  next explicit product-integration gate, not another arithmetic guess. Installed
+  policy, original ledger and account state remain unchanged. Goal stays ACTIVE.

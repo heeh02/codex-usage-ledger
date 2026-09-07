@@ -26,7 +26,7 @@ pub use correction_preview::{
     CorrectionPreviewFilter, CorrectionPreviewGrain, create_correction_preview,
     read_correction_preview,
 };
-pub use correction_shadow::{apply_shadow_correction, create_review_shadow};
+pub use correction_shadow::{apply_shadow_correction, create_review_shadow, link_shadow_sampling};
 mod dashboard_repository;
 mod ingest_repository;
 mod maintenance_repository;

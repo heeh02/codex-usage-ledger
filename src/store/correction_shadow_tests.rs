@@ -265,3 +265,259 @@ fn review_copy_preserves_sparse_rowid_based_checkpoints() {
         .unwrap();
     assert_eq!(ids, vec![100, 300]);
 }
+
+fn linked_fixture() -> (tempfile::TempDir, PathBuf, PathBuf, String) {
+    let (dir, db, manifest, seal) = fixture();
+    let shadow = dir.path().join("shadow.sqlite3");
+    create_review_shadow(&db, &shadow).unwrap();
+    apply_shadow_correction(&shadow, &manifest, &seal).unwrap();
+    let mut store = LedgerStore::open(&shadow).unwrap();
+    let rows=store.connection.prepare(&format!("SELECT {EVENT_SELECT_COLUMNS} FROM (SELECT r.*,'confirmed' AS quality,NULL AS quality_reason,thread_id AS rollout_id FROM reconstruction_usage_events r) ORDER BY source_timestamp"))
+        .unwrap().query_map([],row_to_event).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+    let mut samples = Vec::new();
+    for (index, mut event) in rows.into_iter().enumerate() {
+        event.event_id = format!("logs2-post-sampling:{}", index + 1);
+        event.provenance.source_record_key = None;
+        event.provenance.source_id = crate::sampling::POST_SAMPLING_SOURCE_ID.into();
+        event.provenance.byte_offset = index as u64 + 1;
+        event.provenance.line_number = index as u64 + 1;
+        event.usage.cache_write_observed_input_tokens = 0;
+        samples.push(event);
+    }
+    store
+        .upsert_verified_events_and_cursor(
+            &samples,
+            &FileCursor {
+                machine_id: "synthetic-machine".into(),
+                source_id: crate::sampling::POST_SAMPLING_SOURCE_ID.into(),
+                file_identity: "synthetic-log".into(),
+                byte_offset: 2,
+                line_number: 2,
+                parser_state_json: None,
+                updated_at: Utc::now(),
+            },
+        )
+        .unwrap();
+    (dir, shadow, manifest, seal)
+}
+
+fn link_options() -> crate::sampling::LegacySamplingAuditOptions {
+    crate::sampling::LegacySamplingAuditOptions {
+        start: "2026-01-01T00:00:00Z".parse().unwrap(),
+        end: "2026-01-02T00:00:00Z".parse().unwrap(),
+        limit: 100,
+        max_bytes: 10000,
+        include_links: true,
+    }
+}
+
+#[test]
+fn sampling_links_restore_union_without_changing_facts_or_labels() {
+    let (dir, shadow, manifest, seal) = linked_fixture();
+    let before = LedgerStore::open_read_only(&shadow).unwrap();
+    let hashes = before
+        .connection
+        .prepare("SELECT event_id,event_hash FROM retained_request_evidence ORDER BY event_id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    drop(before);
+    let result = serde_json::to_value(
+        link_shadow_sampling(
+            &shadow,
+            &dir.path().join("home"),
+            &manifest,
+            &seal,
+            link_options(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["linked"], 2);
+    assert_eq!(result["metadataConflicts"], 0);
+    assert_eq!(result["tokenFactsChanged"], false);
+    let again = serde_json::to_value(
+        link_shadow_sampling(
+            &shadow,
+            &dir.path().join("home"),
+            &manifest,
+            &seal,
+            link_options(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(again["linked"], 0);
+    assert_eq!(again["unchanged"], 2);
+    assert_eq!(
+        apply_shadow_correction(&shadow, &manifest, &seal)
+            .unwrap()
+            .status,
+        "already_applied"
+    );
+    let mut store = LedgerStore::open(&shadow).unwrap();
+    let after = store
+        .connection
+        .prepare("SELECT event_id,event_hash FROM retained_request_evidence ORDER BY event_id")
+        .unwrap()
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(after, hashes);
+    for _ in 0..100 {
+        if store
+            .stage_source_union_batch(10, 10, 100)
+            .unwrap()
+            .projection_ready
+        {
+            break;
+        }
+    }
+    drop(store);
+    let preview = LedgerStore::open_source_union_main_preview(&shadow).unwrap();
+    let total = preview
+        .aggregate_usage(&AggregateFilter::default())
+        .unwrap();
+    assert_eq!(total.event_count, 2);
+    assert_eq!(total.usage.total_tokens, 150);
+    assert_eq!(
+        (
+            total.usage.input_tokens,
+            total.usage.cached_input_tokens,
+            total.usage.cache_write_input_tokens,
+            total.usage.output_tokens
+        ),
+        (140, 70, 14, 10)
+    );
+    assert_eq!(
+        total.usage.cache_write_observed_input_tokens, 0,
+        "unknown coverage remains separate from consumption"
+    );
+}
+
+#[test]
+fn sampling_link_failure_rolls_back_metadata_upgrade_and_first_link() {
+    let (dir, shadow, manifest, seal) = linked_fixture();
+    let store = Connection::open(&shadow).unwrap();
+    store.execute_batch("CREATE TRIGGER reject_second_link BEFORE INSERT ON source_record_evidence WHEN NEW.evidence_source='sampling' AND NEW.event_id='logs2-post-sampling:2' BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
+    drop(store);
+    assert!(
+        link_shadow_sampling(
+            &shadow,
+            &dir.path().join("home"),
+            &manifest,
+            &seal,
+            link_options()
+        )
+        .is_err()
+    );
+    let store = Connection::open(&shadow).unwrap();
+    assert_eq!(
+        store
+            .query_row(
+                "SELECT COUNT(*) FROM source_record_evidence WHERE evidence_source='sampling'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .query_row("SELECT version FROM review_shadow_meta", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn sampling_metadata_conflicts_remain_visible_without_relabeling() {
+    let (dir, shadow, manifest, seal) = linked_fixture();
+    let store = LedgerStore::open(&shadow).unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE retained_request_assignments SET account_fingerprint='other-account'",
+            [],
+        )
+        .unwrap();
+    drop(store);
+    let result = serde_json::to_value(
+        link_shadow_sampling(
+            &shadow,
+            &dir.path().join("home"),
+            &manifest,
+            &seal,
+            link_options(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["linked"], 2);
+    assert_eq!(result["metadataConflicts"], 2);
+    let mut store = LedgerStore::open(&shadow).unwrap();
+    for _ in 0..100 {
+        if store
+            .stage_source_union_batch(10, 10, 100)
+            .unwrap()
+            .projection_ready
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        store
+            .source_union_projection_progress()
+            .unwrap()
+            .unresolved_groups,
+        2
+    );
+    assert_eq!(store.connection.query_row("SELECT COUNT(*) FROM retained_request_assignments WHERE account_fingerprint='other-account'",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+}
+
+#[test]
+fn sampling_links_refuse_ambiguous_primary_machine_binding() {
+    let (dir, shadow, manifest, seal) = linked_fixture();
+    let store = LedgerStore::open(&shadow).unwrap();
+    let tx = store.connection.unchecked_transaction().unwrap();
+    write_cursor_in(
+        &tx,
+        &FileCursor {
+            machine_id: "another-machine".into(),
+            source_id: crate::sampling::POST_SAMPLING_SOURCE_ID.into(),
+            file_identity: "another-log".into(),
+            byte_offset: 0,
+            line_number: 0,
+            parser_state_json: None,
+            updated_at: Utc::now(),
+        },
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    drop(store);
+    assert!(
+        link_shadow_sampling(
+            &shadow,
+            &dir.path().join("home"),
+            &manifest,
+            &seal,
+            link_options()
+        )
+        .is_err()
+    );
+    let store = Connection::open(&shadow).unwrap();
+    assert_eq!(
+        store
+            .query_row(
+                "SELECT COUNT(*) FROM source_record_evidence WHERE evidence_source='sampling'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}

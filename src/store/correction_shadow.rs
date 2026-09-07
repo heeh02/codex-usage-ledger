@@ -3,9 +3,12 @@ use super::*;
 use anyhow::{Result, anyhow};
 
 const APP_ID: i64 = 0x43554c53;
+#[path = "shadow_sampling_links.rs"]
+mod sampling_links;
 #[cfg(test)]
 #[path = "correction_shadow_tests.rs"]
 mod tests;
+pub use sampling_links::link_shadow_sampling;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,7 +91,7 @@ pub fn apply_shadow_correction(
         [],
         |r| r.get(0),
     )?;
-    if version != 1 {
+    if !(1..=2).contains(&version) {
         return Err(anyhow!("unsupported shadow version"));
     }
     let sealed = crate::reconstruction::verify_correction_manifest(manifest)?;

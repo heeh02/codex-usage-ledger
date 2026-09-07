@@ -68,3 +68,42 @@ This path does not switch the installed application, repair sampling association
 make every union group resolvable, or establish official-account parity. Production
 adoption still requires code-owner review, complete scope/coverage acceptance and
 the populated native application checks in the active goal.
+
+## Version 2: sampling occurrence links
+
+`link-shadow-sampling` adds association evidence to a corrected shadow:
+
+```sh
+codex-usage-ledger link-shadow-sampling --db /work/review-shadow.sqlite3 \
+  --codex-home /work/synthetic-codex --manifest /work/correction.jsonl \
+  --expected-sha256 VERIFIED_BODY_DIGEST \
+  --start 2026-01-01T00:00:00Z --end 2026-02-01T00:00:00Z
+```
+
+It first checks the correction receipt's post-image, requalifies retained sampling
+anchors, then rechecks under an immediate transaction. The original primary-log
+namespace must have a unique saved machine binding matching the correction.
+Only confirmed, amount-matching anchors qualify. Each proposed offset/digest must
+reproduce the exact key of an occurrence covered by the correction receipt;
+amounts and the 250 ms time relation are checked again. Existing conflicting keys
+are refused, never overwritten. Unknown, changed and out-of-scope proposals remain
+unmodified and are counted separately.
+
+The observed file identity must equal the captured manifest binding. A growing
+file may supply historical matches only when each occurrence matches the frozen
+corrected key and amount; this is not proof that its entire current prefix is
+unchanged. Non-append changes require review. The additive `sourceExtended` audit
+field distinguishes observed growth from other metadata changes.
+
+The transaction upgrades only this review artifact from version 1 to 2 and creates
+`review_sampling_links`, preserving the previous key, retained fact hash and
+correction binding. Sampling amounts, quality, assignments and original hashes
+are not rewritten. Repeated links must still match their receipts. Failure rolls
+back both the version upgrade and every association. Reconstruction correction
+readers accept review versions 1 and 2; the normal ledger schema remains unchanged.
+
+Account/project/model disagreements are reported, not reconciled by relabeling.
+The union planner retains those conflicts as unresolved. Matching consumption
+with differing write-coverage knowledge still follows the separately versioned
+union coverage policy. A successful linkage does not certify unreviewed sources
+or make global projection completion a scope-specific completeness guarantee.

@@ -42,6 +42,21 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Restore associations in a corrected review shadow; never changes Token facts.
+    LinkShadowSampling {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+    },
     /// Create a new isolated review copy, preserving the source ledger.
     CreateReviewShadow {
         #[arg(long)]
@@ -446,6 +461,29 @@ async fn main() -> Result<()> {
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::LinkShadowSampling {
+            db,
+            codex_home,
+            manifest,
+            expected_sha256,
+            start,
+            end,
+        } => {
+            let receipt = codex_usage_ledger::cli_support::link_shadow_sampling(
+                &db,
+                &codex_home,
+                &manifest,
+                &expected_sha256,
+                codex_usage_ledger::cli_support::LegacySamplingAuditOptions {
+                    start,
+                    end,
+                    limit: 100000,
+                    max_bytes: 1073741824,
+                    include_links: true,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
         }
         Command::CreateReviewShadow { db, output } => {
             codex_usage_ledger::cli_support::create_review_shadow(&db, &output)?;

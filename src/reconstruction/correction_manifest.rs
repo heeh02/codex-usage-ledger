@@ -88,6 +88,8 @@ pub struct ManifestCategory {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestVerification {
+    #[serde(skip)]
+    pub(crate) binding: ManifestBinding,
     scope: &'static str,
     pub(crate) records: u64,
     pub(crate) body_sha256: String,
@@ -97,6 +99,14 @@ pub struct ManifestVerification {
     source_revalidated: bool,
     ledger_rows_revalidated: bool,
     categories: BTreeMap<String, ManifestCategory>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ManifestBinding {
+    pub machine_id: String,
+    pub thread: String,
+    pub stored_file_identity: String,
+    pub observed_file_identity: String,
 }
 
 pub fn write_correction_manifest(
@@ -371,7 +381,14 @@ fn verify_with_store(
     }
     let body_sha256 = sealed.ok_or_else(|| anyhow!("manifest has no completion seal"))?;
     let completion = completion.ok_or_else(|| anyhow!("manifest has no completion"))?;
+    let header = header.ok_or_else(|| anyhow!("manifest missing header"))?;
     Ok(ManifestVerification {
+        binding: ManifestBinding {
+            machine_id: header.machine_id,
+            thread: header.thread,
+            stored_file_identity: header.stored_file_identity,
+            observed_file_identity: header.observed_file_identity,
+        },
         scope: "sealed_reconstruction_correction_draft",
         records,
         body_sha256,
