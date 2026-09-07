@@ -3,6 +3,10 @@
 `audit-reconstruction` compares a prefix of a currently indexed rollout with
 stored reconstruction facts. It does not run the importer or change the ledger.
 
+For a complete-file, bounded-memory comparison, use the
+[streaming diagnostic](reconstruction-file-audit.md); a matching prefix alone
+does not prove the remaining file is unchanged.
+
 ```sh
 codex-usage-ledger audit-reconstruction --db ./synthetic-ledger.sqlite3 \
   --codex-home ./synthetic-codex --thread synthetic-root \

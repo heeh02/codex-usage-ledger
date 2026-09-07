@@ -18,8 +18,8 @@ use codex_usage_ledger::{
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
         POST_SAMPLING_SOURCE_ID, RetainedRequestCursor, RetainedRequestScope,
-        audit_reconstruction_prefix, compact_expired_raw_events, discover_rollouts,
-        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
+        audit_reconstruction_file, audit_reconstruction_prefix, compact_expired_raw_events,
+        discover_rollouts, fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
         ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
         load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
         prepare_store, sync_account_history, sync_native_catalog,
@@ -71,6 +71,21 @@ enum Command {
         #[arg(long, default_value_t = 100)]
         limit: usize,
         /// Diagnostic only: compare under the old namespace when only Unix device differs.
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Stream one source file for comparison; never migrates or updates the ledger.
+    AuditReconstructionFile {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_token_rows: usize,
         #[arg(long)]
         allow_device_drift: bool,
     },
@@ -253,6 +268,24 @@ async fn main() -> Result<()> {
                 &thread,
                 max_bytes,
                 limit,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditReconstructionFile {
+            db,
+            codex_home,
+            thread,
+            max_bytes,
+            max_token_rows,
+            allow_device_drift,
+        } => {
+            let report = audit_reconstruction_file(
+                &db,
+                &codex_home,
+                &thread,
+                max_bytes,
+                max_token_rows,
                 allow_device_drift,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);

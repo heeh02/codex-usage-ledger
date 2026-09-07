@@ -60,6 +60,25 @@ impl LedgerStore {
             })).optional().map_err(StoreError::from)
     }
 
+    pub(crate) fn reconstruction_audit_count(
+        &self,
+        source: &ReconstructionSourceStatus,
+    ) -> StoreResult<u64> {
+        self.connection
+            .query_row(
+                "SELECT COUNT(*) FROM reconstruction_usage_events
+            WHERE machine_id=?1 AND source_id=?2 AND file_identity=?3 AND thread_id=?4",
+                params![
+                    source.machine_id,
+                    source.source_id,
+                    source.file_identity,
+                    source.thread_id
+                ],
+                |row| u64_from_sql(row.get(0)?, 0),
+            )
+            .map_err(StoreError::from)
+    }
+
     /// Refresh the derived selector before opening a read snapshot. If another
     /// writer dirties it in that gap, retry preparation rather than refreshing
     /// (writing/nesting a transaction) from inside the frozen read view.
@@ -99,6 +118,27 @@ impl LedgerStore {
             return Err(StoreError::UnsupportedAuditSchema {
                 found,
                 supported: migrations::CURRENT_SCHEMA_VERSION,
+            });
+        }
+        Ok(Self {
+            connection,
+            exact_series_memo: Default::default(),
+        })
+    }
+
+    /// Only for source reconstruction diagnostics. Fact columns used by this
+    /// audit are unchanged across schemas 35..38; general readers stay strict.
+    pub(crate) fn open_reconstruction_audit(path: impl AsRef<Path>) -> StoreResult<Self> {
+        let connection =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        connection.pragma_update(None, "query_only", "ON")?;
+        connection.pragma_update(None, "trusted_schema", "OFF")?;
+        let found: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if !(35..=38).contains(&found) {
+            return Err(StoreError::UnsupportedAuditSchema {
+                found,
+                supported: 38,
             });
         }
         Ok(Self {

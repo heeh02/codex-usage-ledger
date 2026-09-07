@@ -236,7 +236,7 @@ fn aggregate(
     Ok(grouped.into_values().collect())
 }
 
-fn add(total: &mut TokenUsage, next: TokenUsage) -> Result<(), UnionError> {
+pub(crate) fn add(total: &mut TokenUsage, next: TokenUsage) -> Result<(), UnionError> {
     for (target, value) in [
         (&mut total.input_tokens, next.input_tokens),
         (&mut total.cached_input_tokens, next.cached_input_tokens),

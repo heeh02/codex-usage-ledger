@@ -75,6 +75,15 @@ Next: establish legacy identity/coverage eligibility and scope-query semantics,
 record a controlled real-shadow comparison, then promote all consumers together.
 Staging readiness is not history completeness or release acceptance.
 
+Full-source inspection now changes the next action: legacy cohorts may have no
+shared/receipt keys at all, and parser corrections are not uniform across files.
+One private root sample agrees at every old position while another has retained
+rows suppressed specifically by the foreign-history guard. Validate ancestral
+boundaries and produce per-record correction/identity eligibility before union
+promotion; do not globally discount reconstruction or subtract a sample delta.
+The [streamed comparison contract](docs/architecture/reconstruction-file-audit.md)
+keeps EOF/position coverage distinct from inference and migration proof.
+
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
 inode values matched. The old automatic replacement path could delete derived
@@ -1519,3 +1528,24 @@ No live data migration, installed-app replacement or release has occurred.
   old max selector: legacy identity/coverage validation, candidate query semantics,
   real-shadow migration/review, two-account reconciliation and native acceptance
   are still required. Full goal ACTIVE.
+- Batch 143: implemented bounded-memory whole-file reconstruction comparison,
+  sharing the prefix diagnostic's resolver/parser/field comparison and preserving
+  its strict interface. A separate read-only source-audit opener explicitly
+  accepts unchanged evidence tables in schemas 35–38 without migrating them.
+  Streamed reports distinguish EOF, canonical metadata, source changes, all
+  stored positions, missing keys, changed/suppressed/new records and nullable
+  component totals. Suppression reasons expose the active parser rule; no sum
+  becomes a production correction or source-identity proof. The existing private
+  audit copy's key/link inventory showed historical promotion is not currently
+  possible. Two large real root files were streamed: one preserved every old
+  compared measurement but changed during reading; another was stable through
+  EOF and contained a material retained cohort suppressed only by the foreign-
+  history guard. A second full pass reproduced the latter's framed-record digest
+  and categories. Exact private counts/components/commands remain outside the
+  public repository. The evidence requires per-record validation, not a blanket
+  scaling factor or automatic deletion. Rust 235 tests, Clippy, API contracts and
+  governance checks pass, including multi-chunk/limit/orphan/nullable/suppression
+  and CLI preservation cases. No real-ledger schema/facts, source bindings or installed
+  app were changed in this batch. Prior native edits remain separate. Historical
+  correction/identity manifests, union promotion, real two-account reconciliation
+  and native acceptance remain unfinished; full goal ACTIVE.

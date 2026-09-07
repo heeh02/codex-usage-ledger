@@ -69,6 +69,24 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     assert_eq!(partial["canonicalSeen"], false);
     assert_eq!(partial["reachedFileEnd"], false);
     assert!(!run("0").status.success());
+    let streamed = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("audit-reconstruction-file")
+        .arg("--db")
+        .arg(&db)
+        .arg("--codex-home")
+        .arg(home)
+        .args(["--thread", "root", "--max-bytes", "4096"])
+        .output()
+        .unwrap();
+    assert!(
+        streamed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&streamed.stderr)
+    );
+    let streamed: serde_json::Value = serde_json::from_slice(&streamed.stdout).unwrap();
+    assert_eq!(streamed["allStoredPositionsSeen"], true);
+    assert_eq!(streamed["comparisons"]["unchanged"]["storedRecords"], 1);
+    assert_eq!(streamed["migrationReady"], false);
     assert_eq!(fs::read(&db).unwrap(), before);
     assert_eq!(fs::read(&rollout).unwrap(), source);
     assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);

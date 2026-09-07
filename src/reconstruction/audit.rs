@@ -3,12 +3,12 @@ use crate::store::ReconstructionAuditFact;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct Comparison {
-    byte_offset: u64,
-    change: &'static str,
-    record_key_matches: Option<bool>,
-    stored: Option<ReconstructionAuditFact>,
-    proposed: Option<ReconstructionAuditFact>,
+pub(super) struct Comparison {
+    pub(super) byte_offset: u64,
+    pub(super) change: &'static str,
+    pub(super) record_key_matches: Option<bool>,
+    pub(super) stored: Option<ReconstructionAuditFact>,
+    pub(super) proposed: Option<ReconstructionAuditFact>,
 }
 
 #[cfg(test)]
@@ -18,6 +18,165 @@ mod tests {
 
     fn fixture() -> (tempfile::TempDir, LedgerStore, PathBuf) {
         fixture_with_device_drift(false)
+    }
+
+    #[test]
+    fn streaming_audit_reaches_beyond_prefix_and_checks_unseen_stored_positions() {
+        let (temp, store, path) = fixture();
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let padding =
+            serde_json::json!({"type":"response_item","payload":{"text":"x".repeat(8192)}});
+        for _ in 0..650 {
+            writeln!(file, "{padding}").unwrap();
+        }
+        let token = serde_json::json!({"timestamp":"2026-01-01T00:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{
+            "total_token_usage":{"input_tokens":1200,"cached_input_tokens":1060,"output_tokens":0,"total_tokens":1200},
+            "last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":0,"total_tokens":100}}}});
+        writeln!(file, "{token}").unwrap();
+        drop(file);
+        let db = temp.path().join("ledger.sqlite3");
+        let before = fs::read(&path).unwrap();
+        let db_before = fs::read(&db).unwrap();
+        let changes = store.connection().total_changes();
+        let run = |bytes, rows| {
+            serde_json::to_value(
+                super::super::audit_reconstruction_file(
+                    &db,
+                    temp.path(),
+                    "root",
+                    bytes,
+                    rows,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let partial = run(4096, 100);
+        assert_eq!(partial["reachedFileEnd"], false);
+        assert_eq!(partial["allStoredPositionsSeen"], false);
+        let limited = run(8 * 1024 * 1024, 1);
+        assert_eq!(limited["tokenRecords"], 1);
+        assert_eq!(limited["reachedFileEnd"], false);
+        let full = run(8 * 1024 * 1024, 100);
+        assert_eq!(full["reachedFileEnd"], true);
+        assert_eq!(full["allStoredPositionsSeen"], true);
+        assert_eq!(full["tokenRecords"], 2);
+        assert_eq!(full["storedRecordsSeen"], 1);
+        assert_eq!(full["usageChangedPairs"], 1);
+        assert_eq!(
+            full["comparisons"]["changed_candidate"]["storedUsage"]["total_tokens"],
+            1100
+        );
+        assert_eq!(
+            full["comparisons"]["changed_candidate"]["proposedUsage"]["total_tokens"],
+            100
+        );
+        assert_eq!(
+            full["comparisons"]["new_candidate"]["proposedUsage"]["total_tokens"],
+            100
+        );
+        assert!(full["comparisons"]["new_candidate"]["storedUsage"].is_null());
+        assert_eq!(full["migrationReady"], false);
+        assert_eq!(full["historyComplete"], false);
+        assert_eq!(store.connection().total_changes(), changes);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read(&db).unwrap(), db_before);
+        // A retained event at a source position with no corresponding token row
+        // must prevent a coverage claim even after reaching EOF.
+        store.connection().execute("UPDATE reconstruction_usage_events SET event_id='orphaned-position',byte_offset=999",[]).unwrap();
+        let orphan = run(8 * 1024 * 1024, 100);
+        assert_eq!(orphan["storedRecordsNotSeen"], 1);
+        assert_eq!(orphan["allStoredPositionsSeen"], false);
+    }
+
+    #[test]
+    fn streaming_audit_old_schema_and_partial_json_never_trigger_migration() {
+        let (temp, store, path) = fixture();
+        let db = temp.path().join("ledger.sqlite3");
+        // Version guard fixture: shared source tables are unchanged in 35..38.
+        store
+            .connection()
+            .execute_batch("PRAGMA user_version=35")
+            .unwrap();
+        let before = store.connection().total_changes();
+        let report =
+            super::super::audit_reconstruction_file(&db, temp.path(), "root", 4096, 100, false)
+                .unwrap();
+        let json = serde_json::to_value(report).unwrap();
+        assert_eq!(json["ledgerSchema"], 35);
+        assert_eq!(store.schema_version().unwrap(), 35);
+        assert_eq!(store.connection().total_changes(), before);
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"{\"partial\"")
+            .unwrap();
+        let json = serde_json::to_value(
+            super::super::audit_reconstruction_file(&db, temp.path(), "root", 4096, 100, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(json["reachedFileEnd"], false);
+        assert_eq!(json["allStoredPositionsSeen"], false);
+        store
+            .connection()
+            .execute_batch("PRAGMA user_version=34")
+            .unwrap();
+        assert!(
+            super::super::audit_reconstruction_file(&db, temp.path(), "root", 4096, 100, false)
+                .is_err()
+        );
+        assert_eq!(store.schema_version().unwrap(), 34);
+    }
+
+    #[test]
+    fn streaming_audit_explains_foreign_history_suppression() {
+        let (temp, store, path) = fixture();
+        let original = fs::read_to_string(&path).unwrap();
+        let token = original.lines().nth(1).unwrap();
+        let foreign = serde_json::json!({"type":"session_meta","payload":{"id":"ancestor"}});
+        let mut file = fs::OpenOptions::new().append(true).open(&path).unwrap();
+        writeln!(file, "{foreign}").unwrap();
+        let offset = file.metadata().unwrap().len();
+        writeln!(file, "{token}").unwrap();
+        drop(file);
+        let identity = physical_file_identity(&path, &fs::metadata(&path).unwrap()).unwrap();
+        let id = stable_event_id("machine", &identity, "root", offset);
+        store
+            .connection()
+            .execute(
+                "UPDATE reconstruction_usage_events SET event_id=?1,byte_offset=?2",
+                rusqlite::params![id, offset as i64],
+            )
+            .unwrap();
+        let report = serde_json::to_value(
+            super::super::audit_reconstruction_file(
+                &temp.path().join("ledger.sqlite3"),
+                temp.path(),
+                "root",
+                4096,
+                100,
+                false,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["allStoredPositionsSeen"], true);
+        assert_eq!(
+            report["suppressedByRule"]["foreign_history_guard"]["records"],
+            1
+        );
+        assert_eq!(
+            report["suppressedByRule"]["foreign_history_guard"]["storedUsage"]["total_tokens"],
+            1100
+        );
+        assert_eq!(
+            report["comparisons"]["suppressed_candidate"]["storedUsage"]["total_tokens"],
+            1100
+        );
+        assert_eq!(report["migrationReady"], false);
     }
 
     fn fixture_with_device_drift(drift: bool) -> (tempfile::TempDir, LedgerStore, PathBuf) {
@@ -531,6 +690,18 @@ pub fn audit_reconstruction_prefix(
             "require thread, byte limit 1..16777216 and row limit 1..500"
         ));
     }
+    let target = resolve_target(codex_home, thread)?;
+    audit_target_prefix(
+        store,
+        target,
+        thread,
+        max_bytes,
+        max_rows,
+        allow_device_drift,
+    )
+}
+
+pub(super) fn resolve_target(codex_home: &Path, thread: &str) -> Result<Target> {
     let home = codex_home.canonicalize()?;
     let index = home.join("state_5.sqlite").canonicalize()?;
     if !index.starts_with(&home)
@@ -552,6 +723,17 @@ pub fn audit_reconstruction_prefix(
             "rollout is outside the explicit Codex source roots"
         ));
     }
+    Ok(target)
+}
+
+fn audit_target_prefix(
+    store: &LedgerStore,
+    target: Target,
+    thread: &str,
+    max_bytes: usize,
+    max_rows: usize,
+    allow_device_drift: bool,
+) -> Result<ReconstructionPrefixAudit> {
     let before = fs::metadata(&target.path)?;
     let identity = physical_file_identity(&target.path, &before)?;
     store.with_source_audit_snapshot(|store| -> Result<_> {
@@ -638,64 +820,14 @@ pub fn audit_reconstruction_prefix(
                 continue;
             }
             tokens += 1;
-            let id = stable_event_id(
-                &source.machine_id,
-                &source.file_identity,
-                thread,
-                line.byte_offset,
-            );
-            let stored = store.reconstruction_audit_fact(&id)?;
-            if let Some(stored) = &stored {
-                stored.usage.validate()?;
-            }
-            let key = source_record_key(
-                &source.machine_id,
-                &source.file_identity,
-                thread,
-                line.byte_offset,
-                &source_record_digest(record.as_ref().unwrap()),
-            );
-            let key_matches = stored
-                .as_ref()
-                .and_then(|old| old.record_key.as_ref())
-                .map(|old| old == &key);
-            let proposed = proposal.map(|row| {
-                let event = row.event;
-                ReconstructionAuditFact {
-                    event_id: event.event_id,
-                    stored_hash: None,
-                    at: event.source_timestamp.unwrap_or(event.observed_at),
-                    thread: event.thread_id,
-                    model: event.model,
-                    account: event.account_fingerprint,
-                    project: event.project.project_id,
-                    record_key: event.provenance.source_record_key,
-                    usage: event.usage,
-                }
-            });
-            let change = match (&stored, &proposed) {
-                (None, None) => "not_emitted",
-                (None, Some(_)) => "new_candidate",
-                (Some(_), None) => "suppressed_candidate",
-                (Some(old), Some(new))
-                    if old.usage == new.usage
-                        && old.at == new.at
-                        && old.thread == new.thread
-                        && old.model == new.model
-                        && old.account == new.account
-                        && old.project == new.project =>
-                {
-                    "unchanged"
-                }
-                _ => "changed_candidate",
-            };
-            comparisons.push(Comparison {
-                byte_offset: line.byte_offset,
-                change,
-                record_key_matches: key_matches,
-                stored,
-                proposed,
-            });
+            comparisons.push(compare_proposal(
+                store,
+                &target,
+                source,
+                line,
+                record.as_ref().unwrap(),
+                proposal,
+            )?);
         }
         let after = fs::metadata(&target.path)?;
         Ok(ReconstructionPrefixAudit {
@@ -727,7 +859,76 @@ pub fn audit_reconstruction_prefix(
     })
 }
 
-fn device_only_drift(old: &str, current: &str) -> bool {
+pub(super) fn compare_proposal(
+    store: &LedgerStore,
+    target: &Target,
+    source: &ReconstructionSourceStatus,
+    line: &JsonlLine,
+    record: &Value,
+    proposal: Option<ReconstructionEvent>,
+) -> Result<Comparison> {
+    let thread = target.thread_id.as_str();
+    let id = stable_event_id(
+        &source.machine_id,
+        &source.file_identity,
+        thread,
+        line.byte_offset,
+    );
+    let stored = store.reconstruction_audit_fact(&id)?;
+    if let Some(stored) = &stored {
+        stored.usage.validate()?;
+    }
+    let key = source_record_key(
+        &source.machine_id,
+        &source.file_identity,
+        thread,
+        line.byte_offset,
+        &source_record_digest(record),
+    );
+    let key_matches = stored
+        .as_ref()
+        .and_then(|old| old.record_key.as_ref())
+        .map(|old| old == &key);
+    let proposed = proposal.map(|row| {
+        let event = row.event;
+        ReconstructionAuditFact {
+            event_id: event.event_id,
+            stored_hash: None,
+            at: event.source_timestamp.unwrap_or(event.observed_at),
+            thread: event.thread_id,
+            model: event.model,
+            account: event.account_fingerprint,
+            project: event.project.project_id,
+            record_key: event.provenance.source_record_key,
+            usage: event.usage,
+        }
+    });
+    let change = match (&stored, &proposed) {
+        (None, None) => "not_emitted",
+        (None, Some(_)) => "new_candidate",
+        (Some(_), None) => "suppressed_candidate",
+        (Some(old), Some(new))
+            if old.usage == new.usage
+                && old.at == new.at
+                && old.thread == new.thread
+                && old.model == new.model
+                && old.account == new.account
+                && old.project == new.project =>
+        {
+            "unchanged"
+        }
+        _ => "changed_candidate",
+    };
+    Ok(Comparison {
+        byte_offset: line.byte_offset,
+        change,
+        record_key_matches: key_matches,
+        stored,
+        proposed,
+    })
+}
+
+pub(super) fn device_only_drift(old: &str, current: &str) -> bool {
     fn parts(value: &str) -> Option<(u64, u64)> {
         let mut parts = value.split(':');
         if parts.next() != Some("unix") {

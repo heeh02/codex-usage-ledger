@@ -35,6 +35,8 @@ use crate::{
 
 mod audit;
 pub use audit::audit_reconstruction_prefix;
+mod file_audit;
+pub use file_audit::audit_reconstruction_file;
 
 pub const RECONSTRUCTION_SOURCE_PREFIX: &str = "rollout-reconstruction-v1";
 const STATE_SCHEMA_VERSION: u32 = 1;
