@@ -1515,12 +1515,14 @@ mod tests {
         assert!(first.quarantined_events > 0);
         assert_eq!(first.issues.len(), 0);
 
-        let trusted = store.aggregate_usage(&Default::default()).unwrap();
+        // Fixture dates intentionally stay fixed; retained rollups must still
+        // represent both qualities after the raw-retention boundary passes.
+        let trusted = store.aggregate_rollup_usage(&Default::default()).unwrap();
         let quarantined_filter = crate::store::AggregateFilter {
             quality: Some(DataQuality::Quarantined),
             ..Default::default()
         };
-        let quarantined = store.aggregate_usage(&quarantined_filter).unwrap();
+        let quarantined = store.aggregate_rollup_usage(&quarantined_filter).unwrap();
         assert!(trusted.usage.total_tokens < quarantined.usage.total_tokens);
 
         let second = ingest_all(&mut store, &codex_home, "machine-test", None).unwrap();

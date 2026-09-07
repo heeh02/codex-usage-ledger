@@ -1008,7 +1008,9 @@ fn upgrades_v15_to_cache_write_buckets_without_changing_old_totals() {
 #[test]
 fn event_upsert_is_replay_safe_and_cursor_is_transactional() {
     let mut store = LedgerStore::open_in_memory().unwrap();
-    let original = event("event-1", DataQuality::Confirmed, 10);
+    let mut original = event("event-1", DataQuality::Confirmed, 10);
+    // This tests mutable raw upserts, not immutable expired-event retention.
+    original.observed_at = Utc::now();
     let result = store
         .upsert_events_and_cursor(std::slice::from_ref(&original), &cursor(20))
         .unwrap();
