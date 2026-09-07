@@ -33,6 +33,28 @@ fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
     assert_eq!(report["historyComplete"], false);
     assert_eq!(report["productionPolicyChanged"], false);
     assert_eq!(before, std::fs::read(&path).unwrap());
+    let preview = |query: &str| {
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .args(["preview-union-bundle", "--db"])
+            .arg(&path)
+            .args(["--query", query])
+            .output()
+            .unwrap()
+    };
+    let response = preview(r#"{"period":"today","timezone":"UTC"}"#);
+    assert!(
+        response.status.success(),
+        "{}",
+        String::from_utf8_lossy(&response.stderr)
+    );
+    let response: serde_json::Value = serde_json::from_slice(&response.stdout).unwrap();
+    assert_eq!(response["policy"], "request_union_preview");
+    assert_eq!(response["productionPolicyChanged"], false);
+    assert_eq!(response["historyComplete"], false);
+    assert!(response["bundle"]["summary"].is_object());
+    assert!(response["bundle"]["explorer"].is_object());
+    assert!(!preview(r#"{"period":"invalid"}"#).status.success());
+    assert_eq!(before, std::fs::read(&path).unwrap());
     let query = |extra: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
             .args(["read-union-projection", "--db"])
@@ -75,5 +97,6 @@ fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
     let before = std::fs::read(&path).unwrap();
     assert!(!run(&["--advance"]).status.success());
     assert!(!query(&[]).status.success());
+    assert!(!preview("{}").status.success());
     assert_eq!(before, std::fs::read(&path).unwrap());
 }

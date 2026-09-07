@@ -132,6 +132,17 @@ impl LedgerStore {
     }
 
     pub fn latest_confirmed_evidence_at(&self) -> StoreResult<Option<String>> {
+        if self.is_source_union_main_preview() {
+            self.refresh_effective_source_selection()?;
+            return self
+                .connection
+                .query_row(
+                    "SELECT MAX(source_timestamp) FROM effective_usage_events",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(StoreError::from);
+        }
         let raw: Option<String> = self.connection.query_row(
             "SELECT MAX(COALESCE(source_timestamp, observed_at))
              FROM usage_events WHERE quality = 'confirmed'",
@@ -205,8 +216,12 @@ impl LedgerStore {
             },
         )?;
         summary.selected_tokens = self.connection.query_row(
-            "SELECT COALESCE(SUM(reconstruction_tokens), 0)
-             FROM effective_thread_day_source WHERE evidence_source = 'reconstruction'",
+            if self.is_source_union_main_preview() {
+                "SELECT COALESCE(SUM(total_tokens),0) FROM measurement_union_selected WHERE evidence_source='reconstruction'"
+            } else {
+                "SELECT COALESCE(SUM(reconstruction_tokens), 0)
+                 FROM effective_thread_day_source WHERE evidence_source = 'reconstruction'"
+            },
             [],
             |row| u64_from_sql(row.get(0)?, 0),
         )?;

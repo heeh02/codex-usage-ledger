@@ -89,12 +89,7 @@ impl LedgerStore {
         for _ in 0..3 {
             self.refresh_effective_source_selection()?;
             let transaction = self.connection.unchecked_transaction()?;
-            let dirty: bool = transaction.query_row(
-                "SELECT dirty FROM effective_source_selection_state WHERE id=1",
-                [],
-                |row| row.get(0),
-            )?;
-            if dirty {
+            if !self.usage_projection_ready()? {
                 transaction.rollback()?;
                 continue;
             }
@@ -123,6 +118,7 @@ impl LedgerStore {
         Ok(Self {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         })
     }
 
@@ -144,6 +140,7 @@ impl LedgerStore {
         Ok(Self {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         })
     }
 
@@ -176,6 +173,7 @@ impl LedgerStore {
         Ok(Self {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         })
     }
 

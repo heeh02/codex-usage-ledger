@@ -2,6 +2,9 @@ use super::*;
 
 impl LedgerStore {
     pub(crate) fn usage_projection_ready(&self) -> StoreResult<bool> {
+        if self.union_main_preview {
+            return self.union_main_projection_ready();
+        }
         Ok(!self.connection.query_row(
             "SELECT dirty FROM effective_source_selection_state WHERE id=1",
             [],
@@ -21,6 +24,9 @@ impl LedgerStore {
             return Err(StoreError::InvalidRequestQuery(
                 "quota interval must be positive",
             ));
+        }
+        if self.union_main_preview {
+            return Ok(!self.union_main_projection_ready()?);
         }
         let first = start
             .with_timezone(&chrono_tz::Asia::Shanghai)
@@ -91,6 +97,13 @@ impl LedgerStore {
     }
 
     pub(super) fn refresh_effective_source_selection(&self) -> StoreResult<()> {
+        if self.union_main_preview {
+            return if self.union_main_projection_ready()? {
+                Ok(())
+            } else {
+                Err(StoreError::SnapshotUnavailable)
+            };
+        }
         let dirty: bool = self.connection.query_row(
             "SELECT dirty FROM effective_source_selection_state WHERE id = 1",
             [],
@@ -433,7 +446,10 @@ impl LedgerStore {
                     reasoning_output_tokens, total_tokens
              FROM precise_events AS usage_events {where_sql}
              ORDER BY effective_at, event_id",
-            retained_source = if uses_effective_source(filter) {
+            retained_source = if uses_effective_source(filter) && self.union_main_preview {
+                // Selected union events already include retained-only sampling.
+                "AND 0"
+            } else if uses_effective_source(filter) {
                 "AND kept.quality='confirmed' AND EXISTS(
                      SELECT 1 FROM effective_thread_day_source choice
                      WHERE choice.local_day=date(kept.effective_at,'+8 hours')

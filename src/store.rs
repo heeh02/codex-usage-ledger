@@ -39,6 +39,7 @@ pub use quota_history_repository::{QuotaHistoryCursor, QuotaHistoryPage};
 mod receipt_repository;
 mod request_repository;
 mod snapshot_memo;
+mod union_main_preview;
 mod union_projection;
 mod union_query;
 pub use union_query::{SourceUnionGrain, SourceUnionQuery};
@@ -674,6 +675,7 @@ pub struct CollectorStatus {
 pub struct LedgerStore {
     connection: Connection,
     exact_series_memo: std::cell::RefCell<Option<snapshot_memo::SnapshotMemo>>,
+    union_main_preview: bool,
 }
 
 const EVENT_SELECT_COLUMNS: &str = "event_id, observed_at, source_timestamp, thread_id, \

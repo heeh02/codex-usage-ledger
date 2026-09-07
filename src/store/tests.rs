@@ -165,6 +165,7 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         for index in 0..3 {
             store
@@ -250,6 +251,7 @@ fn schema_32_does_not_invent_receipts_for_legacy_events() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         store
             .upsert_event(&event("legacy-no-receipt", DataQuality::Confirmed, 10))
@@ -433,6 +435,7 @@ fn schema_35_adds_global_time_seek_without_changing_exact_usage() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         store
             .upsert_event(&event("a", DataQuality::Confirmed, 1))
@@ -478,6 +481,7 @@ fn schema_34_upgrade_does_not_invent_source_record_proofs() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         store
             .upsert_event(&event("legacy", DataQuality::Confirmed, 10))
@@ -513,6 +517,7 @@ fn schema_33_does_not_silently_choose_among_legacy_duplicate_receipts() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         for (index, id) in ["legacy-a", "legacy-b", "legacy-single"]
             .into_iter()

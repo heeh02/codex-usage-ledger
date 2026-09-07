@@ -132,7 +132,13 @@ impl ApiState {
     }
 
     pub fn with_store(store: LedgerStore) -> Self {
-        let query_path = store.database_path();
+        // Connection-local acceptance views must survive every endpoint; a
+        // normal reopened reader would silently restore the legacy selector.
+        let query_path = if store.is_source_union_main_preview() {
+            None
+        } else {
+            store.database_path()
+        };
         Self {
             official_scope: None,
             snapshot: Arc::new(RwLock::new(DashboardSnapshot::default())),
@@ -185,6 +191,11 @@ impl ApiState {
             Ok(serde_json::json!({"items": timeline_views(store, query)?}))
         })
         .await
+    }
+
+    /// The same atomic product response used by the dashboard and CLI acceptance.
+    pub async fn bundle_json(&self, query: UsageQuery) -> Result<serde_json::Value, ApiError> {
+        self.cached_query_value("bundle", query, http_bundle).await
     }
 
     async fn query_value<F>(

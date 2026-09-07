@@ -1942,3 +1942,25 @@ No live data migration, installed-app replacement or release has occurred.
   No accounting arithmetic, historical rows, main selector or installed app was
   changed. Real-account reconciliation, history repair/union promotion and native
   acceptance remain open. Full goal remains ACTIVE.
+- Batch 160 (2026-09-08): connected the resolved request union to the existing
+  product query chain through a [read-only main-query preview](docs/architecture/union-main-query-preview.md).
+  This goes beyond the separate candidate query DTO: actual async dashboard
+  bundles, conversation details, account/project/model breakdowns and curves now
+  run on the same selected occurrences in this explicit acceptance lane. Fixed
+  two integration hazards: exact-time queries must not append retained-only
+  sampling a second time, and API dispatch must not reopen an ordinary connection
+  and silently lose the preview selection. Temporary event/day/hour views exist
+  only on a READ_ONLY connection; stored views, facts and active policy remain
+  unchanged. The synthetic overlapping-source counterexample produces 600 rather
+  than 500 across the product chain, with sampling-only models surviving raw
+  compaction. Three timezones, component conservation, no-write/file-byte parity,
+  pending/unresolved refusal and normal-reopen behavior pass. A new
+  `preview-union-bundle` command returns the actual DTO with an explicit preview
+  wrapper; HTTP schema/defaults are unchanged. Rust 313 tests, Clippy and API
+  contracts pass. A separate private copy of the previous real shadow was migrated
+  to the current schema and advanced for bounded union staging; inspected legacy
+  sampling groups lack record keys and the preview correctly refuses them. The
+  original shadow hash is unchanged; the installed ledger/app were not migrated.
+  Next critical path is reviewed historical correction and occurrence linkage,
+  then real-account/product reconciliation and populated native installation.
+  This is not production promotion or historical completeness; goal stays ACTIVE.

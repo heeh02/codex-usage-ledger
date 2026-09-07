@@ -42,6 +42,14 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read the actual dashboard bundle through the resolved union, without promoting policy.
+    PreviewUnionBundle {
+        #[arg(long)]
+        db: PathBuf,
+        /// UsageQuery JSON, with the same account/project/session/time filters as the app.
+        #[arg(long, default_value = "{}")]
+        query: String,
+    },
     /// Read all retained quota observation intervals by stable seek pages; never migrates or writes.
     QuotaHistory {
         #[arg(long)]
@@ -379,6 +387,19 @@ async fn main() -> Result<()> {
                 allow_device_drift,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::PreviewUnionBundle { db, query } => {
+            anyhow::ensure!(query.len() <= 8192, "query is too large");
+            let query: UsageQuery = serde_json::from_str(&query)?;
+            let store = LedgerStore::open_source_union_main_preview(db)?;
+            let bundle = ApiState::with_store(store).bundle_json(query).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "policy":"request_union_preview", "productionPolicyChanged":false,
+                    "historyComplete":false, "bundle":bundle
+                }))?
+            );
         }
         Command::AuditReconstructionFile {
             db,

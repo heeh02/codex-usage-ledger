@@ -345,11 +345,7 @@ async fn bundle(
     State(state): State<ApiState>,
     Query(query): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(
-        state
-            .cached_query_value("bundle", query, http_bundle)
-            .await?,
-    ))
+    Ok(Json(state.bundle_json(query).await?))
 }
 
 async fn quotas(State(state): State<ApiState>) -> Json<serde_json::Value> {

@@ -346,6 +346,7 @@ fn schema40_preserves_source_and_candidate_rows_and_queries_use_range_index() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_main_preview: false,
         };
         store
             .upsert_event(&sample("a", "a", "2026-04-01T00:00:00Z", 1))
