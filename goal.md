@@ -985,27 +985,6 @@ No live data migration, installed-app replacement or release has occurred.
   exit time for kernel-stuck processes. Pending user approval for a temporary
   native test window is separate from remaining useful accounting work; goal
   remains ACTIVE.
-- Batch 131: dashboard/data-quality skill guidance focused the conversation page
-  on one scope/denominator. Added local own/tree account and model distributions
-  from stored usage dimensions, not catalog starting-model labels or current
-  login. Available lists conserve all components/counts with the corresponding
-  detail total, independent of node pagination; missing exact-window detail is
-  nullable instead of borrowing global values. An additive DTO/schema and paired
-  bilingual table show total, uncached input, cache read/write, output and records.
-  Unknown IDs and cache-write coverage remain distinct from measured zero.
-  Session chart data also discards inherited unused global auxiliary series.
-  Rust 198 tests and Web 72 tests/build pass, with account/model/root/child and
-  old aggregate-only HTTP coverage; Clippy/contracts/governance pass. Mac UI was
-  accessible again. The private-copy service exited at the existing compaction-
-  verification guard, so no real-ledger page acceptance occurred and that guard
-  was not bypassed. Explicit synthetic component harness was visually checked in
-  the in-app browser at 900/360px panel widths, switching language and own/tree;
-  narrow tables scrolled to the final output/count columns. Harness tab/server
-  stopped; failed connection tab cleanup hit the browser error-page URL policy.
-  This is component acceptance, not full native/zoom/large-tree acceptance or
-  evidence of inference accuracy. No installed app or original ledger change.
-  Source-union migration, safe source continuity and private-copy startup failure
-  remain priorities; full goal ACTIVE.
 - Batch 116: prior turn hardened native shutdown. Real-data query acceptance
   found the previous system-temp migration copy absent. A prematurely parallel
   service launch created an empty DB there; it was immediately stopped and
@@ -1262,3 +1241,24 @@ No live data migration, installed-app replacement or release has occurred.
   This fixes first discovery only; safe rebinding of previously observed sources,
   historical union/migration and native acceptance remain unfinished. Full goal
   remains ACTIVE.
+- Batch 131: dashboard/data-quality skill guidance focused the conversation page
+  on one scope/denominator. Added local own/tree account and model distributions
+  from stored usage dimensions, not catalog starting-model labels or current
+  login. Available lists conserve all components/counts with the corresponding
+  detail total, independent of node pagination; missing exact-window detail is
+  nullable instead of borrowing global values. An additive DTO/schema and paired
+  bilingual table show total, uncached input, cache read/write, output and records.
+  Unknown IDs and cache-write coverage remain distinct from measured zero.
+  Session chart data also discards inherited unused global auxiliary series.
+  Rust 198 tests and Web 72 tests/build pass, with account/model/root/child and
+  old aggregate-only HTTP coverage; Clippy/contracts/governance pass. Mac UI was
+  accessible again. The private-copy service exited at the existing compaction-
+  verification guard, so no real-ledger page acceptance occurred and that guard
+  was not bypassed. Explicit synthetic component harness was visually checked in
+  the in-app browser at 900/360px panel widths, switching language and own/tree;
+  narrow tables scrolled to the final output/count columns. Harness tab/server
+  stopped; failed connection tab cleanup hit the browser error-page URL policy.
+  This is component acceptance, not full native/zoom/large-tree acceptance or
+  evidence of inference accuracy. No installed app or original ledger change.
+  Source-union migration, safe source continuity and private-copy startup failure
+  remain priorities; full goal ACTIVE.
