@@ -1,5 +1,5 @@
 import type { BreakdownDimension, BreakdownRow, BreakdownsResponse, MetricKey } from '../api/types';
-import { compactNumber, dimensionLabel, formatPercent, metricLabel, metricValue } from '../lib';
+import { exactNumber, formatMetricAmount, formatTokenMillions, dimensionLabel, formatPercent, metricLabel, metricValue } from '../lib';
 import { EmptyState, Panel } from './Ui';
 import { useI18n } from '../i18n';
 
@@ -20,14 +20,14 @@ function BreakdownList({ rows, metric, onSelect }: { rows: BreakdownRow[]; metri
             <small>{row.description ?? `${row.confirmedEvents} ${t('components.breakdown-panel.confirmed_records')}`}</small>
           </div>
           <div className="breakdown-values">
-            <strong>{compactNumber(value)}</strong>
+            <strong title={exactNumber(value)}>{formatMetricAmount(value, metric)}</strong>
             <span>{formatPercent(share)}</span>
           </div>
           <div className="breakdown-track" aria-label={`${label} ${t('components.breakdown-panel.share_of_confirmed_usage')} ${formatPercent(share)}`}>
             <span className="breakdown-confirmed" style={{ width: `${Math.min(100, share * 100)}%` }}><i /></span>
           </div>
           <div className="breakdown-quality">
-            <span>{t('components.breakdown-panel.quarantined')} {compactNumber(row.usage.quarantined.total)}</span>
+            <span>{t('components.breakdown-panel.quarantined')} {formatTokenMillions(row.usage.quarantined.total)}</span>
             <span>{t('components.breakdown-panel.see_data_quality_for_unknowns')}</span>
           </div>
         </>;

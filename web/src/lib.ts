@@ -19,6 +19,21 @@ export function compactNumber(value: number): string {
   return new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
+/** Presentation only: API/storage values remain raw tokens. Never use for counts. */
+export function formatTokenMillions(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—';
+  if (value > 0 && value < 1_000) return '<0.001 M';
+  const millions = value / 1_000_000;
+  return `${new Intl.NumberFormat(locale(), {
+    maximumFractionDigits: millions > 0 && millions < 1 ? 3 : 2,
+  }).format(millions)} M`;
+}
+
+export function formatMetricAmount(value: number | null | undefined, metric: MetricKey): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—';
+  return metric === 'requests' ? compactNumber(value) : formatTokenMillions(value);
+}
+
 export function exactNumber(value: number): string {
   return new Intl.NumberFormat(locale()).format(Math.round(value));
 }

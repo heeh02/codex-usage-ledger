@@ -17,7 +17,31 @@ synthetic regression evidence and a verified installed application. The approved
 audit is translated into the work items below; public records contain no private
 project names, account identifiers, source files or usage snapshots.
 
-## Invariants
+## Approved account-first extension — 2026-09-07
+
+User approved [ADR 0006](docs/adr/0006-account-first-usage-experience.md)
+for active execution. This extends, rather than completes or resets, the work below.
+
+- [ ] E01: Token-only M formatting across cards, tables, charts and native views;
+      preserve exact raw values, unknown/zero distinction and non-token units.
+      Foundation and conversation distribution/composition/shared ranking are
+      implemented; remaining cards, charts, sidebar and native displays pending.
+- [ ] E02: bottom-left all/historical account selector; viewed scope is independent
+      of observed login, with stale observations visible and no auth mutations.
+- [ ] E03: shared overview/project/chat model breakdown, bucket detail and
+      complete rankings; preserve own/tree and all applied filters.
+- [ ] E04: unified calendar trends and peak-to-chat navigation, responsive bilingual
+      presentation, working scroll/zoom/keyboard and retained last-good data.
+- [ ] E05: historical account/pool/window quota cycles, same-deadline reset evidence,
+      uncertain boundaries and no duplicated cross-window token attribution.
+- [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
+      native acceptance must not be confused with source accuracy or release proof.
+
+Execution: E01 foundation, E02 navigation, E03/E04 shared exploration, E05 cycle
+history. Existing accounting P0 work remains a release gate throughout; no visual
+change grants authority to overwrite historical facts or declare totals complete.
+
+## Accounting invariants
 
 Current critical accounting finding: `max_thread_day_v1` loses independent
 requests when the two sources cover different portions of a day. The verified
@@ -1296,3 +1320,18 @@ No live data migration, installed-app replacement or release has occurred.
   distinct positions without changing production constraints. No source/schema/
   installed-app change or historical hash repair occurred. Safe receipt-controlled
   remediation, source-union migration and native acceptance remain open; ACTIVE.
+- Batch 134: user approved account-first ADR 0006 and activated its extension
+  within this goal. Added a token-only million-unit formatter, retaining raw
+  API/storage values and exact title values. Unknown/non-finite/invalid values
+  remain unavailable, observed zero stays zero and sub-thousand observations
+  cannot round to zero; request counts retain their independent format. Wired
+  conversation model/account tables, local composition and shared breakdown
+  rankings first. RED formatter tests failed before implementation; final Web
+  75 tests/typecheck/build pass. A real Chrome synthetic component test passes
+  bilingual unit stability, exact titles, own/tree switching, 900/560px viewport
+  and 360px table scrolling to final columns without page overflow. Documentation
+  links, boundaries, generated-file, privacy and version checks pass. Source
+  accounting, schemas and the original ledger were not modified. Existing native
+  language edits remain separate and uncommitted. No native build/install or
+  whole-app visual acceptance is claimed. Remaining E01 surfaces, bottom-left
+  account navigation, quota history and accounting migration remain open; ACTIVE.

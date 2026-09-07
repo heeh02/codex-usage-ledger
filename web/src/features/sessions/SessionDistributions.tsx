@@ -1,7 +1,7 @@
 import type { ExplorerSessionDetail } from '../../api/types';
 import { Panel, EmptyState } from '../../components/Ui';
 import { useI18n } from '../../i18n';
-import { compactNumber } from '../../lib';
+import { formatTokenMillions } from '../../lib';
 import './request-evidence.css';
 
 export function SessionDistributions({ detail, scope }: { detail: Pick<ExplorerSessionDetail, 'localDistributions'>; scope: 'own' | 'tree' }) {
@@ -19,7 +19,7 @@ export function SessionDistributions({ detail, scope }: { detail: Pick<ExplorerS
           </tr></thead><tbody>{data[dimension]!.map(row=><tr key={JSON.stringify(row.id)}>
             <td>{row.id===null ? t('sessions.unknown_dimension') : row.label}</td>
             {(['total','uncached','cached','cacheWrite','output'] as const).map(key=><td key={key} title={key==='cacheWrite'&&row.usage.cacheWriteCoverage===0 ? undefined : row.usage[key].toLocaleString()}>
-              {key==='cacheWrite' && row.usage.cacheWriteCoverage===0 ? '—' : compactNumber(row.usage[key])}
+              {key==='cacheWrite' && row.usage.cacheWriteCoverage===0 ? '—' : formatTokenMillions(row.usage[key])}
               {key==='cacheWrite' && row.usage.cacheWriteCoverage>0 && row.usage.cacheWriteCoverage<1 ? ` (${t('sessions.partial_split')})` : ''}
             </td>)}<td>{row.events.toLocaleString()}</td>
           </tr>)}</tbody></table>
