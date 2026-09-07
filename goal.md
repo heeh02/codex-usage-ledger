@@ -136,6 +136,9 @@ continuity/rebinding; matching inode alone is not sufficient. See the
 [prefix audit and identity-review contract](docs/architecture/reconstruction-prefix-audit.md).
 
 - Official account totals and local activity have explicit, independent scopes.
+- Official reads now use an explicit observed-source binding, guarded before
+  and after the RPC; see [account binding](docs/architecture/official-account-binding.md).
+  This fixes a forward attribution risk, not historical account calibration.
 - Summary, chart, ranking and composition use one applied scope and revision.
 - Do not sum cumulative counters, inherited history or alternative source rows.
 - Preserve input/cache-read/cache-write/output conservation; reasoning is within output.
@@ -1738,3 +1741,26 @@ No live data migration, installed-app replacement or release has occurred.
   artifact hash and limits. No installed application or real ledger was replaced.
   Populated native journeys, modal/export/retry acceptance, historical accounting
   promotion and real-account parity remain open; the full goal stays ACTIVE.
+- Batch 152: resumed real two-account baseline inspection in the unchanged
+  private schema-35 copy. Official, retained sampling and raw reconstruction
+  differ in both amount and temporal coverage; retained requests cover only a
+  recent interval. An inferred login interval overlaps later verified intervals,
+  directing the next historical-attribution review. No historical relabeling or
+  claim of cross-account misuse follows merely from those differences. The only
+  exact official payload shared across identities was empty zero usage, not a
+  reused nonzero total. Private queries, source counts and limitations are saved
+  outside the repository, and the audit-copy hash is unchanged.
+  Code review found an independent forward bug risk: implicit app-server home
+  plus cached account labels could attach a response to the wrong source after
+  switching. Implemented shared observed-account scope for automatic, manual and
+  thread reads; metadata-only source stamps bracket existing identity observation
+  and the fetch, scope revisions reject A/B/A changes, and the child explicitly
+  selects the same file-backed Codex home. Account metadata reads bracket usage
+  without forcing refresh; mismatched account/thread responses are rejected.
+  RPC exchange now has one fixed deadline and errors omit raw provider details.
+  Missing/stale/failed scope preserves prior official data rather than zeroing or
+  relabeling it. Rust 272 tests, Clippy and API contracts pass, including synthetic
+  stdio exchange and no-scope persistence checks. Official documentation and the
+  installed protocol schema were inspected; no authenticated real-account query,
+  real credential inspection, quota reset, source migration or installed-app
+  replacement was performed. Full historical parity and the goal remain open.

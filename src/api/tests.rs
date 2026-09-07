@@ -1,5 +1,46 @@
 use super::*;
 
+#[tokio::test]
+async fn official_refresh_requires_bound_scope_and_preserves_last_good_rows() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_official_account_usage(
+            "synthetic-account",
+            Utc::now(),
+            &crate::official_usage::OfficialAccountUsage {
+                summary: crate::official_usage::OfficialUsageSummary {
+                    lifetime_tokens: Some(120),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let state = ApiState::with_store(store);
+    assert!(state.refresh_official_usage().await.is_err());
+    assert!(
+        state
+            .refresh_official_thread_usage("synthetic-thread".into())
+            .await
+            .is_err()
+    );
+    let scope =
+        OfficialUsageScope::new(PathBuf::from("/synthetic/missing-source").as_path()).unwrap();
+    let state = state.with_official_scope(scope);
+    assert!(state.refresh_official_usage().await.is_err());
+    let guard = state.store.as_ref().unwrap().lock().unwrap();
+    assert_eq!(
+        guard
+            .latest_official_account_usage("synthetic-account")
+            .unwrap()
+            .unwrap()
+            .usage
+            .summary
+            .lifetime_tokens,
+        Some(120)
+    );
+}
+
 #[test]
 fn session_distributions_follow_actual_models_accounts_and_full_descendant_scope() {
     let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();

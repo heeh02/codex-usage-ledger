@@ -14,6 +14,7 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use codex_usage_ledger::{
+    AttributionConfidence, OfficialUsageScope,
     api::{self, ApiState, UsageQuery},
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus,
@@ -21,10 +22,10 @@ use codex_usage_ledger::{
         RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain, SourceUnionQuery,
         audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
         compact_expired_raw_events, compare_preview_sampling, create_correction_preview,
-        discover_rollouts, fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
-        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
-        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
-        prepare_store, read_correction_preview, sync_account_history, sync_native_catalog,
+        discover_rollouts, ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
+        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
+        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
+        read_correction_preview, sync_account_history, sync_native_catalog,
         verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
     },
 };
@@ -839,12 +840,13 @@ async fn main() -> Result<()> {
                 &machine_id,
             )?
             .context("no active Codex authentication")?;
-            let account = binding
-                .account_fingerprint
-                .context("active Codex account cannot be fingerprinted safely")?;
-            let usage = tokio::task::spawn_blocking(fetch_official_account_usage)
+            let scope = OfficialUsageScope::new(&paths.codex_home)?;
+            update_official_scope(&scope, Some(&binding))?;
+            let bound = tokio::task::spawn_blocking(move || scope.fetch(None))
                 .await
                 .context("official usage worker stopped")??;
+            let account = bound.account;
+            let usage = bound.usage;
             let observed_at = chrono::Utc::now();
             store.upsert_official_account_usage(&account, observed_at, &usage)?;
             println!(
@@ -891,9 +893,11 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
         &hmac_key,
         &machine_id,
     )?;
+    let official_scope = OfficialUsageScope::new(&paths.codex_home)?;
+    update_official_scope(&official_scope, account_binding.as_ref())?;
     let reader = prepare_store(&paths.db)?;
     let http = tokio::spawn(serve_http(
-        ApiState::with_store(reader),
+        ApiState::with_store(reader).with_official_scope(official_scope.clone()),
         listen,
         paths.web_root.clone(),
     ));
@@ -911,7 +915,7 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     info!(%listen, "dashboard started with post-sampling collector");
 
     if let Some(binding) = account_binding.as_ref() {
-        refresh_official_usage(&mut writer, binding).await;
+        refresh_official_usage(&mut writer, binding, &official_scope).await;
     }
 
     let first_sampling_import = writer
@@ -978,13 +982,14 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                             let switched = account_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref())
                                 != next_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref());
                             account_binding = next_binding;
+                            update_official_scope(&official_scope, account_binding.as_ref())?;
                             if switched
                                 && let Some(binding) = account_binding.as_ref()
                             {
-                                refresh_official_usage(&mut writer, binding).await;
+                                refresh_official_usage(&mut writer, binding, &official_scope).await;
                             }
                         }
-                        Err(error) => warn!(%error, "auth observation was temporarily unavailable"),
+                        Err(error) => { official_scope.observe(None,None)?; warn!(%error, "auth observation was temporarily unavailable"); },
                     }
                     if let Err(error) = sync_account_history(
                         &mut writer,
@@ -1000,7 +1005,7 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
             }
             _ = official_refresh.tick() => {
                 if let Some(binding) = account_binding.as_ref() {
-                    refresh_official_usage(&mut writer, binding).await;
+                    refresh_official_usage(&mut writer, binding, &official_scope).await;
                 }
             }
             _ = shutdown_signal() => {
@@ -1111,13 +1116,33 @@ fn publish_daemon_status(store: &mut LedgerStore, status: &CollectorStatus) -> R
     Ok(())
 }
 
-async fn refresh_official_usage(writer: &mut LedgerStore, binding: &AccountBinding) {
+fn update_official_scope(
+    scope: &OfficialUsageScope,
+    binding: Option<&AccountBinding>,
+) -> Result<()> {
+    let binding = binding.filter(|binding| binding.confidence == AttributionConfidence::Verified);
+    scope.observe(
+        binding.and_then(|value| value.account_fingerprint.as_deref()),
+        binding.and_then(|value| value.auth_file_stamp.as_ref()),
+    )
+}
+
+async fn refresh_official_usage(
+    writer: &mut LedgerStore,
+    binding: &AccountBinding,
+    scope: &OfficialUsageScope,
+) {
     let Some(account_fingerprint) = binding.account_fingerprint.as_deref() else {
         return;
     };
     let observed_at = chrono::Utc::now();
-    match tokio::task::spawn_blocking(fetch_official_account_usage).await {
-        Ok(Ok(usage)) => {
+    let scope = scope.clone();
+    match tokio::task::spawn_blocking(move || scope.fetch(None)).await {
+        Ok(Ok(bound)) => {
+            if bound.account != account_fingerprint {
+                return;
+            }
+            let usage = bound.usage;
             if let Err(error) =
                 writer.upsert_official_account_usage(account_fingerprint, observed_at, &usage)
             {
@@ -1154,9 +1179,11 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         &hmac_key,
         &machine_id,
     )?;
+    let official_scope = OfficialUsageScope::new(&paths.codex_home)?;
+    update_official_scope(&official_scope, account_binding.as_ref())?;
     let reader = prepare_store(&paths.db)?;
     let mut http = tokio::spawn(serve_http(
-        ApiState::with_store(reader),
+        ApiState::with_store(reader).with_official_scope(official_scope.clone()),
         listen,
         paths.web_root.clone(),
     ));
@@ -1173,7 +1200,7 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     official_refresh.tick().await;
 
     if let Some(binding) = account_binding.as_ref() {
-        refresh_official_usage(&mut writer, binding).await;
+        refresh_official_usage(&mut writer, binding, &official_scope).await;
     }
 
     prepare_fast_ledger(&mut writer, "serve")?;
@@ -1224,13 +1251,14 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
                             let switched = account_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref())
                                 != next_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref());
                             account_binding = next_binding;
+                            update_official_scope(&official_scope, account_binding.as_ref())?;
                             if switched
                                 && let Some(binding) = account_binding.as_ref()
                             {
-                                refresh_official_usage(&mut writer, binding).await;
+                                refresh_official_usage(&mut writer, binding, &official_scope).await;
                             }
                         }
-                        Err(error) => warn!(%error, "auth observation was temporarily unavailable"),
+                        Err(error) => { official_scope.observe(None,None)?; warn!(%error, "auth observation was temporarily unavailable"); },
                     }
                     if let Err(error) = sync_account_history(
                         &mut writer,
@@ -1244,7 +1272,7 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
             }
             _ = official_refresh.tick() => {
                 if let Some(binding) = account_binding.as_ref() {
-                    refresh_official_usage(&mut writer, binding).await;
+                    refresh_official_usage(&mut writer, binding, &official_scope).await;
                 }
             }
             result = &mut http => {
