@@ -90,4 +90,39 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     assert_eq!(fs::read(&db).unwrap(), before);
     assert_eq!(fs::read(&rollout).unwrap(), source);
     assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);
+    let child = home.join("sessions/child.jsonl");
+    let child_source = format!(
+        "{{\"type\":\"session_meta\",\"timestamp\":\"2026-01-02T00:00:00Z\",\"payload\":{{\"id\":\"child\",\"forked_from_id\":\"root\"}}}}\n{}{{\"type\":\"event_msg\",\"payload\":{{\"type\":\"task_started\",\"started_at\":1767312001}}}}\n",
+        String::from_utf8(source.clone()).unwrap()
+    );
+    fs::write(&child, &child_source).unwrap();
+    let index = rusqlite::Connection::open(home.join("state_5.sqlite")).unwrap();
+    index
+        .execute(
+            "INSERT INTO threads VALUES('child',?1,NULL,'synthetic-model','{}')",
+            [child.to_str().unwrap()],
+        )
+        .unwrap();
+    drop(index);
+    let index_before = fs::read(home.join("state_5.sqlite")).unwrap();
+    let inherited = Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+        .arg("audit-inherited-prefix")
+        .arg("--codex-home")
+        .arg(home)
+        .args(["--thread", "child", "--max-bytes", "4096"])
+        .output()
+        .unwrap();
+    assert!(
+        inherited.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inherited.stderr)
+    );
+    let inherited: serde_json::Value = serde_json::from_slice(&inherited.stdout).unwrap();
+    assert_eq!(inherited["identicalDeclaredPrefix"], true);
+    assert_eq!(inherited["matchedRecords"], 1);
+    assert_eq!(inherited["migrationReady"], false);
+    assert_eq!(fs::read(&db).unwrap(), before);
+    assert_eq!(fs::read(&rollout).unwrap(), source);
+    assert_eq!(fs::read(&child).unwrap(), child_source.as_bytes());
+    assert_eq!(fs::read(home.join("state_5.sqlite")).unwrap(), index_before);
 }

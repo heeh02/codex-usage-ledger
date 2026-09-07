@@ -37,6 +37,8 @@ mod audit;
 pub use audit::audit_reconstruction_prefix;
 mod file_audit;
 pub use file_audit::audit_reconstruction_file;
+mod inheritance_audit;
+pub use inheritance_audit::audit_inherited_prefix;
 
 pub const RECONSTRUCTION_SOURCE_PREFIX: &str = "rollout-reconstruction-v1";
 const STATE_SCHEMA_VERSION: u32 = 1;
@@ -1392,6 +1394,59 @@ mod tests {
         let decoded: ReconstructionCheckpoint = serde_json::from_value(legacy).unwrap();
         assert!(!decoded.foreign_replay);
         assert!(decoded.initial_counter_prefix.is_none());
+    }
+
+    #[test]
+    fn v4_replayed_task_cannot_resume_reconstruction_even_after_checkpoint_restart() {
+        let mut target = child_target();
+        target.thread_id = "019b76da-a800-7000-8000-000000000000".into();
+        let mut state = ReconstructionCheckpoint::new(&target);
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: target.parent_thread_id.clone(),
+        };
+        let old_task = serde_json::json!({"type":"event_msg","payload":{"type":"task_started",
+            "turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":1}});
+        for (i,record) in [
+            serde_json::json!({"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":target.thread_id}}),
+            serde_json::json!({"type":"session_meta","payload":{"id":"parent"}}),old_task.clone(),
+            token("2026-01-01T00:00:01Z",100,100),
+        ].into_iter().enumerate() {
+            assert!(process_line(&mut state,&line(i as u64,record),&target,"m","s","f",&attribution,&[]).unwrap().is_none());
+            state=serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        }
+        assert!(state.foreign_replay);
+        let mut own_task = old_task;
+        own_task["payload"]["started_at"] = serde_json::json!(1767225602);
+        process_line(
+            &mut state,
+            &line(5, own_task),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap();
+        let own = process_line(
+            &mut state,
+            &line(6, token("2026-01-01T00:00:03Z", 150, 50)),
+            &target,
+            "m",
+            "s",
+            "f",
+            &attribution,
+            &[],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(own.event.usage.total_tokens, 50);
     }
 
     #[test]

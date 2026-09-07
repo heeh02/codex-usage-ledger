@@ -18,11 +18,12 @@ use codex_usage_ledger::{
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
         POST_SAMPLING_SOURCE_ID, RetainedRequestCursor, RetainedRequestScope,
-        audit_reconstruction_file, audit_reconstruction_prefix, compact_expired_raw_events,
-        discover_rollouts, fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
-        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
-        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
-        prepare_store, sync_account_history, sync_native_catalog,
+        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
+        compact_expired_raw_events, discover_rollouts, fetch_official_account_usage,
+        ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
+        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
+        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
+        sync_account_history, sync_native_catalog,
     },
 };
 use serde_json::json;
@@ -88,6 +89,17 @@ enum Command {
         max_token_rows: usize,
         #[arg(long)]
         allow_device_drift: bool,
+    },
+    /// Compare an explicit fork's inherited Token-info prefix with its indexed parent.
+    AuditInheritedPrefix {
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_tokens: usize,
     },
     /// Resume retained request detail backfill in an existing current-schema ledger.
     /// Writes derived details, but never imports sources or changes token rollups.
@@ -289,6 +301,22 @@ async fn main() -> Result<()> {
                 allow_device_drift,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditInheritedPrefix {
+            codex_home,
+            thread,
+            max_bytes,
+            max_tokens,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&audit_inherited_prefix(
+                    &codex_home,
+                    &thread,
+                    max_bytes,
+                    max_tokens
+                )?)?
+            );
         }
         Command::QuotaHistory {
             db,

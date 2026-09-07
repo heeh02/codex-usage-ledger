@@ -715,14 +715,61 @@ fn parse_source_timestamp(record: &Value) -> Option<DateTime<Utc>> {
 }
 
 fn uuid_v7_millis_prefix(value: &str) -> Option<u64> {
-    let prefix: String = value
-        .chars()
-        .filter(|character| *character != '-')
-        .take(12)
-        .collect();
-    (prefix.len() == 12)
-        .then(|| u64::from_str_radix(&prefix, 16).ok())
-        .flatten()
+    let bytes = value.as_bytes();
+    if bytes.len() != 32 && bytes.len() != 36 {
+        return None;
+    }
+    if bytes.len() == 36 && [8, 13, 18, 23].iter().any(|&i| bytes[i] != b'-') {
+        return None;
+    }
+    let compact: Vec<u8> = bytes.iter().copied().filter(|byte| *byte != b'-').collect();
+    if compact.len() != 32
+        || !compact.iter().all(u8::is_ascii_hexdigit)
+        || compact[12] != b'7'
+        || !matches!(compact[16], b'8' | b'9' | b'a' | b'b' | b'A' | b'B')
+    {
+        return None;
+    }
+    u64::from_str_radix(std::str::from_utf8(&compact[..12]).ok()?, 16).ok()
+}
+
+#[cfg(test)]
+mod task_identity_tests {
+    use super::*;
+    #[test]
+    fn random_v4_task_cannot_release_foreign_history_using_its_random_prefix() {
+        let canonical = "019b76da-a800-7000-8000-000000000000";
+        let at = Some("2026-01-01T00:00:00Z".parse().unwrap());
+        let old = serde_json::json!({"type":"event_msg","payload":{"type":"task_started",
+            "turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":1}});
+        assert!(!task_belongs_to_canonical_stream(&old, canonical, at));
+        let mut current = old.clone();
+        current["payload"]["started_at"] = serde_json::json!(1767225601);
+        assert!(
+            task_belongs_to_canonical_stream(&current, canonical, at),
+            "v4 may still use the embedded start time"
+        );
+    }
+    #[test]
+    fn timestamp_identity_requires_an_entire_valid_v7_uuid() {
+        for id in [
+            "f1234567-89ab-4cde-8abc-0123456789ab",
+            "f1234567-89ab-7cde-7abc-0123456789ab",
+            "f123456789ab",
+            "f1234567-89ab-7cde-8abc-0123456789ab-tail",
+            "f123456789ab7cde8abc0123456789az",
+        ] {
+            assert_eq!(uuid_v7_millis_prefix(id), None, "{id}");
+        }
+        assert_eq!(
+            uuid_v7_millis_prefix("019b76da-a800-7000-8000-000000000000"),
+            Some(0x019b76daa800)
+        );
+        assert_eq!(
+            uuid_v7_millis_prefix("019B76DAA8007000A000000000000000"),
+            Some(0x019b76daa800)
+        );
+    }
 }
 
 fn stable_event_id(machine_id: &str, file_identity: &str, rollout_id: &str, offset: u64) -> String {

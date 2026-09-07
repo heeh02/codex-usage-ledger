@@ -39,8 +39,8 @@ pub mod cli_support {
     pub use crate::account_history::sync_account_history;
     pub use crate::official_usage::fetch_official_account_usage;
     pub use crate::reconstruction::{
-        audit_reconstruction_file, audit_reconstruction_prefix, ingest_reconstruction_batch,
-        ingest_reconstruction_batch_for_project,
+        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
+        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
     };
     pub use crate::runtime::{
         AccountBinding, compact_expired_raw_events, discover_rollouts, ingest_quota_tails,

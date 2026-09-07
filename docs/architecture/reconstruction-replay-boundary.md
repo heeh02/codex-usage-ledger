@@ -18,6 +18,9 @@ task's UUIDv7 time relative to the canonical rollout ID, or embedded task start
 time relative to canonical creation with the existing two-second tolerance.
 It does not use a rewritten outer record timestamp as evidence of new work.
 This remains a format-specific heuristic, not a server-issued request identity.
+UUID clock extraction now validates the full version-7 UUID and RFC variant;
+random version-4 IDs are not timestamps. See the
+[task identity correction and parent-prefix audit](inherited-prefix-audit.md).
 Formats without explicit foreign metadata still use the older dense-prefix
 handling; they require additional replay/coverage validation.
 

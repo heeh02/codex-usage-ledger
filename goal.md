@@ -84,6 +84,14 @@ promotion; do not globally discount reconstruction or subtract a sample delta.
 The [streamed comparison contract](docs/architecture/reconstruction-file-audit.md)
 keeps EOF/position coverage distinct from inference and migration proof.
 
+Boundary audit found and fixed another concrete overcount mechanism: random
+UUIDv4 prefixes were accepted as UUIDv7 task clocks, ending foreign-history
+protection early. The previous private suppression estimate is superseded by a
+fresh full-source comparison under strict UUID validation. Ordered declared-
+parent comparisons also distinguish raw equality from zero-cache-write field
+expansion; a differing trailing rollback snapshot is not silently dropped.
+See [identity and prefix evidence](docs/architecture/inherited-prefix-audit.md).
+
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
 inode values matched. The old automatic replacement path could delete derived
@@ -1549,3 +1557,22 @@ No live data migration, installed-app replacement or release has occurred.
   app were changed in this batch. Prior native edits remain separate. Historical
   correction/identity manifests, union promotion, real two-account reconciliation
   and native acceptance remain unfinished; full goal ACTIVE.
+- Batch 144: validated fork boundaries against native-indexed parent files and
+  discovered that arbitrary hexadecimal/v4 identifiers supplied a false v7 clock.
+  Captured failing tests, then fixed whole-UUID shape/version/variant validation
+  in the shared live/reconstruction predicate. Explicit embedded task start time
+  remains a supported fallback. Checkpoint regression preserves foreign state
+  for old v4 tasks and resumes only subsequent current work. Added a bounded,
+  read-only declared-parent Token-info prefix audit with strict ordered equality,
+  source-change/limit/mismatch diagnostics and separate zero-write-default
+  compatibility that never creates observed zero cache writes. A real sample's
+  first eligible boundary moved after correction; almost all prefix observations
+  corresponded to the declared parent, with a separately inspected trailing
+  rollback snapshot rather than a silently discarded mismatch. A fresh full-file
+  audit under the repaired predicate supersedes the previous suppression amount;
+  its private receipt retains exact counts, components and source offsets. Rust
+  242 tests, Clippy and contract/governance checks pass. No original/isolated
+  ledger facts, schemas, source bindings or installed app were changed. Existing
+  native edits remain separate. This repairs forward interpretation, not prior
+  persisted facts: reviewed per-record historical correction, union promotion,
+  real two-account reconciliation and native acceptance still remain. ACTIVE.
