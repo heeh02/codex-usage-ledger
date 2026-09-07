@@ -36,6 +36,7 @@ use crate::{
 
 mod audit;
 mod policy_upgrade;
+mod schedule;
 pub use audit::audit_reconstruction_prefix;
 mod file_audit;
 pub use file_audit::audit_reconstruction_file;
@@ -369,7 +370,7 @@ pub fn ingest_reconstruction_batch_for_project(
                 .map(source_id)
         })
         .collect::<HashSet<_>>();
-    let mut queue = refreshed
+    let queue = refreshed
         .into_iter()
         .filter(|source| source.machine_id == machine_id)
         .filter(|status| {
@@ -382,28 +383,22 @@ pub fn ingest_reconstruction_batch_for_project(
         })
         .filter_map(|status| {
             let target = target_by_source.get(&status.source_id)?.clone();
+            if !roots.iter().any(|root| target.path.starts_with(root)) {
+                report.issues.push(format!(
+                    "refused rollout outside Codex roots: {}",
+                    target.path.display()
+                ));
+                return None;
+            }
             let len = fs::metadata(&target.path).ok()?.len();
-            (len != status.bytes_processed || pending_policy_sources.contains(&status.source_id))
-                .then_some((status, target, len))
+            (status.status == ReconstructionStatus::Pending
+                || len != status.bytes_processed
+                || pending_policy_sources.contains(&status.source_id))
+            .then_some((status, target, len))
         })
         .collect::<Vec<_>>();
-    // Finish a small working set before opening more large partial JSON lines.
-    // Round-robin across every rollout would persist hundreds of multi-megabyte
-    // partial-line checkpoints at once and inflate the ledger on disk.
-    queue.sort_by(|(left, _, _), (right, _, _)| {
-        let priority = |status: ReconstructionStatus| match status {
-            ReconstructionStatus::Reconstructing => 0_u8,
-            ReconstructionStatus::Reconstructed => 1_u8,
-            ReconstructionStatus::Pending => 2_u8,
-            ReconstructionStatus::Unrecoverable => 3_u8,
-        };
-        priority(left.status)
-            .cmp(&priority(right.status))
-            .then_with(|| right.bytes_processed.cmp(&left.bytes_processed))
-            .then_with(|| left.source_id.cmp(&right.source_id))
-    });
-
-    for (previous_status, target, file_len) in queue.into_iter().take(max_files.max(1)) {
+    let selected = schedule::select(store, machine_id, queue, &pending_policy_sources, max_files)?;
+    for (previous_status, target, file_len) in selected {
         if !roots.iter().any(|root| target.path.starts_with(root)) {
             report.issues.push(format!(
                 "refused rollout outside Codex roots: {}",
@@ -477,6 +472,14 @@ pub fn ingest_reconstruction_batch_for_project(
         }
     }
     let final_sources = store.reconstruction_sources()?;
+    let active_policy_sources = store
+        .pending_reconstruction_policy_cursors(machine_id)?
+        .into_iter()
+        .filter_map(|id| {
+            id.strip_prefix(policy_upgrade::SOURCE_PREFIX)
+                .map(source_id)
+        })
+        .collect::<HashSet<_>>();
     report.pending_sources = final_sources
         .iter()
         .filter(|source| source.machine_id == machine_id)
@@ -485,6 +488,17 @@ pub fn ingest_reconstruction_batch_for_project(
                 source.status,
                 ReconstructionStatus::Pending | ReconstructionStatus::Reconstructing
             )
+        })
+        .filter(|source| {
+            target_by_source
+                .get(&source.source_id)
+                .is_some_and(|target| {
+                    roots.iter().any(|root| target.path.starts_with(root))
+                        && (source.status == ReconstructionStatus::Pending
+                            || active_policy_sources.contains(&source.source_id)
+                            || fs::metadata(&target.path)
+                                .is_ok_and(|metadata| metadata.len() != source.bytes_processed))
+                })
         })
         .count() as u64;
     report.unrecoverable_sources = final_sources

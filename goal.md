@@ -1925,3 +1925,20 @@ No live data migration, installed-app replacement or release has occurred.
   not old usage rows or source continuity beyond the stated metadata checks.
   Historical correction/union promotion, real-account parity and populated native
   acceptance remain open; the full goal remains ACTIVE.
+- Batch 159: [separated history/tail scheduling](docs/architecture/reconstruction-scheduling.md)
+  replaces the hot-source-first rule that could fill every
+  file slot indefinitely while new historical sources remained pending. Separate
+  history/tail lanes preserve history service and rotate eligible live tails;
+  a one-file budget alternates across restarts through a compact allocation
+  cursor. Admitted historical files still finish ahead of new admissions, and
+  requested budgets are bounded by available work. Invalid out-of-root targets
+  are excluded before allocation. A synthetic ingestion sequence now collects
+  a cold source despite enough growing hot sources to fill the entire old budget,
+  then finishes the remaining tail after reopening the ledger. Empty sources
+  are inspected once; idle partial EOF preserves incomplete evidence state without
+  reporting endless actionable backfill, and later completion counts once.
+  `pendingSources` is documented as actionable work, not historical completeness.
+  Rust 310 tests, Clippy and generated API contracts pass.
+  No accounting arithmetic, historical rows, main selector or installed app was
+  changed. Real-account reconciliation, history repair/union promotion and native
+  acceptance remain open. Full goal remains ACTIVE.
