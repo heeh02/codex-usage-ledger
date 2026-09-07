@@ -305,8 +305,9 @@ fn guards_do_not_hide_out_of_scope_conflicts_or_treat_empty_as_observed_zero() {
     zero.usage = TokenUsage::default();
     store.upsert_event(&zero).unwrap();
     let pending = store.read_source_union_projection(&query()).unwrap();
-    assert_eq!(pending.status, "pending");
-    assert!(pending.data.is_none());
+    assert_eq!(pending.status, "available");
+    assert_eq!(pending.resolution, "scoped_read");
+    assert_eq!(pending.data.unwrap().usage, Some(TokenUsage::default()));
     drain(&mut store);
     let data = store
         .read_source_union_projection(&query())
@@ -325,14 +326,124 @@ fn guards_do_not_hide_out_of_scope_conflicts_or_treat_empty_as_observed_zero() {
         ..query()
     };
     let report = store.read_source_union_projection(&query).unwrap();
-    assert_eq!(report.status, "unresolved");
-    assert!(report.data.is_none());
+    assert_eq!(report.status, "no_records");
+    assert!(report.data.unwrap().usage.is_none());
+    let conflict = store
+        .read_source_union_projection(&SourceUnionQuery {
+            model: None,
+            account: Some("acct-fp".into()),
+            ..query.clone()
+        })
+        .unwrap();
+    assert_eq!(
+        conflict.status, "unresolved",
+        "the counterpart outside the account filter still matters"
+    );
     let mut invalid = query.clone();
     invalid.end = invalid.start;
     assert!(store.read_source_union_projection(&invalid).is_err());
     invalid = query;
     invalid.timezone = "invalid".into();
     assert!(store.read_source_union_projection(&invalid).is_err());
+}
+
+#[test]
+fn unrelated_backfill_and_conflicts_do_not_block_a_completed_scope() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut row = sample("a", "a", "2026-04-01T00:00:00Z", 1);
+    row.model = Some("focus".into());
+    store.upsert_event(&row).unwrap();
+    drain(&mut store);
+    let mut bad = event("unrelated", DataQuality::Confirmed, 2);
+    bad.thread_id = Some("other-thread".into());
+    bad.model = Some("other-model".into());
+    store.upsert_event(&bad).unwrap();
+    let focused = SourceUnionQuery {
+        model: Some("focus".into()),
+        ..query()
+    };
+    let snapshot = store.read_source_union_projection(&focused).unwrap();
+    assert!(!snapshot.projection.projection_ready);
+    assert_eq!(snapshot.resolution, "materialized_scope");
+    assert_eq!(snapshot.status, "available");
+    conserves(snapshot.data.as_ref().unwrap());
+    drain(&mut store);
+    let snapshot = store.read_source_union_projection(&focused).unwrap();
+    assert!(snapshot.projection.unresolved_groups > 0);
+    assert_eq!(snapshot.status, "available");
+    assert_eq!(snapshot.scope_projection.unresolved_groups, 0);
+}
+
+#[test]
+fn scoped_reads_detect_stale_selected_rows_and_do_not_write_projection_state() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut row = sample("a", "shared", "2026-04-01T00:00:00Z", 1);
+    row.model = Some("focus".into());
+    store.upsert_event(&row).unwrap();
+    drain(&mut store);
+    let focused = SourceUnionQuery {
+        model: Some("focus".into()),
+        ..query()
+    };
+    row.model = Some("moved".into());
+    store.upsert_event(&row).unwrap();
+    let before = fact_rows(&store.connection);
+    let snapshot = store.read_source_union_projection(&focused).unwrap();
+    assert!(snapshot.scope_projection.pending_groups > 0);
+    assert_eq!(snapshot.resolution, "scoped_read");
+    assert_eq!(snapshot.status, "no_records");
+    assert!(snapshot.data.unwrap().usage.is_none());
+    assert_eq!(fact_rows(&store.connection), before);
+    let mut peer = row.clone();
+    peer.event_id = "peer".into();
+    peer.account_fingerprint = Some("other-account".into());
+    reconstructed(&store, peer);
+    let conflict = store
+        .read_source_union_projection(&SourceUnionQuery {
+            account: Some("acct-fp".into()),
+            ..query()
+        })
+        .unwrap();
+    assert_eq!(conflict.status, "unresolved");
+    assert_eq!(conflict.resolution, "scoped_read");
+    assert!(matches!(
+        union_scope::resolve(
+            &store.connection,
+            &SourceUnionQuery {
+                account: Some("acct-fp".into()),
+                ..query()
+            },
+            1
+        ),
+        Err(StoreError::UnionLimit)
+    ));
+}
+
+#[test]
+fn unkeyed_unconfirmed_observations_are_reported_not_counted_or_used_as_a_global_gate() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut unknown = event("unknown-observation", DataQuality::Unknown, 1);
+    store.upsert_event(&unknown).unwrap();
+    let only = store.read_source_union_projection(&query()).unwrap();
+    assert_eq!(only.status, "unconfirmed_only");
+    assert_eq!(only.unconfirmed_observations, 1);
+    assert!(only.data.unwrap().usage.is_none());
+    let known = sample("known", "known", "2026-04-01T00:00:00Z", 2);
+    store.upsert_event(&known).unwrap();
+    for staged in [false, true] {
+        if staged {
+            drain(&mut store);
+        }
+        let result = store.read_source_union_projection(&query()).unwrap();
+        assert_eq!(result.status, "available");
+        assert_eq!(result.unconfirmed_observations, 1);
+        assert_eq!(result.data.unwrap().usage, Some(known.usage));
+    }
+    unknown.quality = DataQuality::Confirmed;
+    store.upsert_event(&unknown).unwrap();
+    let now_unlinked = store.read_source_union_projection(&query()).unwrap();
+    assert_eq!(now_unlinked.status, "unresolved");
+    assert_eq!(now_unlinked.unconfirmed_observations, 0);
 }
 
 #[test]

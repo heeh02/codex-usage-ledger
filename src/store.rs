@@ -44,6 +44,7 @@ mod snapshot_memo;
 mod union_main_preview;
 mod union_projection;
 mod union_query;
+mod union_scope;
 pub use union_query::{SourceUnionGrain, SourceUnionQuery};
 mod union_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;

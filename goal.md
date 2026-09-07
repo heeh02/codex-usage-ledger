@@ -2020,3 +2020,22 @@ No live data migration, installed-app replacement or release has occurred.
   scope-local readiness and treatment of nonconfirmed observations are now the
   next explicit product-integration gate, not another arithmetic guess. Installed
   policy, original ledger and account state remain unchanged. Goal stays ACTIVE.
+- Batch 164 (2026-09-08): replaced the diagnostic reader's global readiness gate
+  with [scope-local resolution](docs/architecture/source-union-query.md). Relevant
+  raw groups and stale cached selections are checked together in one snapshot;
+  ready scopes stream cached data despite unrelated backfill, and bounded dirty
+  scopes resolve directly from database facts without reading files or writing
+  progress. Counterpart closure precedes filtering, so cross-account/model conflicts
+  cannot be hidden. Unkeyed nonconfirmed observations remain separately reported,
+  never added to usage or converted to measured zero; keyed conflicts remain gated.
+  Empty/unknown-only/confirmed-zero states stay distinct. Version-2 diagnostic DTO
+  exposes resolution and scoped cache state; main HTTP DTO/schema are unchanged.
+  Tests cover unrelated work, stale moved rows, filtered conflicts, counterpart
+  limits, read-only preservation and nonconfirmed quality transitions. A previously
+  blocked real hour now reads available; the wider retained interval also resolves
+  with all five aggregate dimensions equal while its unconfirmed observations
+  remain visible. Bounded staging in the private shadow then made its complete
+  corrected thread snapshot readable from cache despite unrelated global work,
+  including a scope larger than the immediate-read cap. Rust 326 tests, Clippy
+  and API contracts pass. This fixes the reader prerequisite, not the installed GUI or
+  full product-query promotion. Full goal remains ACTIVE.

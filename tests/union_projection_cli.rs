@@ -76,7 +76,8 @@ fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
         String::from_utf8_lossy(&read.stderr)
     );
     let read: serde_json::Value = serde_json::from_slice(&read.stdout).unwrap();
-    assert_eq!(read["version"], 1);
+    assert_eq!(read["version"], 2);
+    assert_eq!(read["resolution"], "materialized_scope");
     assert_eq!(read["status"], "no_records");
     assert_eq!(read["data"]["records"], 0);
     assert!(read["data"]["usage"].is_null());
