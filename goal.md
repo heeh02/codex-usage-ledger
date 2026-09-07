@@ -34,6 +34,10 @@ for active execution. This extends, rather than completes or resets, the work be
       observation timestamps without promising historical accounts are live.
 - [ ] E03: shared overview/project/chat model breakdown, bucket detail and
       complete rankings; preserve own/tree and all applied filters.
+      Shared paginated model components now replace the top-seven model view in
+      overview/project pages. Project/account rankings expose all returned rows,
+      maintaining full-scope shares and global rank numbers. Real-data/native
+      acceptance and the accounting policy gate remain open.
 - [ ] E04: unified calendar trends and peak-to-chat navigation, responsive bilingual
       presentation, working scroll/zoom/keyboard and retained last-good data.
 - [ ] E05: historical account/pool/window quota cycles, same-deadline reset evidence,
@@ -1630,3 +1634,25 @@ No live data migration, installed-app replacement or release has occurred.
   work remains separate. Source-union comparison/promotion, reviewed historical
   application, two-account reconciliation and native acceptance remain open.
   Full goal ACTIVE.
+- Batch 147: integrated the shared M-unit Token component table into overview,
+  project and model breakdowns, with identity selection for model drill-down.
+  Replaced the seven-row ranking cutoff with complete twenty-row presentation
+  pages. Shares retain the full returned scope as denominator; rank indices
+  continue across pages. Table/list navigation clamps after shrinking results,
+  resets on applied scope/metric changes, and ignores advancing refresh clocks.
+  Missing confirmed evidence remains unavailable rather than measured zero;
+  partial/missing cache-write observation is distinct. Fixed-height table
+  scrolling and sticky headings retain column context, while both languages
+  expose row counts and paging controls. A synthetic 46-dimension fixture checks
+  last-page selection, exact values, missing/zero semantics, sorting, refresh,
+  scope changes and 560/700/900/1280 layouts at 80/100/160 percent zoom. Actual
+  overview/project routes are exercised in explicit mock mode; no production
+  accounting or native-install acceptance is implied. Broader storage-failure
+  regression initially found an outdated expected synthetic conversation title;
+  aligned the exact assertion with the unchanged fixture and reran the checks.
+  Pending source-union and native-language edits remain separate from this UI
+  batch. Typecheck/build, 85 Web unit tests and 33 real-Chrome browser checks
+  pass. Inspected the rendered synthetic model table and retained fixed column
+  headings while scrolling. Documentation/module/privacy/generated/version and
+  reachable-history checks pass. No source accounting, real ledger or installed
+  native bundle was changed; the full goal remains ACTIVE.

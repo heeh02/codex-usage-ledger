@@ -1,4 +1,8 @@
 export const zhCNMessages = {
+  "breakdown.visible_rows": "第 {start}–{end} 项，共 {count} 项",
+  "breakdown.local_components": "本机已确认记录 · Token 单位为 M（百万）。写入覆盖不完整时，输入可能含未拆分的写入。— 表示不可用，不是零。",
+  "breakdown.next": "下一页",
+  "overview.sessions": "聊天",
   "interval.title": "查看区间 Token 明细",
   "interval.loading": "正在查询区间用量…",
   "interval.failed": "区间用量读取失败，保留上次查询结果；可以重新查询。",

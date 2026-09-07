@@ -46,17 +46,17 @@ export function OverviewPage({
       }} />
       <section className="overview-tabs panel">
         <nav aria-label={t('overview.usage_details')}>
-          {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', 'Sessions']] as const).map(([id, label]) => (
+          {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', t('overview.sessions')]] as const).map(([id, label]) => (
             <button aria-pressed={detailTab === id} className={detailTab === id ? 'is-active' : ''} key={id} onClick={() => onDetailTabChange(id)} type="button">{label}</button>
           ))}
         </nav>
         <div className="overview-tab-content">
           {detailTab === 'projects' && (
             <>
-              <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['project']} onSelect={onSelectBreakdown} />
+              <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['project']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />
             </>
           )}
-          {detailTab === 'models' && <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
+          {detailTab === 'models' && <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />}
           {detailTab === 'sessions' && <><ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} /><OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} /></>}
         </div>
       </section>

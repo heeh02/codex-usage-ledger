@@ -54,7 +54,7 @@ export function ProjectPage({
         onFiltersChange({ ...filters, ...range, period: 'custom', sessionOffset: 0, sessionSearch: '' });
         onTabChange('sessions');
       }} />}
-      modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
+      modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />}
       onOpenSession={onOpenSession}
       conversationControls={<ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} />}
     />

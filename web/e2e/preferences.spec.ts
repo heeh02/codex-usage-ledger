@@ -27,7 +27,7 @@ for (const mode of ['denied-getter', 'quota-write', 'corrupt-settings'] as const
     await expect(page.locator('.workspace-heading h1')).toHaveText('Project Atlas');
     await page.getByRole('button', { name: 'Sessions · 2', exact: true }).click();
     await page.locator('.session-row').filter({ hasText: 'Audit parser boundaries' }).click();
-    await expect(page.locator('.workspace-heading h1')).toHaveText('Audit parser boundaries');
+    await expect(page.locator('.workspace-heading h1')).toHaveText('Audit parser boundaries and fixtures');
     expect(errors).toEqual([]);
   });
 }

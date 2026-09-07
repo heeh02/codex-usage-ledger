@@ -11,7 +11,7 @@ export function SessionDistributions({ detail, scope }: { detail: Pick<ExplorerS
     {(['models', 'accounts'] as const).map(dimension => <details key={dimension} open>
       <summary>{t(dimension === 'models' ? 'sessions.models_used' : 'sessions.accounts_used')}</summary>
       {!data?.[dimension] ? <EmptyState text={t('sessions.distributions_unavailable')} /> :
-        <UsageBreakdownTable rows={data[dimension]!} identityLabel={t(dimension === 'models' ? 'sessions.models_used' : 'sessions.accounts_used')}/>}
+        <UsageBreakdownTable rows={data[dimension]!} scopeKey={scope} identityLabel={t(dimension === 'models' ? 'sessions.models_used' : 'sessions.accounts_used')}/>}
     </details>)}
   </Panel>;
 }

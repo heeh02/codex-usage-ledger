@@ -1,6 +1,10 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "breakdown.visible_rows": "{start}–{end} of {count} rows",
+  "breakdown.local_components": "Local confirmed evidence · Token values in M (millions). Input may include unsplit writes when write coverage is incomplete. — means unavailable, not zero.",
+  "breakdown.next": "Next",
+  "overview.sessions": "Chats",
   "interval.title": "Inspect interval Token usage",
   "interval.loading": "Querying interval usage…",
   "interval.failed": "Interval usage could not be loaded. The previous query remains visible; you can query again.",
