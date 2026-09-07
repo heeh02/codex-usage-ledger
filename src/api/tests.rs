@@ -2196,6 +2196,43 @@ fn quota_labels_hide_internal_dynamic_pool_keys() {
 }
 
 #[test]
+fn quota_indexed_and_fallback_previews_match_inside_bundle_snapshot() {
+    use crate::quota::normalize_rate_limit_event;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("quota-index.sqlite3");
+    let mut store = LedgerStore::open(&path).unwrap();
+    let now = Utc::now();
+    for index in 0..3 {
+        let snapshot=normalize_rate_limit_event(&serde_json::json!({"limit_id":"pool-a",
+            "primary":{"used_percent":20+index,"window_minutes":10080,"resets_at":(now+ChronoDuration::days(2)).timestamp()},
+            "secondary":{"used_percent":30+index,"window_minutes":300,"resets_at":(now+ChronoDuration::hours(2)).timestamp()}
+        })).unwrap();
+        store
+            .append_quota_snapshot(
+                "account-a",
+                "epoch",
+                now - ChronoDuration::minutes(30 - index),
+                &snapshot,
+            )
+            .unwrap();
+    }
+    let query = UsageQuery {
+        reference_time: Some(now),
+        account: Some("account-a".into()),
+        period: Some("lifetime".into()),
+        ..Default::default()
+    };
+    store.prepare_quota_index_backfill_fixture().unwrap();
+    let fallback = quota_cycle_views(&store, &query).unwrap();
+    assert!(store.backfill_quota_window_index_chunk(100).unwrap());
+    let indexed = store
+        .with_usage_snapshot(|store| quota_cycle_views(store, &query))
+        .unwrap();
+    assert_eq!(fallback, indexed);
+    assert_eq!(indexed.len(), 2);
+}
+
+#[test]
 fn quota_preview_limits_and_stream_scopes_are_explicit() {
     use crate::quota::normalize_rate_limit_event;
     let mut store = LedgerStore::open_in_memory().unwrap();

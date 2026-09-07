@@ -39,8 +39,10 @@ for active execution. This extends, rather than completes or resets, the work be
 - [ ] E05: historical account/pool/window quota cycles, same-deadline reset evidence,
       uncertain boundaries and no duplicated cross-window token attribution.
       Bounded observation-interval preview now retains older segments and same-
-      deadline decreases. Full-history paging, durable incremental projection,
-      grant/cause verification and real-account acceptance remain unfinished.
+      deadline decreases. Schema 36 indexes all retained snapshots in resumable
+      batches and indexes new appends atomically. Full-history paging, durable
+      interval segmentation, grant/cause verification and real-account acceptance
+      remain unfinished.
 - [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
       native acceptance must not be confused with source accuracy or release proof.
 
@@ -1401,3 +1403,23 @@ No live data migration, installed-app replacement or release has occurred.
   Full-history incremental storage/paging, independent code-owner review before
   release, verified grant semantics, source accuracy and native acceptance remain
   open. Existing native-language edits preserved. Full goal ACTIVE.
+- Batch 138: added schema-36 quota-window projection and a captured historical
+  high-water cursor. New normalized snapshots and index rows commit atomically;
+  the daemon/dashboard writer advances historical work in bounded 200-snapshot
+  chunks without resetting it on startup. A completed tick performs no writes.
+  The preview uses indexed windows after completion and retains the direct path
+  before completion; values, stream identities and observation order agree.
+  Existing projection conflicts reject instead of overwriting. Synthetic 1,005-
+  snapshot upgrade/reopen tests preserve original snapshot digests and prove live
+  late-timestamp appends do not skip history; forced failures roll back partial
+  rows/cursor. Shared-bundle transaction tests avoid nested read transactions.
+  Full tests exposed old fixtures that lowered the schema version while keeping
+  future tables: test-only cleanup now models true legacy state rather than
+  weakening production migration guards. Rust 213 tests, Clippy, generated API
+  and governance checks pass. ADR 0007 records storage/public-maintenance bounds.
+  No original ledger/private audit copy or installed application was migrated;
+  only synthetic temporary databases were used. No frontend/native changes in
+  this batch; existing native-language edits remain separate. The UI still has
+  its explicit preview limit: full-history seek paging, interval projection,
+  health presentation, real-shadow migration/code-owner review, source-union
+  accuracy and native acceptance remain open. Full goal ACTIVE.

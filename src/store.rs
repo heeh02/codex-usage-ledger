@@ -26,6 +26,7 @@ mod maintenance_repository;
 mod migrations;
 mod overlap_repository;
 mod project_repository;
+mod quota_repository;
 mod receipt_repository;
 mod request_repository;
 mod snapshot_memo;
@@ -205,6 +206,8 @@ pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error("stored quota window projection disagrees with its immutable snapshot")]
+    QuotaWindowConflict,
     #[error(
         "requested timezone needs per-request time evidence unavailable in this window; choose an hour-aligned timezone or a narrower window"
     )]

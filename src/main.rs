@@ -596,6 +596,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     let initial_status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
     writer.reproject_usage_from_catalog()?;
     prepare_fast_ledger(&mut writer, "daemon")?;
+    if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+        warn!(%error, "quota window index backfill deferred");
+    }
     let compacted = compact_expired_raw_events(&mut writer, "daemon")?;
     writer.set_collector_status(&initial_status)?;
     info!(
@@ -615,6 +618,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                 ticks = ticks.saturating_add(1);
                 if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
                     warn!(%error, "retained request backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+                    warn!(%error, "quota window index backfill deferred");
                 }
                 if ticks.is_multiple_of(6) {
                     if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
@@ -829,6 +835,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     }
 
     prepare_fast_ledger(&mut writer, "serve")?;
+    if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+        warn!(%error, "quota window index backfill deferred");
+    }
     // Opening the dashboard is not a request to delete historical raw details.
     // Keep retention in explicit optimize/collection workflows with its guards.
     writer.set_collector_status(&CollectorStatus {
@@ -847,6 +856,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         tokio::select! {
             _ = catalog_refresh.tick() => {
                 catalog_ticks = catalog_ticks.saturating_add(1);
+                if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+                    warn!(%error, "quota window index backfill deferred");
+                }
                 if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
                     warn!(%error, "retained request backfill deferred");
                 }

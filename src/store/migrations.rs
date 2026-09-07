@@ -3,7 +3,41 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 35;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 36;
+
+const MIGRATION_36: &str = r#"
+CREATE TABLE quota_window_observations (
+    observation_id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL REFERENCES quota_snapshots(snapshot_id),
+    window_ordinal INTEGER NOT NULL CHECK(window_ordinal>=0),
+    account_fingerprint TEXT NOT NULL,
+    auth_epoch TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    stream_key TEXT NOT NULL,
+    pool_key TEXT NOT NULL,
+    limit_id TEXT NOT NULL,
+    limit_name TEXT,
+    role TEXT NOT NULL,
+    used_percent REAL CHECK(used_percent IS NULL OR used_percent BETWEEN 0 AND 100),
+    window_seconds TEXT,
+    resets_at_unix INTEGER
+);
+CREATE INDEX quota_window_snapshot_idx ON quota_window_observations(snapshot_id);
+CREATE INDEX quota_window_account_time_idx
+ON quota_window_observations(account_fingerprint,observed_at DESC,observation_id DESC);
+CREATE INDEX quota_window_stream_time_idx
+ON quota_window_observations(account_fingerprint,stream_key,observed_at,observation_id);
+CREATE TABLE quota_window_index_state (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    last_rowid INTEGER NOT NULL,
+    target_rowid INTEGER NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1))
+);
+INSERT INTO quota_window_index_state(id,last_rowid,target_rowid,complete)
+SELECT 1,0,target,target=0 FROM (
+    SELECT COALESCE((SELECT rowid FROM quota_snapshots ORDER BY rowid DESC LIMIT 1),0) AS target
+);
+"#;
 
 const MIGRATION_35: &str = r#"
 CREATE INDEX IF NOT EXISTS retained_request_effective_time_idx
@@ -243,6 +277,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             33 => transaction.execute_batch(MIGRATION_33)?,
             34 => transaction.execute_batch(MIGRATION_34)?,
             35 => transaction.execute_batch(MIGRATION_35)?,
+            36 => transaction.execute_batch(MIGRATION_36)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

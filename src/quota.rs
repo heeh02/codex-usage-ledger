@@ -40,6 +40,25 @@ pub enum WindowRole {
     Dynamic,
 }
 
+impl WindowRole {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::Secondary => "secondary",
+            Self::Dynamic => "dynamic",
+        }
+    }
+}
+
+pub(crate) fn window_stream_key(pool: &QuotaPool, window: &QuotaWindow) -> String {
+    serde_json::json!([
+        pool.limit_id.as_deref().unwrap_or(&pool.pool_key),
+        window.role.as_str(),
+        window.server_name
+    ])
+    .to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuotaWindow {
     pub role: WindowRole,

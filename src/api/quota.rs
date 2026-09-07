@@ -207,6 +207,32 @@ fn quota_observations(
         .collect::<BTreeSet<_>>();
     let mut observations = Vec::new();
     for account in accounts {
+        if let Some((windows, history_limited)) =
+            store.indexed_quota_window_preview(&account, 1000)?
+        {
+            for window in windows {
+                observations.push(QuotaObservation {
+                    history_limited,
+                    snapshot_id: window.snapshot_id,
+                    account: account.clone(),
+                    window_key: window.stream_key,
+                    label: quota_display_label(
+                        window.limit_name.as_deref(),
+                        Some(&window.limit_id),
+                        &window.pool_key,
+                    ),
+                    limit_id: window.limit_id,
+                    role: window.role,
+                    observed_at: window.observed_at,
+                    used_percent: window.used_percent,
+                    window_seconds: window.window_seconds,
+                    resets_at: window
+                        .resets_at_unix
+                        .and_then(|at| Utc.timestamp_opt(at, 0).single()),
+                });
+            }
+            continue;
+        }
         let mut snapshots = store.list_quota_snapshots(&account, 1_000)?;
         let history_limited = snapshots.len() == 1_000;
         snapshots.reverse();
@@ -221,10 +247,9 @@ fn quota_observations(
                     pool.limit_id.as_deref(),
                     &pool.pool_key,
                 );
-                for window in pool.windows {
-                    let role = format!("{:?}", window.role).to_ascii_lowercase();
-                    let window_key =
-                        serde_json::json!([limit_id, role, window.server_name]).to_string();
+                for window in &pool.windows {
+                    let role = window.role.as_str().to_owned();
+                    let window_key = crate::quota::window_stream_key(&pool, window);
                     observations.push(QuotaObservation {
                         history_limited,
                         snapshot_id: stored.snapshot_id.clone(),

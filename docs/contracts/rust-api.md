@@ -16,6 +16,13 @@ binary crate needs and is not a stable third-party interface.
 `LedgerStore` exposes typed operations rather than its SQLite connection. CLI
 diagnostics use `ledger_table_counts`; schema details remain crate-private.
 
+The package service also calls the bounded maintenance operation
+`LedgerStore::backfill_quota_window_index_chunk(limit)`. It returns completion of
+the captured pre-upgrade snapshot target, not source-history completeness. New
+snapshots project within their append transaction. Quota-window repository and
+normalization types remain private; see
+[ADR 0007](../adr/0007-quota-window-index.md) for the migration/review boundary.
+
 Changing the intended public surface requires an ADR. Do not make an internal
 module public solely to simplify a test; place unit tests beside the module or
 add a narrow public contract when external use is intentional.

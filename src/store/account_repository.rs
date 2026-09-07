@@ -622,7 +622,10 @@ impl LedgerStore {
             digest.update(value);
         }
         let snapshot_id = hex::encode(digest.finalize());
-        self.connection.execute(
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
             "INSERT OR IGNORE INTO quota_snapshots(
                  snapshot_id, account_fingerprint, auth_epoch, observed_at, source, normalized_json
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -635,6 +638,17 @@ impl LedgerStore {
                 normalized_json,
             ],
         )?;
+        super::quota_repository::project_quota_snapshot_in(
+            &transaction,
+            &StoredQuotaSnapshot {
+                snapshot_id: snapshot_id.clone(),
+                account_fingerprint: account_fingerprint.to_owned(),
+                auth_epoch: auth_epoch.to_owned(),
+                observed_at,
+                snapshot: snapshot.clone(),
+            },
+        )?;
+        transaction.commit()?;
         Ok(snapshot_id)
     }
 

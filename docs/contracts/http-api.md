@@ -72,6 +72,12 @@ The four added fields are optional compatibility fields. Existing clients can
 ignore them; updated clients label the preview, exact observation dates, unknown
 boundaries and missing samples. No database migration is involved.
 
+Schema 36 separately adds an incremental window index without changing this
+response contract. Incomplete upgrade backfill uses the direct snapshot path;
+completed backfill uses the indexed preview with identical limits and values.
+This does not make the preview a full-history endpoint. See
+[the index decision](../adr/0007-quota-window-index.md).
+
 ## Conversation pagination
 
 Period descriptors in one bundle share a server-internal reference instant,
