@@ -26,6 +26,7 @@ use crate::{
 pub const POST_SAMPLING_SOURCE_ID: &str = "logs2-post-sampling-v1";
 const MATCH_TOLERANCE_NANOS: i64 = 250_000_000;
 const NEW_THREAD_TAIL_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_JOIN_WINDOW_RECORDS: usize = 10_000;
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,13 +64,38 @@ struct ThreadInfo {
     project_name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct UsageCandidate {
     record_digest: String,
     byte_offset: u64,
     observed_at: DateTime<Utc>,
     usage: Option<TokenUsage>,
-    unavailable_reason: Option<&'static str>,
+    unavailable_reason: Option<String>,
+    #[serde(default)]
+    claimed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AnchorContext {
+    at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CandidateFileSnapshot {
+    len: u64,
+    modified: DateTime<Utc>,
+}
+
+impl CandidateFileSnapshot {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Result<Self> {
+        Ok(Self {
+            len: metadata.len(),
+            modified: metadata.modified()?.into(),
+        })
+    }
+    fn accepts_append(&self, next: &Self) -> bool {
+        next.len > self.len || (next.len == self.len && next.modified == self.modified)
+    }
 }
 
 /// Paired with the candidate byte cursor, never restored independently of it.
@@ -87,6 +113,14 @@ struct CandidateCounterCheckpoint {
     allow_unframed: bool,
     #[serde(default)]
     canonical_header_checked: bool,
+    #[serde(default)]
+    candidate_tail: Vec<UsageCandidate>,
+    #[serde(default)]
+    anchor_tail: Vec<AnchorContext>,
+    #[serde(default)]
+    closed_through: Option<DateTime<Utc>>,
+    #[serde(default)]
+    file_snapshot: Option<CandidateFileSnapshot>,
 }
 
 fn unknown_stream_boundary() -> StreamBoundary {
@@ -99,7 +133,7 @@ fn unknown_stream_boundary() -> StreamBoundary {
 impl CandidateCounterCheckpoint {
     fn new(start_offset: u64) -> Self {
         Self {
-            version: 3,
+            version: 4,
             previous_total: None,
             cumulative_seen: start_offset > 0,
             allow_initial_sample: start_offset == 0,
@@ -111,6 +145,10 @@ impl CandidateCounterCheckpoint {
             last_token_at: None,
             allow_unframed: start_offset == 0,
             canonical_header_checked: start_offset == 0,
+            candidate_tail: Vec::new(),
+            anchor_tail: Vec::new(),
+            closed_through: None,
+            file_snapshot: None,
         }
     }
 
@@ -292,6 +330,15 @@ pub fn ingest_post_sampling(
     codex_home: &Path,
     machine_id: &str,
 ) -> Result<SamplingImportReport> {
+    ingest_post_sampling_at(store, codex_home, machine_id, Utc::now())
+}
+
+fn ingest_post_sampling_at(
+    store: &mut LedgerStore,
+    codex_home: &Path,
+    machine_id: &str,
+    now: DateTime<Utc>,
+) -> Result<SamplingImportReport> {
     let sources = sampling_log_sources(codex_home);
     if sources.is_empty() {
         return Err(anyhow!("Codex logs_2.sqlite is unavailable"));
@@ -329,6 +376,7 @@ pub fn ingest_post_sampling(
             logs_path,
             &source_id,
             namespace.as_deref(),
+            now,
         )?;
         merge_report(&mut combined, report);
     }
@@ -342,6 +390,7 @@ fn ingest_post_sampling_source(
     logs_path: &Path,
     source_id: &str,
     namespace: Option<&str>,
+    now: DateTime<Utc>,
 ) -> Result<SamplingImportReport> {
     let saved = store.get_cursor(machine_id, source_id)?;
     let saved_state = saved
@@ -362,11 +411,15 @@ fn ingest_post_sampling_source(
         .as_ref()
         .and_then(|state| state.get("anchorKey"))
         .and_then(Value::as_str);
-    let safe_before = Utc::now() - chrono::Duration::seconds(5);
+    let safe_before = now - chrono::Duration::seconds(5);
+    let tolerance = chrono::Duration::nanoseconds(MATCH_TOLERANCE_NANOS);
+    // Closing anchor A needs candidate neighbors through A+d and the reverse
+    // anchor neighborhood through A+2d. Look-ahead rows are not committed yet.
+    let context_before = safe_before + tolerance * 2;
     let (observations, replaced) = read_observations(
         logs_path,
         previous_id,
-        safe_before,
+        context_before,
         machine_id,
         previous_anchor,
         physical_replaced,
@@ -412,12 +465,22 @@ fn ingest_post_sampling_source(
     if observations.is_empty() {
         return Ok(SamplingImportReport::default());
     }
-    let first_observed_at = observations.iter().map(|value| value.observed_at).min();
-    let last_observed_at = observations.iter().map(|value| value.observed_at).max();
     let max_log_id = observations
+        .iter()
+        .take_while(|value| value.observed_at <= safe_before)
         .last()
         .map(|value| value.log_id)
         .unwrap_or(last_log_id);
+    let first_observed_at = observations
+        .iter()
+        .filter(|value| value.log_id <= max_log_id)
+        .map(|value| value.observed_at)
+        .min();
+    let last_observed_at = observations
+        .iter()
+        .filter(|value| value.log_id <= max_log_id)
+        .map(|value| value.observed_at)
+        .max();
     let anchor_keys: BTreeMap<_, _> = observations
         .iter()
         .map(|observation| (observation.log_id, observation.anchor_key.clone()))
@@ -438,7 +501,11 @@ fn ingest_post_sampling_source(
     }
 
     let mut report = SamplingImportReport {
-        observations: by_thread.values().map(|values| values.len() as u64).sum(),
+        observations: by_thread
+            .values()
+            .flat_map(|values| values.iter())
+            .filter(|value| value.log_id <= max_log_id)
+            .count() as u64,
         first_observed_at,
         last_observed_at,
         ..SamplingImportReport::default()
@@ -450,7 +517,15 @@ fn ingest_post_sampling_source(
         // arrive out of timestamp order. Commit order is restored by log ID below.
         observations.sort_by_key(|observation| (observation.observed_at, observation.log_id));
         let thread = thread_index.get(&thread_id).cloned().unwrap_or_default();
+        let candidate_horizon = observations
+            .iter()
+            .map(|value| value.observed_at)
+            .max()
+            .map(|at| (at + tolerance).min(safe_before + tolerance))
+            .unwrap_or(safe_before);
         let mut rollout_identity = None;
+        let cursor_slot = candidate_cursors.len();
+        let mut join_state = None;
         let mut candidates = match thread.rollout_path.as_deref() {
             Some(path) if path.is_file() => {
                 let candidate_id = candidate_source_id(&thread_id, namespace);
@@ -465,17 +540,17 @@ fn ingest_post_sampling_source(
                     cursor.file_identity == candidate_identity
                         && cursor.byte_offset <= metadata.len()
                 });
-                let stored_offset = if bootstrap {
-                    0
-                } else if can_resume {
+                let stored_offset = if can_resume {
                     existing
                         .as_ref()
                         .map(|cursor| cursor.byte_offset)
                         .unwrap_or_default()
+                } else if bootstrap {
+                    0
                 } else {
                     metadata.len().saturating_sub(NEW_THREAD_TAIL_BYTES)
                 };
-                let mut counter = if can_resume && !bootstrap {
+                let mut counter = if can_resume {
                     existing
                         .as_ref()
                         .and_then(|cursor| cursor.parser_state_json.as_deref())
@@ -483,7 +558,7 @@ fn ingest_post_sampling_source(
                             serde_json::from_str::<CandidateCounterCheckpoint>(value).ok()
                         })
                         .filter(|state| {
-                            matches!(state.version, 2 | 3)
+                            matches!(state.version, 2..=4)
                                 && state
                                     .previous_total
                                     .is_none_or(|usage| usage.validate().is_ok())
@@ -496,7 +571,23 @@ fn ingest_post_sampling_source(
                 };
                 // Version 2 had numeric state only. Preserve its baseline but
                 // do not pretend its unknown stream/replay phase was live.
-                counter.version = 3;
+                if counter.version < 4 {
+                    // Old cursors did not preserve competing neighbors. Do not
+                    // certify associations inside that unreviewed overlap.
+                    counter.closed_through = counter.last_token_at.map(|at| at + tolerance);
+                }
+                counter.version = 4;
+                let before_snapshot = CandidateFileSnapshot::from_metadata(&metadata)?;
+                if can_resume
+                    && counter
+                        .file_snapshot
+                        .as_ref()
+                        .is_some_and(|old| !old.accepts_append(&before_snapshot))
+                {
+                    return Err(anyhow!(
+                        "rollout changed in-place or shrank; association cursor review required"
+                    ));
+                }
                 if !counter.canonical_header_checked {
                     if counter.boundary.canonical_at.is_none() {
                         counter.boundary.canonical_at =
@@ -504,15 +595,28 @@ fn ingest_post_sampling_source(
                     }
                     counter.canonical_header_checked = true;
                 }
-                let (candidates, next_offset) = read_usage_candidates(
+                let (new_candidates, next_offset) = read_usage_candidates(
                     path,
                     stored_offset,
                     &mut report.bytes_read,
-                    safe_before,
+                    candidate_horizon,
                     &mut counter,
                     &thread_id,
                     thread.parent_thread_id.is_some(),
                 )?;
+                let after_metadata = path.metadata()?;
+                let after_snapshot = CandidateFileSnapshot::from_metadata(&after_metadata)?;
+                if physical_file_identity(path, &after_metadata)?
+                    != physical_file_identity(path, &metadata)?
+                    || !before_snapshot.accepts_append(&after_snapshot)
+                {
+                    return Err(anyhow!(
+                        "rollout changed during association read; no cursor was committed"
+                    ));
+                }
+                counter.file_snapshot = Some(after_snapshot);
+                let mut candidates = std::mem::take(&mut counter.candidate_tail);
+                candidates.extend(new_candidates);
                 let must_reset = existing.as_ref().is_some_and(|cursor| {
                     cursor.file_identity != candidate_identity || next_offset < cursor.byte_offset
                 });
@@ -523,11 +627,12 @@ fn ingest_post_sampling_source(
                         file_identity: candidate_identity,
                         byte_offset: next_offset,
                         line_number: next_offset,
-                        parser_state_json: Some(serde_json::to_string(&counter)?),
+                        parser_state_json: None,
                         updated_at: Utc::now(),
                     },
                     must_reset,
                 ));
+                join_state = Some(counter);
                 candidates
             }
             _ => {
@@ -536,21 +641,76 @@ fn ingest_post_sampling_source(
             }
         };
         candidates.sort_by_key(|candidate| candidate.observed_at);
-        let matches = mutual_matches(
-            &observations
+        let mut context: Vec<_> = join_state
+            .as_ref()
+            .into_iter()
+            .flat_map(|state| state.anchor_tail.iter())
+            .map(|value| (value.at, None))
+            .collect();
+        context.extend(
+            observations
                 .iter()
-                .map(|value| timestamp_nanos(value.observed_at))
+                .enumerate()
+                .map(|(index, value)| (value.observed_at, Some(index))),
+        );
+        context.sort_by_key(|(at, _)| *at);
+        let context_matches = mutual_matches(
+            &context
+                .iter()
+                .map(|(at, _)| timestamp_nanos(*at))
                 .collect::<Vec<_>>(),
             &candidates
                 .iter()
                 .map(|value| timestamp_nanos(value.observed_at))
                 .collect::<Vec<_>>(),
         );
+        let mut matches = vec![Nearest::Missing; observations.len()];
+        for ((_, index), association) in context.into_iter().zip(context_matches) {
+            if let Some(index) = index {
+                matches[index] = association;
+            }
+        }
+        let previous_closed = join_state.as_ref().and_then(|state| state.closed_through);
+        let finalized_at = observations
+            .iter()
+            .filter(|value| value.log_id <= max_log_id)
+            .map(|value| value.observed_at)
+            .chain(previous_closed)
+            .max();
+        let retain_at = finalized_at.unwrap_or_else(|| {
+            observations
+                .first()
+                .expect("nonempty thread cohort")
+                .observed_at
+        });
+        if let Some(state) = &mut join_state {
+            state
+                .anchor_tail
+                .retain(|value| Some(value.at) == finalized_at);
+            state.anchor_tail.extend(
+                observations
+                    .iter()
+                    .filter(|value| {
+                        value.log_id <= max_log_id && Some(value.observed_at) == finalized_at
+                    })
+                    .map(|value| AnchorContext {
+                        at: value.observed_at,
+                    }),
+            );
+            // Two copies of the latest finalized timestamp preserve all
+            // reverse-neighbor competition, including duplicate-time ties.
+            state.anchor_tail.truncate(2);
+        }
         for (observation, association) in observations.into_iter().zip(matches) {
+            if observation.log_id > max_log_id {
+                continue;
+            }
+            let late = previous_closed.is_some_and(|at| observation.observed_at <= at);
+            let claimed = matches!(association,Nearest::Unique(index) if candidates[index].claimed);
             let invalid =
                 matches!(association, Nearest::Unique(index) if candidates[index].usage.is_none());
             let matched = match association {
-                Nearest::Unique(index) if !invalid => Some(index),
+                Nearest::Unique(index) if !invalid && !late && !claimed => Some(index),
                 _ => None,
             };
             let (usage, quality, reason) = if let Some(index) = matched {
@@ -566,10 +726,15 @@ fn ingest_post_sampling_source(
                     TokenUsage::default(),
                     DataQuality::Unknown,
                     Some(
-                        if invalid {
+                        if late {
+                            "post_sampling_late_observation_outside_closed_window"
+                        } else if claimed {
+                            "post_sampling_candidate_already_associated"
+                        } else if invalid {
                             match association {
                                 Nearest::Unique(index) => candidates[index]
                                     .unavailable_reason
+                                    .as_deref()
                                     .unwrap_or("post_sampling_invalid_nearby_last_token_usage"),
                                 _ => unreachable!(),
                             }
@@ -601,6 +766,7 @@ fn ingest_post_sampling_source(
                 );
             }
             if let Some(index) = matched {
+                candidates[index].claimed = true;
                 event.provenance.source_record_key = rollout_identity.as_deref().map(|identity| {
                     crate::reconstruction::source_record_key(
                         machine_id,
@@ -622,6 +788,26 @@ fn ingest_post_sampling_source(
             }
             events.push(event);
         }
+        if let Some(mut state) = join_state {
+            state.candidate_tail = candidates
+                .into_iter()
+                .filter(|candidate| {
+                    finalized_at.map_or(candidate.observed_at >= retain_at - tolerance, |at| {
+                        candidate.observed_at > at
+                    })
+                })
+                .collect();
+            if state.candidate_tail.len() > MAX_JOIN_WINDOW_RECORDS
+                || state.anchor_tail.len() > MAX_JOIN_WINDOW_RECORDS
+            {
+                return Err(anyhow!(
+                    "sampling association window exceeds capacity; no cursors were committed"
+                ));
+            }
+            state.closed_through = finalized_at;
+            candidate_cursors[cursor_slot].0.parser_state_json =
+                Some(serde_json::to_string(&state)?);
+        }
     }
     events.sort_by_key(|event| event.provenance.line_number);
 
@@ -636,7 +822,7 @@ fn ingest_post_sampling_source(
                 line_number: max_log_id,
                 parser_state_json: Some(
                     serde_json::json!({"source":"logs_2_post_sampling","version":4,
-                        "associationPolicy":"mutual_unique_nearest_v2",
+                        "associationPolicy":"durable_mutual_window_v3",
                         "counterPolicy":"shared_numeric_counter_v1",
                         "boundaryPolicy":"shared_stream_boundary_v1",
                         "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
@@ -1073,7 +1259,8 @@ fn read_usage_candidates(
             byte_offset: line_start,
             observed_at,
             usage,
-            unavailable_reason,
+            unavailable_reason: unavailable_reason.map(str::to_owned),
+            claimed: false,
         });
     }
     let next_offset = durable_offset;
@@ -1239,6 +1426,397 @@ mod tests {
 
     use super::*;
     use crate::store::AggregateFilter;
+
+    #[test]
+    fn oversized_join_window_does_not_commit_a_partial_cohort() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let before = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "window-overflow");
+        {
+            let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+            for offset in 1..=MAX_JOIN_WINDOW_RECORDS + 1 {
+                writeln!(
+                    append,
+                    "{}",
+                    token_line(base + chrono::Duration::microseconds(offset as i64), 100)
+                )
+                .unwrap();
+            }
+        }
+        let error = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5200),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("window exceeds capacity"));
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            before.byte_offset
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+    }
+
+    #[test]
+    fn lookahead_anchor_prevents_an_earlier_anchor_stealing_its_candidate() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "earlier-anchor");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(150),
+            "closer-lookahead-anchor",
+        );
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(90), 700)
+        )
+        .unwrap();
+        let first = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5100),
+        )
+        .unwrap();
+        assert_eq!((first.matched, first.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let second = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5300),
+        )
+        .unwrap();
+        assert_eq!(
+            (second.matched, second.unmatched, second.bytes_read),
+            (1, 0, 0)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            950
+        );
+    }
+
+    #[test]
+    fn later_arrivals_cannot_reuse_a_claimed_record_or_rewrite_closed_order() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "first-anchor");
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(100), 100)
+        )
+        .unwrap();
+        assert_eq!(
+            ingest_post_sampling_at(
+                &mut store,
+                temporary.path(),
+                "machine",
+                base + chrono::Duration::milliseconds(5100)
+            )
+            .unwrap()
+            .matched,
+            1
+        );
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(110),
+            "late-closer-anchor",
+        );
+        let next = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5300),
+        )
+        .unwrap();
+        assert_eq!((next.matched, next.unmatched), (0, 1));
+        let reason: String = store
+            .connection()
+            .query_row(
+                "SELECT quality_reason FROM usage_events WHERE event_id='logs2-post-sampling:3'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reason, "post_sampling_candidate_already_associated");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(50),
+            "out-of-order-anchor",
+        );
+        let next = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5500),
+        )
+        .unwrap();
+        assert_eq!((next.matched, next.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+    }
+
+    #[test]
+    fn same_size_source_change_cannot_reuse_the_durable_candidate_window() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "first");
+        insert_log(&logs, base + chrono::Duration::milliseconds(200), "pending");
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}\n{}",
+            token_line(base, 100),
+            token_line(base + chrono::Duration::milliseconds(140), 150)
+        )
+        .unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5150),
+        )
+        .unwrap();
+        let before = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let original = fs::read_to_string(&rollout).unwrap();
+        let changed = original.replace("\"total_tokens\":150", "\"total_tokens\":151");
+        assert_ne!(original, changed);
+        assert_eq!(original.len(), changed.len());
+        fs::write(&rollout, changed).unwrap();
+        File::options()
+            .write(true)
+            .open(&rollout)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100),
+            ))
+            .unwrap();
+        assert!(
+            ingest_post_sampling_at(
+                &mut store,
+                temporary.path(),
+                "machine",
+                base + chrono::Duration::milliseconds(5400)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            before.byte_offset
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+    }
+
+    #[test]
+    fn candidate_read_ahead_survives_the_next_poll_and_restart() {
+        let (temporary, _old_store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let ledger = temporary.path().join("join-window.sqlite3");
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "boundary-first");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(200),
+            "boundary-second",
+        );
+        {
+            let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+            writeln!(
+                append,
+                "{}\n{}",
+                token_line(base, 100),
+                token_line(base + chrono::Duration::milliseconds(140), 150)
+            )
+            .unwrap();
+        }
+        let first = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5150),
+        )
+        .unwrap();
+        assert_eq!(first.matched, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+        drop(store);
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        let second = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5400),
+        )
+        .unwrap();
+        assert_eq!((second.matched, second.unmatched), (1, 0));
+        assert_eq!(
+            second.bytes_read, 0,
+            "the matching candidate must come from the durable window, not a file rescan"
+        );
+        let expected = TokenUsage {
+            input_tokens: 460,
+            cached_input_tokens: 380,
+            output_tokens: 40,
+            reasoning_output_tokens: 12,
+            total_tokens: 500,
+            ..TokenUsage::default()
+        };
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected
+        );
+        for dimension in [
+            crate::store::AggregateDimension::Account,
+            crate::store::AggregateDimension::Project,
+            crate::store::AggregateDimension::Model,
+            crate::store::AggregateDimension::Thread,
+            crate::store::AggregateDimension::Day,
+        ] {
+            let buckets = store
+                .aggregate_exact_time_series(
+                    crate::store::TimeGrain::Day,
+                    Some(dimension),
+                    &AggregateFilter::default(),
+                    "Asia/Shanghai",
+                )
+                .unwrap();
+            let expected = serde_json::to_value(expected).unwrap();
+            for field in [
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "cache_write_observed_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+                "total_tokens",
+            ] {
+                let sum: u64 = buckets
+                    .iter()
+                    .map(|bucket| {
+                        serde_json::to_value(bucket.usage).unwrap()[field]
+                            .as_u64()
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                assert_eq!(
+                    sum,
+                    expected[field].as_u64().unwrap_or(0),
+                    "{dimension:?}/{field}"
+                );
+            }
+        }
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            500
+        );
+    }
 
     #[test]
     fn undated_usage_advances_only_the_baseline_not_the_next_dated_amount() {

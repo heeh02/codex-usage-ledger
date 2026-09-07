@@ -71,6 +71,13 @@ sum is an acceptable proof of complete usage. See the
 Priority after interval-detail integration: finish that source-union work rather
 than treating temporary consumer guards as the accounting fix.
 
+Parser promotion must also re-qualify persisted reconstruction checkpoints, not
+just historical event rows. A checkpoint created by older replay rules may carry
+an already-wrong live/prefix state; running a newer binary from that offset alone
+does not prove the remaining stream is interpreted under the new policy.
+Verify a resumable policy-upgrade path alongside source-continuity and historical
+projection review before any installed-app/main-selector promotion.
+
 Schema 38 now stages the request-level union durably, with bounded resumable
 backfill and change-triggered group recomputation; see the
 [incremental candidate contract](docs/architecture/source-union-projection.md).
@@ -1869,3 +1876,25 @@ No live data migration, installed-app replacement or release has occurred.
   eligibility, reset/rollback interpretation, source-occurrence linkage and
   controlled union promotion still require review; this is not real-account
   calibration or permission to delete partially known history. Full goal ACTIVE.
+- Batch 157: reproduced candidate read-ahead being lost when the associated log
+  observation crossed the maturity cutoff into the next poll. Added a durable
+  mutual association window with one clock per tick, candidate look-ahead of
+  one tolerance and reverse-anchor context of two tolerances. Only the mature
+  contiguous log-ID prefix commits. Candidate checkpoint version 4 retains
+  normalized pending rows, claimed flags and bounded finalized-anchor context;
+  a restart matches the pending row with zero new JSON bytes. Read horizons
+  follow supplied observations instead of consuming all currently available
+  history. Previously claimed records and out-of-order observations cannot
+  rewrite prior confirmed associations. Source metadata checks reject observed
+  in-place/shrink/read-time changes before stale-window reuse. Capacity overflow
+  fails the cohort before fact/cursor commit rather than truncating the window.
+  Synthetic clock-controlled tests cover cutoff/restart, look-ahead competition,
+  reuse refusal, same-size source mutation, capacity rollback and all Token
+  components across account/project/model/thread/calendar aggregates. Rust 296
+  tests, Clippy and generated API contracts pass. Legacy missing context and
+  arbitrary late arrivals are not retroactively certified, metadata checks are
+  not immutable-prefix proof, and the window cap is not a bounded-bootstrap
+  guarantee. No live/audit ledger, installed app or account state was changed.
+  Historical replay completeness/eligibility, source-occurrence linkage,
+  controlled union promotion and real-account/native acceptance remain open.
+  Full goal remains ACTIVE.

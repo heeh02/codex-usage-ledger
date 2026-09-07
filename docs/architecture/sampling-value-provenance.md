@@ -15,12 +15,42 @@ all interpretation of the [union candidate](source-union-shadow.md).
 
 ## Association policy
 
-New ingestion uses `mutual_unique_nearest_v2` within each supplied mature
-thread cohort. After sorting timestamps, associate only when each side is the
+New ingestion uses `durable_mutual_window_v3`, retaining the mutual-nearest
+predicate from `mutual_unique_nearest_v2`. After sorting timestamps, associate only when each side is the
 other's unique nearest neighbor within an inclusive 250 ms. Equal-distance or
 duplicate-timestamp ties are ambiguous. If a candidate prefers another anchor,
 the unmatched anchor remains unknown: it cannot consume a farther leftover
 record merely because its nearest record was already used.
+
+The five-second maturity cutoff is shared across a polling tick. Closing an
+anchor at time A needs candidate neighbors through A + 250 ms and reverse-anchor
+context through A + 500 ms. Look-ahead observations participate in matching but
+do not advance the log cursor: only a contiguous mature log-ID prefix commits.
+This also preserves existing non-monotonic-ID/time watermark behavior.
+
+Candidate checkpoint version 4 retains normalized read-ahead rows, claimed flags,
+the latest finalized anchor timestamp (up to two copies for ties), and file
+metadata. A later poll/restart can use those rows without rescanning source JSON.
+Candidate reading stops at the required observation horizon, not all available
+history. For a future ordered anchor later than T, a candidate at/before the
+latest finalized anchor T cannot win the reverse-nearest check against T;
+therefore those candidates can be discarded from the window. The original
+durable facts are not discarded. Window facts/cursors still commit atomically.
+
+Previously claimed candidates cannot be reused when a closer anchor arrives
+late. Observations at/before a prior finalized anchor are retained as unknown,
+not used to rewrite prior confirmed associations. This is ordered incremental
+matching, not a guarantee of arbitrary late-arrival recovery. Legacy checkpoints
+without saved context retain an explicit overlap guard where a prior timestamp
+is available; their old associations are not retrospectively certified.
+
+The candidate window is capped at 10,000 records per thread/source; overflow
+rejects the cohort before any cursor/fact commit rather than silently truncating
+evidence. Append-compatible metadata is checked before/after reuse/read.
+Same-size modification, shrink while resuming, or observed in-read replacement
+requires review instead of reusing the old window. These metadata checks do not
+prove immutable prefixes against undetected rewrite-plus-append operations.
+The window cap does not claim a bounded total bootstrap scan or cohort size.
 
 The shared source parser requires five unsigned integer fields (input, cache
 read, output, reasoning and total); unsigned numeric strings remain supported.
@@ -66,7 +96,7 @@ unknown reason and no numeric/candidate link; it cannot force association with a
 older row. This withholds the sampling anchor, not a confirmed zero-token call.
 The reconstruction occurrence can still represent the original increment.
 
-Candidate cursor JSON version 3 retains the cumulative baseline, continuity
+Candidate cursor JSON version 4 retains the cumulative baseline, continuity
 mode and stream-boundary state alongside the byte position. Existing version-1/unreadable checkpoints at
 a nonzero offset establish a fresh baseline without re-reading or rewriting old
 facts. Their first cumulative snapshot is not attributed as a new amount.
@@ -138,6 +168,12 @@ The same source fixture now contains foreign metadata and an inherited baseline
 before its own start. Dedicated regressions cover the child's fast first sample,
 foreign replay across a long gap and serialized restart, rejected UUIDv4 starts,
 numeric-only checkpoint upgrade and partial/future boundary records.
+Clock-controlled incremental tests exercise read-ahead across a restart with zero
+new JSON bytes on the second poll, a look-ahead anchor preventing premature
+attribution, claimed-candidate reuse/out-of-order refusal, source-change refusal
+and capacity rollback. All five dimensions and Token components conserve across
+the successful two-poll case; idle historical appends are not rejected merely
+because their timestamps precede wall-clock time.
 Malformed-JSON/restart ingestion keeps the gap out of all five aggregate
 dimensions. A quota-only notification sharing the next sample's timestamp
 neither creates a tie nor breaks continuity. Cache aliases, unsigned strings,
