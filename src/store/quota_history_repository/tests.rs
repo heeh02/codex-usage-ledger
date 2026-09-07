@@ -1,6 +1,46 @@
 use super::*;
 use crate::quota::normalize_rate_limit_event;
 
+#[test]
+fn interval_guard_catches_cross_account_sources_even_for_observed_zero() {
+    let store = LedgerStore::open_in_memory().unwrap();
+    store.connection.execute_batch("INSERT INTO daily_usage_rollups(local_day,thread_key,account_key,project_key,model_key,quality,event_count,input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens,total_tokens)
+        VALUES('2026-01-01','thread','account-a','','model','confirmed',1,0,0,0,0,0);
+        INSERT INTO reconstruction_daily_rollups(local_day,thread_key,account_key,project_key,model_key,event_count,input_tokens,cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,output_tokens,reasoning_output_tokens,total_tokens)
+        VALUES('2026-01-01','thread','account-b','','model',1,0,0,0,0,0,0,0);").unwrap();
+    let start = base();
+    let end = start + ChronoDuration::hours(1);
+    assert!(
+        store
+            .quota_interval_needs_source_review("account-a", start, end)
+            .unwrap()
+    );
+    assert!(
+        store
+            .quota_interval_needs_source_review("account-b", start, end)
+            .unwrap()
+    );
+    assert!(
+        !store
+            .quota_interval_needs_source_review("account-c", start, end)
+            .unwrap()
+    );
+    assert!(
+        !store
+            .quota_interval_needs_source_review(
+                "account-a",
+                start + ChronoDuration::days(1),
+                end + ChronoDuration::days(1)
+            )
+            .unwrap()
+    );
+    assert!(
+        store
+            .quota_interval_needs_source_review("account-a", start, start)
+            .is_err()
+    );
+}
+
 fn base() -> DateTime<Utc> {
     DateTime::from_timestamp(1767225600, 0).unwrap()
 }

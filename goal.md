@@ -43,8 +43,9 @@ for active execution. This extends, rather than completes or resets, the work be
       batches and indexes new appends atomically. Schema 37 now supports versioned
       interval boundaries and stable full-history backend/CLI pages. HTTP/UI
       history browsing is now wired through a generated read-only API contract.
-      Per-interval Token drill-down, grant/cause verification and
-      real-account acceptance remain unfinished.
+      On-demand interval Token/model/project detail is wired with same-snapshot
+      conservation and a temporary overlap rejection guard. Source-union repair,
+      grant/cause verification and real-account acceptance remain unfinished.
 - [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
       native acceptance must not be confused with source accuracy or release proof.
 
@@ -62,6 +63,9 @@ The next policy work must partition request/coverage evidence, shadow all
 dimensions, then record a validated migration. Neither max nor an unqualified
 sum is an acceptable proof of complete usage. See the
 [counterexample and read-only diagnostics](docs/architecture/source-overlap-audit.md).
+
+Priority after interval-detail integration: finish that source-union work rather
+than treating temporary consumer guards as the accounting fix.
 
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
@@ -1466,3 +1470,23 @@ No live data migration, installed-app replacement or release has occurred.
   occurred. Existing native language edits remain separate. Per-interval Token/
   model/project detail, source-overlap repair, real-shadow review and native
   acceptance remain unfinished. Full goal ACTIVE.
+- Batch 141: added signed per-row interval references and an on-demand read-only
+  local-usage endpoint. Bounds and the concrete account come from the retained
+  history view, not caller dates or quota percentages. Available totals/models/
+  projects conserve every additive component and event count in one read snapshot;
+  metadata view time and current Token-query time remain separate. Dirty selectors,
+  missing samples, unsafe ranges and legacy two-source thread/day overlap return
+  explicit statuses with null amounts. The overlap guard includes cross-account
+  and recorded-zero cases; it is not a repair of the production max policy.
+  Clients validate scope/conservation and never fall back to demo after failure.
+  Detail loads only on expansion; pending refresh retains prior available data,
+  while newly detected overlap withdraws values. Shared M-unit breakdown tables
+  now serve conversation and interval views, retaining exact titles, unknown
+  writes and unsplit-input labels. Bilingual identity/time context remains visible
+  within expanded detail. Rust 226 tests, Clippy and generated contracts pass;
+  Web 84 tests/build and 23 Chrome responsive/history/dimension/table scenarios
+  pass, with additional focused history acceptance. Synthetic wide/narrow Token
+  detail screenshots inspected. No production database, native bundle or installed
+  app changes; existing native-language work remains separate. Source-union
+  correction/receipts, real two-account reconciliation and native acceptance
+  remain required. Full goal ACTIVE.

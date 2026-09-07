@@ -201,6 +201,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/turn-evidence", get(super::requests::turn_evidence))
         .route("/v1/quotas", get(quotas))
         .route("/v1/quota-history", get(super::quota_history::history))
+        .route(
+            "/v1/quota-interval-usage",
+            get(super::quota_history::interval_usage),
+        )
         .route("/v1/switches", get(switches))
         .route("/v1/changes", get(changes))
         .route(

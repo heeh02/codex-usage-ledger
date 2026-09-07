@@ -55,4 +55,33 @@ pub struct QuotaHistoryResponse {
     pub view: QuotaHistoryView,
     pub intervals: Vec<QuotaHistoryInterval>,
     pub next: Nullable<QuotaHistoryCursor>,
+    pub selections: Option<Vec<QuotaHistoryCursor>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaIntervalUsageGroup {
+    pub id: Nullable<String>,
+    pub label: Nullable<String>,
+    pub events: u64,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaIntervalUsageResponse {
+    pub scope: String,
+    pub status: String,
+    pub interval_id: String,
+    pub account_id: String,
+    pub quota_view: QuotaHistoryView,
+    pub observed_at: String,
+    pub start: Nullable<String>,
+    pub end: Nullable<String>,
+    pub coverage_complete: bool,
+    pub pool_attribution: bool,
+    pub events: Nullable<u64>,
+    pub usage: Nullable<TokenUsage>,
+    pub models: Vec<QuotaIntervalUsageGroup>,
+    pub projects: Vec<QuotaIntervalUsageGroup>,
 }

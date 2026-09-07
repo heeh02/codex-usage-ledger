@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod quota_history;
 pub use quota_history::QuotaHistoryResponse;
+pub use quota_history::QuotaIntervalUsageResponse;
 
 macro_rules! string_enum {
     ($name:ident { $($variant:ident),+ $(,)? }) => {

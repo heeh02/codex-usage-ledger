@@ -23,7 +23,7 @@ it('rejects duplicate, unordered, invalid-count and incomplete-range evidence', 
     [{ ...page.intervals[0], lastUsedPercent: 101 }],
   ]) expect(() => validateQuotaHistory({ ...page, intervals }, { account: 'all' })).toThrow();
   expect(() => validateQuotaHistory({ ...page, indexReady: false }, { account: 'all' })).toThrow();
-  const pending = { ...page, indexReady: false, intervals: [], next: null };
+  const pending = { ...page, indexReady: false, intervals: [], next: null, selections: [] };
   expect(validateQuotaHistory(pending, { account: 'all' }).indexReady).toBe(false);
 });
 it('does not replace a failed real request with mock history', async () => {

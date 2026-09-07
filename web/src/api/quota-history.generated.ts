@@ -10,6 +10,7 @@ export interface QuotaHistoryResponse {
   intervals: QuotaHistoryInterval[];
   next: QuotaHistoryCursor | null;
   scope: string;
+  selections?: QuotaHistoryCursor[] | null;
   sourceHistoryComplete: boolean;
   view: QuotaHistoryView;
 }

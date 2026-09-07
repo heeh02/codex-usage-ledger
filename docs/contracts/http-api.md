@@ -109,8 +109,46 @@ requests. Only the presentation tab is persisted. Real HTTP failures never
 switch to demo history.
 
 This endpoint returns observations and safe time bounds, not Token totals,
-quota-to-Token conversions, or verified grant/reset causes. Per-interval Token,
-model and project detail remains a separate unfinished goal item.
+quota-to-Token conversions, or verified grant/reset causes. Its optional
+`selections` array contains one signed interval reference per row, in row order.
+Older services without these references remain browsable, but detail actions
+are unavailable. Clients verify reference/view/key alignment before use.
+
+## Quota interval local usage
+
+`GET /v1/quota-interval-usage?selection=<JSON reference>` verifies a signed
+selection and reconstructs its fixed account/time bounds from the retained
+history view. It never accepts caller-authored time bounds or allocates
+percentages to projects. Scope is `quota_interval_local_evidence_v1`.
+
+The endpoint reads one database snapshot without creating/migrating the database
+or refreshing the source selector. It reports `pending` while that projection
+is dirty. A nonempty interval involving both sampling and reconstruction on
+the legacy selector's thread/day keys reports `source_overlap_review` instead
+of publishing its potentially incomplete max-source result. This guard includes
+cross-account and recorded-zero cases. It is a temporary protection for the
+new consumer, **not the source-union fix**; other consumers and historical
+calibration remain open goal work.
+
+Other unavailable states are `no_safe_interval` and `no_evidence`. Non-available
+responses have null `usage`/`events` and no dimension rows. Available responses
+include local usage plus model/project groups whose event counts and additive
+components reconcile with the total. Unknown IDs remain null. Cache-write
+coverage is not additive; input without complete write evidence stays labeled
+unsplit. The client validates these invariants before displaying values.
+
+`quotaView` fixes the observation boundaries, while `observedAt` identifies the
+current Token-evidence query. Token evidence is not versioned by the quota view:
+later retained evidence inside those same bounds may change a later query.
+`coverageComplete` and `poolAttribution` remain false. Overlapping quota windows
+must not be summed as independent Token use. The UI queries details only after
+expansion, preserves prior results on transport failure, and clears values when
+the source-overlap guard becomes applicable. Refreshing history, not just
+refreshing Token detail, is required to extend an open interval's time bounds.
+
+The DTO is generated into `quota-interval-usage.schema.json` and
+`quota-interval-usage.generated.ts` with `--quota-interval-usage`. This adds an
+HTTP contract, not a database migration or a revised accounting policy.
 
 ## Conversation pagination
 

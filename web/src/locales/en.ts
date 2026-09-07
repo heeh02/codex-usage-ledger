@@ -1,6 +1,17 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "interval.title": "Inspect interval Token usage",
+  "interval.loading": "Querying interval usage…",
+  "interval.failed": "Interval usage could not be loaded. The previous query remains visible; you can query again.",
+  "interval.scope": "Local evidence within the fixed sample bounds above, not complete cycle usage or exclusive usage of this quota pool. Refresh history to extend the time range.",
+  "interval.observed": "Local evidence queried at",
+  "interval.cache_hit": "Cache read / input",
+  "interval.refresh": "Query interval usage again",
+  "interval.source_review": "This interval involves two sources whose union is not yet calibrated. Potentially incomplete or duplicated totals are withheld pending the source-union fix.",
+  "interval.pending": "The usage index is updating. Please query again shortly.",
+  "interval.no_evidence": "No matching confirmed local evidence in this sample interval. This does not imply zero real usage.",
+  "interval.upgrade_needed": "The service did not provide a verified interval reference. Update the service to inspect usage.",
   "history.title": "Retained quota history",
   "history.account_views": "Account reporting views",
   "history.usage_tab": "Usage",
@@ -23,7 +34,6 @@ export const enMessages = {
   "history.reported_reset": "Reported quota deadline",
   "history.nominal_start": "Start inferred from window duration",
   "history.no_safe_interval": "No definite continuous sample interval",
-  "history.token_separate": "This view shows quota observations and time bounds only, not percentage-to-Token conversions. Per-interval Token detail is not connected yet.",
   "history.previous": "Previous page",
   "history.next": "Next page",
   "history.end": "End of this frozen view; retained records only.",

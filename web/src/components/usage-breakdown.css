@@ -1,0 +1,5 @@
+.usage-breakdown-scroll { width: 100%; min-width: 0; overflow: auto; margin: 12px 0; }
+.usage-breakdown-scroll table { width: 100%; min-width: 740px; border-collapse: collapse; font-size: 13px; }
+.usage-breakdown-scroll td, .usage-breakdown-scroll th { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.usage-breakdown-scroll th { color: var(--muted); font-weight: 550; }
+.usage-breakdown-scroll td:first-child, .usage-breakdown-scroll th:first-child { text-align: left; white-space: normal; overflow-wrap: anywhere; min-width: 110px; }

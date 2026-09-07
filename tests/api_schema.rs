@@ -1,4 +1,17 @@
 #[test]
+fn checked_in_quota_interval_schema_matches_rust_dtos() {
+    let generated = serde_json::to_value(schemars::schema_for!(
+        codex_usage_ledger::api::wire::QuotaIntervalUsageResponse
+    ))
+    .unwrap();
+    let checked: serde_json::Value = serde_json::from_str(include_str!(
+        "../web/src/api/quota-interval-usage.schema.json"
+    ))
+    .unwrap();
+    assert_eq!(generated, checked);
+}
+
+#[test]
 fn checked_in_quota_history_schema_matches_rust_dtos() {
     let generated = serde_json::to_value(schemars::schema_for!(
         codex_usage_ledger::api::wire::QuotaHistoryResponse

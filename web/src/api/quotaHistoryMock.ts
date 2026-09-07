@@ -16,6 +16,7 @@ export function mockQuotaHistory(query: QuotaHistoryQuery): QuotaHistoryResponse
   }).filter(row => query.account === 'all' || row.accountId === query.account).reverse();
   const remaining = query.cursor ? rows.filter(row => row.key.at < query.cursor!.before.at) : rows;
   const intervals = remaining.slice(0, query.limit ?? 20);
-  const next = remaining.length > intervals.length ? { view, before: intervals.at(-1)!.key, signature: 'a'.repeat(64) } : null;
-  return validateQuotaHistory({ scope: 'quota_observation_history_v1', indexReady: true, sourceHistoryComplete: false, view, intervals, next }, query);
+  const selections = intervals.map(row => ({ view, before: row.key, signature: 'a'.repeat(64) }));
+  const next = remaining.length > intervals.length ? selections.at(-1)! : null;
+  return validateQuotaHistory({ scope: 'quota_observation_history_v1', indexReady: true, sourceHistoryComplete: false, view, intervals, next, selections }, query);
 }

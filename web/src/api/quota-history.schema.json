@@ -25,6 +25,15 @@
     "scope": {
       "type": "string"
     },
+    "selections": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/QuotaHistoryCursor"
+      }
+    },
     "sourceHistoryComplete": {
       "type": "boolean"
     },

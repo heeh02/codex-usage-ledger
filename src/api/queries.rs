@@ -184,7 +184,7 @@ pub(super) fn aggregate_exact_hour_window(
     Ok(aggregate)
 }
 
-fn aggregate_exact_hour_window_by(
+pub(super) fn aggregate_exact_hour_window_by(
     store: &LedgerStore,
     dimension: AggregateDimension,
     filter: &AggregateFilter,

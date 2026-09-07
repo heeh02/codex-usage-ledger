@@ -39,7 +39,7 @@ test('million-token model table keeps units, exact values and scroll access in b
   await expect(page.locator('table').first().locator('tbody tr')).toHaveCount(2);
   await page.getByRole('button', { name: 'Narrow / Wide', exact: true }).click();
   await page.setViewportSize({ width: 560, height: 700 });
-  const scroller = page.locator('.request-evidence-scroll').first();
+  const scroller = page.locator('.usage-breakdown-scroll').first();
   await scroller.focus();
   for (let step = 0; step < 12; step++) await page.keyboard.press('ArrowRight');
   await expect.poll(() => scroller.evaluate(node => node.scrollLeft)).toBeGreaterThan(0);

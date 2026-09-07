@@ -1,6 +1,41 @@
 use super::*;
 
 impl LedgerStore {
+    pub(crate) fn usage_projection_ready(&self) -> StoreResult<bool> {
+        Ok(!self.connection.query_row(
+            "SELECT dirty FROM effective_source_selection_state WHERE id=1",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?)
+    }
+
+    /// The legacy selector chooses one entire thread/day. Until that policy is
+    /// migrated, do not present affected interval totals as reconciled evidence.
+    pub(crate) fn quota_interval_needs_source_review(
+        &self,
+        account: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> StoreResult<bool> {
+        if start >= end {
+            return Err(StoreError::InvalidRequestQuery(
+                "quota interval must be positive",
+            ));
+        }
+        let first = start
+            .with_timezone(&chrono_tz::Asia::Shanghai)
+            .date_naive()
+            .to_string();
+        let last = (end - ChronoDuration::nanoseconds(1))
+            .with_timezone(&chrono_tz::Asia::Shanghai)
+            .date_naive()
+            .to_string();
+        Ok(self.connection.query_row("SELECT EXISTS(
+            SELECT 1 FROM daily_usage_rollups s JOIN reconstruction_daily_rollups r USING(local_day,thread_key)
+            WHERE s.local_day>=?1 AND s.local_day<=?2 AND s.quality='confirmed'
+            AND s.event_count>0 AND r.event_count>0 AND (s.account_key=?3 OR r.account_key=?3)
+        )",params![first,last,account],|row|row.get(0))?)
+    }
     /// Roll up already scoped per-thread facts before conversation ranking or
     /// pagination. Unknown membership is not assigned to an invented root.
     pub(crate) fn root_usage_from_threads(

@@ -80,6 +80,38 @@ pub struct QuotaHistoryPage {
     pub view: QuotaHistoryView,
     pub intervals: Vec<QuotaHistoryInterval>,
     pub next: Option<QuotaHistoryCursor>,
+    pub selections: Vec<QuotaHistoryCursor>,
+}
+
+struct ViewState {
+    key: Vec<u8>,
+    instance: String,
+    revision: i64,
+    ready: Option<i64>,
+}
+fn view_state(connection: &Connection) -> StoreResult<ViewState> {
+    Ok(connection.query_row("SELECT cursor_key,instance_id,revision,ready_revision FROM quota_boundary_state WHERE id=1",[],|row|Ok(ViewState {key:row.get(0)?,instance:row.get(1)?,revision:row.get(2)?,ready:row.get(3)?}))?)
+}
+fn verify_cursor(cursor: &QuotaHistoryCursor, state: &ViewState, account: &str) -> StoreResult<()> {
+    let signature = hex::decode(&cursor.signature)
+        .map_err(|_| StoreError::InvalidRequestQuery("invalid quota history cursor"))?;
+    cursor_mac(&state.key, &cursor.view, &cursor.before)?
+        .verify_slice(&signature)
+        .map_err(|_| StoreError::InvalidRequestQuery("invalid quota history cursor"))?;
+    if cursor.view.instance != state.instance
+        || cursor.view.account != account
+        || cursor.view.revision > state.revision
+        || cursor.view.revision < state.ready.unwrap_or(0)
+        || cursor.view.as_of > Utc::now()
+        || cursor.before.ordinal < 0
+        || cursor.before.snapshot_id.len() > 256
+        || parse_timestamp_column(cursor.before.at.clone(), 0).is_err()
+    {
+        return Err(StoreError::InvalidRequestQuery(
+            "quota history cursor does not match this view",
+        ));
+    }
+    Ok(())
 }
 
 struct Point {
@@ -271,42 +303,24 @@ impl LedgerStore {
             ));
         }
         let read = |store: &LedgerStore| {
-            let key: Vec<u8> = store.connection.query_row(
-                "SELECT cursor_key FROM quota_boundary_state WHERE id=1",
-                [],
-                |row| row.get(0),
-            )?;
+            let state = view_state(&store.connection)?;
             if let Some(cursor) = cursor {
-                let signature = hex::decode(&cursor.signature)
-                    .map_err(|_| StoreError::InvalidRequestQuery("invalid quota history cursor"))?;
-                cursor_mac(&key, &cursor.view, &cursor.before)?
-                    .verify_slice(&signature)
-                    .map_err(|_| StoreError::InvalidRequestQuery("invalid quota history cursor"))?;
+                verify_cursor(cursor, &state, account)?;
             }
-            let (instance,revision,ready):(String,i64,Option<i64>)=store.connection.query_row("SELECT instance_id,revision,ready_revision FROM quota_boundary_state WHERE id=1",[],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
+            let ViewState {
+                key,
+                instance,
+                revision,
+                ready,
+            } = state;
             let view = cursor
                 .map(|cursor| cursor.view.clone())
                 .unwrap_or(QuotaHistoryView {
-                    instance: instance.clone(),
+                    instance,
                     revision,
                     account: account.to_owned(),
                     as_of: Utc::now(),
                 });
-            if view.instance != instance
-                || view.account != account
-                || view.revision > revision
-                || view.revision < ready.unwrap_or(0)
-                || view.as_of > Utc::now()
-                || cursor.is_some_and(|cursor| {
-                    cursor.before.ordinal < 0
-                        || cursor.before.snapshot_id.len() > 256
-                        || parse_timestamp_column(cursor.before.at.clone(), 0).is_err()
-                })
-            {
-                return Err(StoreError::InvalidRequestQuery(
-                    "quota history cursor does not match this view",
-                ));
-            }
             if ready.is_none() || !store.quota_window_index_complete()? {
                 return Ok(QuotaHistoryPage {
                     index_ready: false,
@@ -314,6 +328,7 @@ impl LedgerStore {
                     view,
                     intervals: vec![],
                     next: None,
+                    selections: vec![],
                 });
             }
             let before = cursor.map(|cursor| &cursor.before);
@@ -370,19 +385,20 @@ impl LedgerStore {
                     after,
                 )?);
             }
-            let next = if more {
-                intervals
-                    .last()
-                    .map(|row| {
-                        Ok::<_, StoreError>(QuotaHistoryCursor {
-                            view: view.clone(),
-                            before: row.key.clone(),
-                            signature: hex::encode(
-                                cursor_mac(&key, &view, &row.key)?.finalize().into_bytes(),
-                            ),
-                        })
+            let selections = intervals
+                .iter()
+                .map(|row| {
+                    Ok::<_, StoreError>(QuotaHistoryCursor {
+                        view: view.clone(),
+                        before: row.key.clone(),
+                        signature: hex::encode(
+                            cursor_mac(&key, &view, &row.key)?.finalize().into_bytes(),
+                        ),
                     })
-                    .transpose()?
+                })
+                .collect::<StoreResult<Vec<_>>>()?;
+            let next = if more {
+                selections.last().cloned()
             } else {
                 None
             };
@@ -392,7 +408,33 @@ impl LedgerStore {
                 view,
                 intervals,
                 next,
+                selections,
             })
+        };
+        if self.connection.is_autocommit() {
+            self.with_source_audit_snapshot(read)
+        } else {
+            read(self)
+        }
+    }
+
+    pub(crate) fn selected_quota_history_interval(
+        &self,
+        selection: &QuotaHistoryCursor,
+    ) -> StoreResult<QuotaHistoryInterval> {
+        let read = |store: &LedgerStore| {
+            let state = view_state(&store.connection)?;
+            verify_cursor(selection, &state, &selection.view.account)?;
+            if state.ready.is_none() || !store.quota_window_index_complete()? {
+                return Err(StoreError::SnapshotUnavailable);
+            }
+            let (id,kind,after):(String,String,Option<String>)=store.connection.query_row(
+                "SELECT observation_id,boundary_kind,boundary_after FROM quota_boundary_versions
+                 WHERE (account_fingerprint=?1 OR ?1='all') AND observed_at=?2 AND snapshot_id=?3 AND window_ordinal=?4
+                 AND valid_from<=?5 AND (valid_to IS NULL OR valid_to>?5)",
+                params![selection.view.account,selection.before.at,selection.before.snapshot_id,selection.before.ordinal,selection.view.revision],
+                |row|Ok((row.get(0)?,row.get(1)?,row.get(2)?)))?;
+            history_interval(&store.connection, &selection.view, &id, kind, after)
         };
         if self.connection.is_autocommit() {
             self.with_source_audit_snapshot(read)

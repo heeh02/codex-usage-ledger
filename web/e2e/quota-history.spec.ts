@@ -1,12 +1,34 @@
 import { expect, test } from '@playwright/test';
 import { mockQuotaHistory } from '../src/api/quotaHistoryMock';
+import { mockQuotaIntervalUsage } from '../src/api/quotaIntervalUsage';
+
+test('interval usage is loaded on demand and unsafe source overlap hides totals', async ({ page }) => {
+  const history = mockQuotaHistory({ account: 'all' });
+  let reads = 0; let review = false;
+  await page.route('**/v1/quota-history?**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(history) }));
+  await page.route('**/v1/quota-interval-usage?**', route => {
+    reads++;
+    const result = mockQuotaIntervalUsage(history.intervals[0], history.selections![0]);
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(review ? { ...result, status: 'source_overlap_review', usage: null, events: null, models: [], projects: [] } : result) });
+  });
+  await page.goto('/e2e/quota-history-http.html');
+  const row = page.locator('.quota-history-item').first();
+  await expect(page.locator('.quota-history-item')).toHaveCount(20); expect(reads).toBe(0);
+  await row.getByRole('button', { name: '查看区间 Token 明细', exact: true }).click();
+  const detail = row.getByRole('region', { name: '查看区间 Token 明细', exact: true });
+  await expect(detail.locator('.local-composition')).toContainText('12 M');
+  await expect(detail.locator('table')).toHaveCount(2); expect(reads).toBe(1);
+  review = true; await detail.getByRole('button', { name: '重新查询区间用量', exact: true }).click();
+  await expect(detail).toContainText('等待来源合并修复');
+  await expect(detail.locator('.local-composition')).toHaveCount(0);
+});
 
 test('HTTP failure and index waiting retain the accepted history without a mock fallback', async ({ page }) => {
   let mode: 'good' | 'failure' | 'pending' = 'good';
   await page.route('**/v1/quota-history?**', route => {
     if (mode === 'failure') return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ code: 'request_failed' }) });
     const response = mockQuotaHistory({ account: 'all' });
-    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(mode === 'pending' ? { ...response, indexReady: false, intervals: [], next: null } : response) });
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(mode === 'pending' ? { ...response, indexReady: false, intervals: [], next: null, selections: [] } : response) });
   });
   await page.goto('/e2e/quota-history-http.html');
   const section = page.getByRole('region', { name: '已保存的额度历史', exact: true });
@@ -53,7 +75,10 @@ for (const width of [560, 1280]) {
     await expect(rows.first()).toHaveAttribute('data-history-id', first!);
     await rows.first().locator('summary').click();
     await expect(rows.first()).toContainText('Token sample interval');
-    await expect(rows.first()).toContainText('Per-interval Token detail is not connected yet');
+    await rows.first().getByRole('button', { name: 'Inspect interval Token usage', exact: true }).click();
+    await expect(rows.first().locator('.local-composition')).toContainText('12 M');
+    await expect(rows.first().locator('.quota-interval-usage')).toContainText('not complete cycle usage');
+    await rows.first().locator('.quota-interval-usage').scrollIntoViewIfNeeded();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: testInfo.outputPath('quota-history.png') });
     await page.locator('.language-select select').selectOption('zh-CN');

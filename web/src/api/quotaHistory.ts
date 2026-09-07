@@ -40,6 +40,10 @@ export function validateQuotaHistory(value: QuotaHistoryResponse, query: QuotaHi
   if (value.next !== null && (!value.next || !value.next.view || !value.next.before || !viewMatches(value.next.view, value.view)
     || value.intervals.length === 0 || !keyMatches(value.next.before, value.intervals.at(-1)!.key)
     || !/^[a-f0-9]{64}$/.test(value.next.signature))) fail();
+  if (value.selections != null && (!Array.isArray(value.selections) || value.selections.length !== value.intervals.length
+    || value.selections.some((selection, index) => !selection || !selection.view || !selection.before
+      || !viewMatches(selection.view, value.view) || !keyMatches(selection.before, value.intervals[index].key)
+      || !/^[a-f0-9]{64}$/.test(selection.signature)))) fail();
   return value;
 }
 

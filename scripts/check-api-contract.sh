@@ -57,3 +57,14 @@ cmp "$temporary_directory/quota-history.schema.json" "$repo_root/web/src/api/quo
 )
 cmp "$temporary_directory/quota-history.generated.ts" "$repo_root/web/src/api/quota-history.generated.ts"
 echo "Quota-history API contract is current."
+
+cargo run --quiet --manifest-path "$repo_root/Cargo.toml" --example export_request_evidence_schema -- --quota-interval-usage \
+  > "$temporary_directory/quota-interval-usage.schema.json"
+cmp "$temporary_directory/quota-interval-usage.schema.json" "$repo_root/web/src/api/quota-interval-usage.schema.json"
+(
+  cd "$repo_root/web"
+  npx json2ts --input src/api/quota-interval-usage.schema.json \
+    --output "$temporary_directory/quota-interval-usage.generated.ts" --no-additionalProperties
+)
+cmp "$temporary_directory/quota-interval-usage.generated.ts" "$repo_root/web/src/api/quota-interval-usage.generated.ts"
+echo "Quota-interval usage API contract is current."

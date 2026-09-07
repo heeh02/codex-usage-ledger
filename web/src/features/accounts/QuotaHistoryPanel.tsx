@@ -4,6 +4,7 @@ import { mockQuotaHistory } from '../../api/quotaHistoryMock';
 import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
 import './quota-history.css';
+import { QuotaIntervalUsage } from './QuotaIntervalUsage';
 
 interface Props { account: string; demo: boolean; timezone: string; accountName: (id: string) => string }
 export function QuotaHistoryPanel({ account, demo, timezone, accountName }: Props) {
@@ -78,8 +79,8 @@ export function QuotaHistoryPanel({ account, demo, timezone, accountName }: Prop
           <div><dt>{t('history.nominal_start')}</dt><dd>{date(row.nominalStart)}</dd></div>
           <div><dt>{t('quota.boundary_observations')}</dt><dd>{row.boundaryAfter === null ? '—' : `${date(row.boundaryAfter)} — ${date(row.firstObservedAt)}`}</dd></div>
           <div><dt>{t('quota.observation_interval')}</dt><dd>{row.tokenSampleStart === null ? t('history.no_safe_interval') : `${date(row.tokenSampleStart)} — ${date(row.tokenSampleEnd)}`}</dd></div></dl>
-        <p>{t('history.token_separate')}</p>
       </details>
+      <QuotaIntervalUsage key={`${row.id}:${page?.view.revision}:${page?.view.asOf}`} row={row} selection={page?.selections?.[index]} demo={demo} formatTimestamp={date} accountLabel={accountName(row.accountId)}/>
     </article>)}</div>
     <footer><button type="button" disabled={busy || !previous.length} onClick={() => { scrollRequested.current = true; setFailed(false); setState(old => ({ page: old.previous.at(-1)!, previous: old.previous.slice(0, -1) })); }}>{t('history.previous')}</button>
       <button type="button" disabled={busy || indexPending || !page?.indexReady || !page.next} onClick={() => { if (page?.next) { scrollRequested.current = true; setRequest({ kind: 'next', cursor: page.next }); } }}>{t('history.next')}</button>
