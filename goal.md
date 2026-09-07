@@ -42,7 +42,8 @@ for active execution. This extends, rather than completes or resets, the work be
       deadline decreases. Schema 36 indexes all retained snapshots in resumable
       batches and indexes new appends atomically. Schema 37 now supports versioned
       interval boundaries and stable full-history backend/CLI pages. HTTP/UI
-      delivery, per-interval Token drill-down, grant/cause verification and
+      history browsing is now wired through a generated read-only API contract.
+      Per-interval Token drill-down, grant/cause verification and
       real-account acceptance remain unfinished.
 - [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
       native acceptance must not be confused with source accuracy or release proof.
@@ -1443,3 +1444,25 @@ No live data migration, installed-app replacement or release has occurred.
   The HTTP/UI still uses its explicit preview: wiring the full-history reader,
   per-cycle Token/model/project drill-down, real-shadow review, source-union
   correction and native acceptance remain unfinished. Full goal ACTIVE.
+- Batch 140: connected full retained quota history to a read-only HTTP endpoint
+  and generated response contract, with scope/order/uniqueness/count/range/view
+  validation in the client. Missing databases are not recreated; bad cross-account
+  cursors are rejected. Duration metadata stays decimal text. Added all/single-
+  account history paging, cached previous pages, fixed-view refresh, pending-index
+  polling and cancellation. HTTP failure or index waiting retains accepted rows;
+  real requests never fall back to demo data. No history rows/cursors are stored
+  in browser preferences. Browser inspection showed the old calendar filter
+  obscured the history title and implied the wrong scope. Account usage and quota
+  history now have separate keyboard-accessible tabs; history hides calendar
+  filters, unrelated diagnostics and official-sync actions. Tab selection alone
+  persists; scope changes reset navigation, and successful paging focuses the
+  first row. Bilingual year/timezone dates and explicit unconnected Token-detail
+  wording preserve the metadata-only boundary. Rust 222 tests, Clippy and all
+  generated contracts pass; Web 82 tests/build and 24 real-Chrome responsive,
+  paging, account/language/keyboard/reload and failure/pending scenarios pass.
+  Synthetic wide/narrow screenshots inspected; governance checks pass. The old
+  summary preview remains for compatibility but is no longer the history UI.
+  No production database migration, installed-app replacement or native rebuild
+  occurred. Existing native language edits remain separate. Per-interval Token/
+  model/project detail, source-overlap repair, real-shadow review and native
+  acceptance remain unfinished. Full goal ACTIVE.

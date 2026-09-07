@@ -1,4 +1,15 @@
 #[test]
+fn checked_in_quota_history_schema_matches_rust_dtos() {
+    let generated = serde_json::to_value(schemars::schema_for!(
+        codex_usage_ledger::api::wire::QuotaHistoryResponse
+    ))
+    .unwrap();
+    let checked_in: serde_json::Value =
+        serde_json::from_str(include_str!("../web/src/api/quota-history.schema.json")).unwrap();
+    assert_eq!(generated, checked_in);
+}
+
+#[test]
 fn checked_in_turn_evidence_schema_matches_rust_dtos() {
     let generated = serde_json::to_value(schemars::schema_for!(
         codex_usage_ledger::api::wire::TurnEvidenceResponse

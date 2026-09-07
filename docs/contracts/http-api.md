@@ -78,6 +78,40 @@ completed backfill uses the indexed preview with identical limits and values.
 This does not make the preview a full-history endpoint. See
 [the index decision](../adr/0007-quota-window-index.md).
 
+## Full retained quota history
+
+`GET /v1/quota-history` accepts `account` (default `all`), `limit` (1–100,
+default 20), and an optional JSON `cursor` returned as `next` by a prior page.
+It rejects unknown query fields, malformed/oversized cursors and mismatched
+account/view signatures. The endpoint uses a read-only store connection: it
+does not create missing databases, migrate old schemas or collect quota data.
+
+The canonical DTO is `wire::QuotaHistoryResponse`, generated separately into
+`quota-history.schema.json` and `quota-history.generated.ts` by the schema
+exporter's `--quota-history` mode. `scope` is `quota_observation_history_v1`.
+The response includes index readiness, fixed view metadata, interval records
+and a nullable next cursor. `windowSeconds` is a nullable decimal string so
+duration metadata is not narrowed through a JavaScript number.
+
+`indexReady=false` requires no rows and no next cursor. It is not evidence of
+empty real history. Once ready, `next=null` means this retained view has ended;
+`sourceHistoryComplete` remains false. Pages retain their original revision and
+cutoff across appends, as specified in [ADR 0008](../adr/0008-versioned-quota-history.md).
+Row order, uniqueness, account ownership, percentage ranges and nullable time
+bounds are validated again by the client before replacing accepted content.
+
+The account UI separates calendar usage from quota history. History hides the
+calendar filter and unrelated matching diagnostics, explicitly describes its
+all-retained-time scope, and shows the fixed cutoff. Previous pages are cached
+in memory, not browser storage; failure or index preparation retains accepted
+rows. Account/mode changes remount the history reader and cancel obsolete
+requests. Only the presentation tab is persisted. Real HTTP failures never
+switch to demo history.
+
+This endpoint returns observations and safe time bounds, not Token totals,
+quota-to-Token conversions, or verified grant/reset causes. Per-interval Token,
+model and project detail remains a separate unfinished goal item.
+
 ## Conversation pagination
 
 Period descriptors in one bundle share a server-internal reference instant,

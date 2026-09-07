@@ -74,6 +74,7 @@ use queries::{
     aggregate_selected_period, aggregate_selected_period_by, http_breakdowns, http_bundle,
     http_quality, http_timeseries,
 };
+mod quota_history;
 mod reconciliation;
 mod requests;
 use reconciliation::{
@@ -102,6 +103,23 @@ pub struct ApiState {
 }
 
 impl ApiState {
+    async fn query_read_only<F>(&self, operation: F) -> Result<serde_json::Value, ApiError>
+    where
+        F: FnOnce(&LedgerStore) -> Result<serde_json::Value, StoreError> + Send + 'static,
+    {
+        let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
+        let path = self.query_path.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(path) = path {
+                let reader = LedgerStore::open_read_only(path)?;
+                return operation(&reader).map_err(ApiError::from);
+            }
+            let guard = store.lock().map_err(|_| ApiError::StorePoisoned)?;
+            operation(&guard).map_err(ApiError::from)
+        })
+        .await
+        .map_err(|_| ApiError::WorkerStopped)?
+    }
     pub fn new(snapshot: DashboardSnapshot) -> Self {
         Self {
             snapshot: Arc::new(RwLock::new(snapshot)),

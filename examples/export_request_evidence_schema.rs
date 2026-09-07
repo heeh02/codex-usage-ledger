@@ -1,5 +1,7 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let schema = if std::env::args().any(|arg| arg == "--turns") {
+    let schema = if std::env::args().any(|arg| arg == "--quota-history") {
+        schemars::schema_for!(codex_usage_ledger::api::wire::QuotaHistoryResponse)
+    } else if std::env::args().any(|arg| arg == "--turns") {
         schemars::schema_for!(codex_usage_ledger::api::wire::TurnEvidenceResponse)
     } else {
         schemars::schema_for!(codex_usage_ledger::api::wire::RequestEvidenceResponse)

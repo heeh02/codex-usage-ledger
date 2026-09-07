@@ -63,6 +63,7 @@ function App() {
   const [refreshFeedback, setRefreshFeedback] = useState('');
   const [officialSyncing, setOfficialSyncing] = useState(false);
   const [officialSyncFailed, setOfficialSyncFailed] = useState(false);
+  const [accountView, setAccountView] = useState<'usage' | 'history'>(() => readSessionObject('ledger.accountView', { value: 'usage' as const }, { value: oneOf('usage', 'history') }).value);
   const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => readSessionObject('ledger.overviewTab', { value: 'projects' as const }, { value: oneOf('projects', 'models', 'sessions') }).value);
   const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => readSessionObject('ledger.projectTab', { value: 'overview' as const }, { value: oneOf('overview', 'sessions') }).value);
   const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => readSessionObject('ledger.primaryPage', { value: 'overview' as const }, { value: oneOf('overview', 'accounts', 'quality', 'chats', 'models') }).value);
@@ -75,8 +76,8 @@ function App() {
 
   useEffect(() => {
     writeSessionObjects({ 'ledger.filters': appliedFilters, 'ledger.overviewTab': { value: detailTab },
-      'ledger.projectTab': { value: projectDetailTab }, 'ledger.primaryPage': { value: primaryPage }, 'ledger.sessionView': sessionView });
-  }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView]);
+      'ledger.projectTab': { value: projectDetailTab }, 'ledger.primaryPage': { value: primaryPage }, 'ledger.sessionView': sessionView, 'ledger.accountView': { value: accountView } });
+  }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView, accountView]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -260,7 +261,7 @@ function App() {
           ? 'unmatched'
           : 'project'
       : primaryPage;
-  const pageIdentity = `${currentPage}:${appliedFilters.project}:${appliedFilters.session}:${projectDetailTab}`;
+  const pageIdentity = `${currentPage}:${appliedFilters.project}:${appliedFilters.session}:${projectDetailTab}:${currentPage === 'accounts' ? `${accountView}:${appliedFilters.account}` : ''}`;
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const scroller = document.querySelector<HTMLElement>('.workspace-scroll');
@@ -268,6 +269,7 @@ function App() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pageIdentity]);
+  const quotaHistoryActive = currentPage === 'accounts' && accountView === 'history';
   const pageTitle = currentPage === 'models' ? t('models.title') : currentPage === 'chats' ? t('chats.title') : currentPage === 'accounts'
     ? t('app.accounts_quota')
     : currentPage === 'quality'
@@ -365,7 +367,7 @@ function App() {
           </div>
           <div className="topbar-actions">
             <div className="mobile-account-switcher">{accountControl}</div>
-            {currentPage === 'accounts' && <button type="button" onClick={syncOfficial} disabled={officialSyncing}>{t('app.sync_official')}</button>}
+            {currentPage === 'accounts' && !quotaHistoryActive && <button type="button" onClick={syncOfficial} disabled={officialSyncing}>{t('app.sync_official')}</button>}
             <select className="mobile-page-select" aria-label={t('app.page_navigation')} value={mobilePageValue} onChange={(event) => navigateMobile(event.target.value)}>
               <option value="overview">{t('app.overview')}</option>
               <option value="chats">{t('chats.title')}</option>
@@ -392,17 +394,17 @@ function App() {
             <aside className="demo-notice"><strong>{t('app.interactive_demo_mode')}</strong><span>{t('app.projects_sessions_and_subagents_use_demo_data')}</span></aside>
           )}
 
-          {bundle && (
+          {bundle && !quotaHistoryActive && (
             <FilterBar catalog={bundle.summary.filters} value={appliedFilters} page={currentPage} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
           )}
 
           {bundle && loading && <div className="view-updating" role="status">{JSON.stringify(filters) === JSON.stringify(appliedFilters) ? t('app.updating_the_current_snapshot_the_previous_trusted') : t('app.applying_the_new_page_scope_and_time')}</div>}
 
-          {bundle && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
+          {bundle && !quotaHistoryActive && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
 
-          {refreshFeedback && currentPage === 'accounts' && <div className={officialSyncFailed ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
+          {refreshFeedback && currentPage === 'accounts' && !quotaHistoryActive && <div className={officialSyncFailed ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
 
-          {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && (
+          {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && !quotaHistoryActive && (
             <aside className="account-coverage-alert">
               <div><strong>{coverageAlertTitle}</strong><span>{t('app.primary_kpi_explanation', {
                 tail: formatTokenMillions(bundle.summary.official.localTailTokens),
@@ -413,7 +415,7 @@ function App() {
             </aside>
           )}
 
-          {bundle && <CollectionProgress status={bundle.collection} />}
+          {bundle && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
           {!bundle && error && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
@@ -424,7 +426,7 @@ function App() {
             <>
               {error && <div className="inline-error" role="alert">{t('app.update_failed')}: {error} {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
               {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
-              {currentPage === 'accounts' && <AccountsPage bundle={bundle} accountId={appliedFilters.account} onConfirmAccountCount={confirmAccountCount} />}
+              {currentPage === 'accounts' && <AccountsPage bundle={bundle} accountId={appliedFilters.account} demo={api.mode === 'mock'} view={accountView} onViewChange={setAccountView} onConfirmAccountCount={confirmAccountCount} />}
               {currentPage === 'chats' && <ConversationsPage bundle={bundle} filters={appliedFilters} onChange={setFilters} onOpenSession={openSession} />}
               {currentPage === 'models' && <ModelsPage bundle={bundle} metric={appliedFilters.metric} onSelect={selectBreakdown} />}
               {currentPage === 'quality' && <QualityPage bundle={bundle} metric={appliedFilters.metric} />}

@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuotaHistoryResponse",
+  "type": "object",
+  "properties": {
+    "indexReady": {
+      "type": "boolean"
+    },
+    "intervals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/QuotaHistoryInterval"
+      }
+    },
+    "next": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QuotaHistoryCursor"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scope": {
+      "type": "string"
+    },
+    "sourceHistoryComplete": {
+      "type": "boolean"
+    },
+    "view": {
+      "$ref": "#/$defs/QuotaHistoryView"
+    }
+  },
+  "required": [
+    "scope",
+    "indexReady",
+    "sourceHistoryComplete",
+    "view",
+    "intervals",
+    "next"
+  ],
+  "$defs": {
+    "QuotaHistoryCursor": {
+      "type": "object",
+      "properties": {
+        "before": {
+          "$ref": "#/$defs/QuotaHistoryKey"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "view": {
+          "$ref": "#/$defs/QuotaHistoryView"
+        }
+      },
+      "required": [
+        "view",
+        "before",
+        "signature"
+      ]
+    },
+    "QuotaHistoryInterval": {
+      "type": "object",
+      "properties": {
+        "accountId": {
+          "type": "string"
+        },
+        "boundaryAfter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boundaryKind": {
+          "type": "string"
+        },
+        "firstObservedAt": {
+          "type": "string"
+        },
+        "firstUsedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/QuotaHistoryKey"
+        },
+        "lastObservedAt": {
+          "type": "string"
+        },
+        "lastUsedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "limitId": {
+          "type": "string"
+        },
+        "limitName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nominalStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "poolKey": {
+          "type": "string"
+        },
+        "reportedReset": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "sampleCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "streamKey": {
+          "type": "string"
+        },
+        "tokenSampleEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokenSampleStart": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "windowSeconds": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "accountId",
+        "key",
+        "streamKey",
+        "poolKey",
+        "limitId",
+        "limitName",
+        "role",
+        "windowSeconds",
+        "boundaryKind",
+        "boundaryAfter",
+        "firstObservedAt",
+        "lastObservedAt",
+        "sampleCount",
+        "firstUsedPercent",
+        "lastUsedPercent",
+        "nominalStart",
+        "reportedReset",
+        "tokenSampleStart",
+        "tokenSampleEnd"
+      ]
+    },
+    "QuotaHistoryKey": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "ordinal": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "snapshotId",
+        "ordinal"
+      ]
+    },
+    "QuotaHistoryView": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "asOf": {
+          "type": "string"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "instance",
+        "revision",
+        "account",
+        "asOf"
+      ]
+    }
+  }
+}

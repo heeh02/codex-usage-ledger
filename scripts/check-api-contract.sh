@@ -46,3 +46,14 @@ cmp "$temporary_directory/turn-evidence.schema.json" "$repo_root/web/src/api/tur
 )
 cmp "$temporary_directory/turn-evidence.generated.ts" "$repo_root/web/src/api/turn-evidence.generated.ts"
 echo "Retained-turn API contract is current."
+
+cargo run --quiet --manifest-path "$repo_root/Cargo.toml" --example export_request_evidence_schema -- --quota-history \
+  > "$temporary_directory/quota-history.schema.json"
+cmp "$temporary_directory/quota-history.schema.json" "$repo_root/web/src/api/quota-history.schema.json"
+(
+  cd "$repo_root/web"
+  npx json2ts --input src/api/quota-history.schema.json \
+    --output "$temporary_directory/quota-history.generated.ts" --no-additionalProperties
+)
+cmp "$temporary_directory/quota-history.generated.ts" "$repo_root/web/src/api/quota-history.generated.ts"
+echo "Quota-history API contract is current."

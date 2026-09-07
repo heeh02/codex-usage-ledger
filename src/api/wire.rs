@@ -3,6 +3,9 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
+mod quota_history;
+pub use quota_history::QuotaHistoryResponse;
+
 macro_rules! string_enum {
     ($name:ident { $($variant:ident),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]

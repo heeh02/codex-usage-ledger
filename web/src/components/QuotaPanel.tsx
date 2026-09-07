@@ -66,7 +66,7 @@ function QuotaCycleRow({ cycle }: { cycle: QuotaCycle }) {
   );
 }
 
-export function QuotaPanel({ pools, cycles }: { pools: QuotaPool[]; cycles: QuotaCycle[] }) {
+export function QuotaPanel({ pools, cycles, showPreview = true }: { pools: QuotaPool[]; cycles: QuotaCycle[]; showPreview?: boolean }) {
   const { t } = useI18n();
   return (
     <Panel
@@ -84,11 +84,11 @@ export function QuotaPanel({ pools, cycles }: { pools: QuotaPool[]; cycles: Quot
       ) : (
         <EmptyState text={t('components.quota-panel.the_current_account_has_no_trusted_quota')} />
       )}
-      <section className="quota-cycle-section">
+      {showPreview && <section className="quota-cycle-section">
         <header><div><strong>{t('quota.history_preview')}</strong><span>{t('quota.history_preview_scope')}</span></div><small>{t('components.quota-panel.percentages_are_not_converted_to_tokens_at')}</small></header>
         {cycles.some(cycle => cycle.historyLimited) && <p role="status">{t('quota.history_limited')}</p>}
         {cycles.length ? <div className="quota-cycle-list">{cycles.map((cycle) => <QuotaCycleRow key={cycle.id} cycle={cycle} />)}</div> : <EmptyState text={t('components.quota-panel.not_enough_quota_cycle_snapshots_yet_they')} />}
-      </section>
+      </section>}
     </Panel>
   );
 }
