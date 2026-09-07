@@ -87,6 +87,13 @@ comparison found a real compatible cohort with metadata-only differences but
 missing shared identities; these remain ineligible for automatic union. See the
 [comparison contract](docs/architecture/correction-preview.md).
 
+Schema 40 now adds the candidate time-range index, and a read-only
+[candidate query](docs/architecture/source-union-query.md) produces all five
+dimensions and calendar grains in one snapshot. Pending/unresolved projection
+states withhold candidate amounts; it remains a diagnostic reader rather than
+the application's active accounting source. Legacy identity eligibility and
+controlled real-shadow promotion are still prerequisites.
+
 Full-source inspection now changes the next action: legacy cohorts may have no
 shared/receipt keys at all, and parser corrections are not uniform across files.
 One private root sample agrees at every old position while another has retained
@@ -1694,3 +1701,22 @@ No live data migration, installed-app replacement or release has occurred.
   checks after its final edit. The installed/native bundle and real ledger are
   unchanged. This is presentation of existing facts, not reconstructed missing
   amounts or account calibration. Full goal remains ACTIVE.
+- Batch 150: added same-snapshot reads of the persisted union candidate with
+  explicit pending/unresolved/no-records/available states and exact parameterized
+  account/project/model/thread filters. Reads do not import source files, advance
+  staging or fall back to old aggregates. Summary and hour/day/Monday-week/month/
+  year buckets conserve all components across account/project/model/thread;
+  NULL and a literal unknown identifier remain distinct. The known A/B versus
+  B/C counterexample returns 600 and the 100-token sampling-only model through
+  the new reader, while production deliberately remains 500. Exact subsecond
+  boundaries, cross-month canonical pairing, repeated DST hours, unknown/zero,
+  out-of-scope conflict guards and combined filters pass. Schema 40 adds an
+  all-account time index; genuine schema-39 upgrade preserves every compared
+  source/candidate field. A synthetic 10,001-model result explicitly exceeds
+  the bucket budget rather than truncating; an empty date-range query performs
+  zero full-scan steps. CLI read-only/error/old-schema behavior, Rust 264 tests,
+  Clippy and API contracts pass. No original or private audit database was
+  migrated, and no dashboard reader or installed/native bundle was switched.
+  Prior native-language work remains separate. Remaining gates are legacy
+  eligibility/correction, controlled shadow promotion, real-account parity and
+  native acceptance; full goal ACTIVE.

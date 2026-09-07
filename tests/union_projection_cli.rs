@@ -33,6 +33,35 @@ fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
     assert_eq!(report["historyComplete"], false);
     assert_eq!(report["productionPolicyChanged"], false);
     assert_eq!(before, std::fs::read(&path).unwrap());
+    let query = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .args(["read-union-projection", "--db"])
+            .arg(&path)
+            .args([
+                "--start",
+                "2026-01-01T00:00:00Z",
+                "--end",
+                "2026-02-01T00:00:00Z",
+            ])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let read = query(&["--grain", "year", "--timezone", "UTC"]);
+    assert!(
+        read.status.success(),
+        "{}",
+        String::from_utf8_lossy(&read.stderr)
+    );
+    let read: serde_json::Value = serde_json::from_slice(&read.stdout).unwrap();
+    assert_eq!(read["version"], 1);
+    assert_eq!(read["status"], "no_records");
+    assert_eq!(read["data"]["records"], 0);
+    assert!(read["data"]["usage"].is_null());
+    assert_eq!(read["productionPolicyChanged"], false);
+    assert!(!query(&["--grain", "invalid"]).status.success());
+    assert!(!query(&["--timezone", "invalid"]).status.success());
+    assert_eq!(before, std::fs::read(&path).unwrap());
     assert!(
         !run(&["--batches", "2"]).status.success(),
         "write batch options require explicit advance"
@@ -45,5 +74,6 @@ fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
     }
     let before = std::fs::read(&path).unwrap();
     assert!(!run(&["--advance"]).status.success());
+    assert!(!query(&[]).status.success());
     assert_eq!(before, std::fs::read(&path).unwrap());
 }

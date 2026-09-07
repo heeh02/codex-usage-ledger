@@ -3,7 +3,10 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 39;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 40;
+
+const MIGRATION_40: &str =
+    "CREATE INDEX measurement_union_selected_time ON measurement_union_selected(effective_at);";
 
 const MIGRATION_39: &str = r#"
 ALTER TABLE measurement_union_counts ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 2;
@@ -331,6 +334,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             37 => transaction.execute_batch(MIGRATION_37)?,
             38 => super::union_projection::migrate(&transaction)?,
             39 => transaction.execute_batch(MIGRATION_39)?,
+            40 => transaction.execute_batch(MIGRATION_40)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

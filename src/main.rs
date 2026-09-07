@@ -18,10 +18,10 @@ use codex_usage_ledger::{
     cli_support::{
         AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus,
         CorrectionPreviewFilter, CorrectionPreviewGrain, LedgerStore, POST_SAMPLING_SOURCE_ID,
-        RetainedRequestCursor, RetainedRequestScope, audit_inherited_prefix,
-        audit_reconstruction_file, audit_reconstruction_prefix, compact_expired_raw_events,
-        compare_preview_sampling, create_correction_preview, discover_rollouts,
-        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
+        RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain, SourceUnionQuery,
+        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
+        compact_expired_raw_events, compare_preview_sampling, create_correction_preview,
+        discover_rollouts, fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
         ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
         load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
         prepare_store, read_correction_preview, sync_account_history, sync_native_catalog,
@@ -205,6 +205,27 @@ enum Command {
         advance: bool,
         #[arg(long, requires="advance", value_parser=clap::value_parser!(u16).range(1..=100))]
         batches: Option<u16>,
+    },
+    /// Query staged union dimensions in one read snapshot. Never changes active policy.
+    ReadUnionProjection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value = "Asia/Shanghai")]
+        timezone: String,
+        #[arg(long, default_value = "day")]
+        grain: SourceUnionGrain,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        thread: Option<String>,
     },
     /// Read one retained-request candidate audit page. Never migrates or imports.
     AuditOverlap {
@@ -556,6 +577,30 @@ async fn main() -> Result<()> {
                     report = store.stage_source_union_batch(200, 200, 10000)?;
                 }
             }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::ReadUnionProjection {
+            db,
+            start,
+            end,
+            timezone,
+            grain,
+            account,
+            project,
+            model,
+            thread,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = store.read_source_union_projection(&SourceUnionQuery {
+                start,
+                end,
+                timezone,
+                grain,
+                account,
+                project,
+                model,
+                thread,
+            })?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::AuditOverlap {

@@ -14,7 +14,7 @@ codex-usage-ledger compare-correction-sources \
   --end 2026-01-02T00:00:00Z --limit 10000
 ```
 
-This read-only comparison opens a ready preview and a supported schema-35–39
+This read-only comparison opens a ready preview and a supported schema-35–40
 audit ledger. It creates neither database and never migrates either. The two
 read transactions are independent snapshots, not a common revision; the preview
 manifest hash references its creation evidence, not revalidation against current

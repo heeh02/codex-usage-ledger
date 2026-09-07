@@ -107,3 +107,8 @@ timezone/exact-boundary behavior and retained-detail parity; record controlled
 real-shadow migration and two-account receipts. Then switch summary, series,
 rankings, conversation and quota readers together to one reviewed selection
 policy. Until then, the existing day-max defect remains a release blocker.
+
+The [candidate query reader](source-union-query.md) now supplies same-snapshot
+summary/time/dimension parity, guarded by completed staging and zero unresolved
+groups. Schema 40 adds its all-account time-range index. This read path still
+does not switch any production consumer or establish legacy identity eligibility.

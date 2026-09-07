@@ -363,7 +363,7 @@ fn sql_u64(value: u64) -> StoreResult<i64> {
     })
 }
 
-fn progress(
+pub(super) fn progress(
     connection: &Connection,
     scanned: usize,
     recomputed: usize,

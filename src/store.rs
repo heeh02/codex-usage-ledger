@@ -40,6 +40,8 @@ mod receipt_repository;
 mod request_repository;
 mod snapshot_memo;
 mod union_projection;
+mod union_query;
+pub use union_query::{SourceUnionGrain, SourceUnionQuery};
 mod union_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
