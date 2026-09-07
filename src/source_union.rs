@@ -33,6 +33,7 @@ pub enum UnresolvedReason {
     UnconfirmedUsage,
     InvalidUsage,
     MissingAssignment,
+    MissingThread,
     MultipleRecordsOnOneSide,
     ConflictingDimensions,
     ConflictingUsage,
@@ -147,6 +148,8 @@ pub fn plan(
             .any(|record| record.usage.is_some_and(|usage| usage.validate().is_err()))
         {
             Some(UnresolvedReason::InvalidUsage)
+        } else if group.iter().any(|record| record.thread.is_empty()) {
+            Some(UnresolvedReason::MissingThread)
         } else if group.iter().any(|record| !record.assignment_available) {
             Some(UnresolvedReason::MissingAssignment)
         } else if group.len() > 2 || group.windows(2).any(|pair| pair[0].side == pair[1].side) {

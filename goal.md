@@ -67,6 +67,14 @@ sum is an acceptable proof of complete usage. See the
 Priority after interval-detail integration: finish that source-union work rather
 than treating temporary consumer guards as the accounting fix.
 
+Schema 38 now stages the request-level union durably, with bounded resumable
+backfill and change-triggered group recomputation; see the
+[incremental candidate contract](docs/architecture/source-union-projection.md).
+It passes the 600/100 counterexample without changing the main selector.
+Next: establish legacy identity/coverage eligibility and scope-query semantics,
+record a controlled real-shadow comparison, then promote all consumers together.
+Staging readiness is not history completeness or release acceptance.
+
 Source-continuity finding (batch 128): physical device/inode strings differed
 in a private existing-file cohort because the device component changed while
 inode values matched. The old automatic replacement path could delete derived
@@ -1490,3 +1498,24 @@ No live data migration, installed-app replacement or release has occurred.
   app changes; existing native-language work remains separate. Source-union
   correction/receipts, real two-account reconciliation and native acceptance
   remain required. Full goal ACTIVE.
+- Batch 142: implemented schema-38 durable local-measurement union staging, using
+  the existing shared-record planner instead of day-max or unrestricted addition.
+  Migration captures indexed source high-water IDs without scanning historical
+  facts. Seek cursors, dirty groups, selected observations, unresolved reasons and
+  diagnostic counts persist atomically; late source/assignment/key changes enqueue
+  only related groups. Explicit conflict handling prevents outer SQLite upserts
+  from breaking queue deduplication. Total counterpart work is budgeted across
+  each batch; intact over-budget groups defer, oversized first groups roll back.
+  The CLI is read-only by default and requires explicit advance on an existing
+  current-schema ledger; it never enables production consumption. Synthetic
+  tests preserve all nine checked source/selector tables, all Token components
+  and dimension sums; the original 600/100 overlap fixture now also passes the
+  persisted candidate. Genuine schema-37 upgrade, reopen/no-write ticks, cursor
+  continuation with late inserts, cross-month canonical time, account conflicts,
+  key/assignment changes, recorded zero, missing identity/thread and failure
+  rollback pass. Rust 232 tests, Clippy, API contracts and governance checks pass.
+  No original/private audit database or installed/native app was modified; prior
+  native-language edits remain separate. Active dashboard accounting remains the
+  old max selector: legacy identity/coverage validation, candidate query semantics,
+  real-shadow migration/review, two-account reconciliation and native acceptance
+  are still required. Full goal ACTIVE.

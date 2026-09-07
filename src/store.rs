@@ -32,6 +32,7 @@ pub use quota_history_repository::{QuotaHistoryCursor, QuotaHistoryPage};
 mod receipt_repository;
 mod request_repository;
 mod snapshot_memo;
+mod union_projection;
 mod union_repository;
 use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;

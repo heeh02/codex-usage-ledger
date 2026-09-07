@@ -95,6 +95,16 @@ enum Command {
         #[arg(long, default_value_t = 1000)]
         limit: usize,
     },
+    /// Inspect the staged request-level union; does not switch production policy.
+    UnionProjection {
+        #[arg(long)]
+        db: PathBuf,
+        /// Explicitly write bounded candidate batches in an existing current-schema ledger.
+        #[arg(long)]
+        advance: bool,
+        #[arg(long, requires="advance", value_parser=clap::value_parser!(u16).range(1..=100))]
+        batches: Option<u16>,
+    },
     /// Read one retained-request candidate audit page. Never migrates or imports.
     AuditOverlap {
         #[arg(long)]
@@ -292,6 +302,27 @@ async fn main() -> Result<()> {
         } => {
             let store = LedgerStore::open_read_only(db)?;
             let report = store.shadow_source_union(&thread, start, end, limit)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::UnionProjection {
+            db,
+            advance,
+            batches,
+        } => {
+            // Require an existing, current-schema database even for explicit writes.
+            // This diagnostic must not create or migrate an installed ledger.
+            let reader = LedgerStore::open_read_only(&db)?;
+            let mut report = reader.source_union_projection_progress()?;
+            if advance {
+                drop(reader);
+                let mut store = LedgerStore::open(&db)?;
+                for _ in 0..batches.unwrap_or(1) {
+                    if report.projection_ready {
+                        break;
+                    }
+                    report = store.stage_source_union_batch(200, 200, 10000)?;
+                }
+            }
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::AuditOverlap {

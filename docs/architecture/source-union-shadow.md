@@ -2,6 +2,9 @@
 
 Status: diagnostic implementation, not the production accounting policy.
 
+The same planner now feeds a [durable incremental candidate projection](source-union-projection.md).
+That staging path does not promote this report into production accounting.
+
 ```sh
 codex-usage-ledger shadow-union --db ./synthetic-ledger.sqlite3 \
   --thread synthetic-thread --start 2026-01-01T00:00:00Z \

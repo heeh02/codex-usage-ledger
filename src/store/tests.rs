@@ -6,7 +6,7 @@ use super::*;
 use crate::identity::{AuthIdentity, ClaimSource};
 use crate::quota::normalize_rate_limit_event;
 
-fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
+pub(super) fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
     UsageEvent {
         event_id: id.to_owned(),
         observed_at: Utc.with_ymd_and_hms(2026, 8, 31, 1, 0, 0).unwrap(),
@@ -59,6 +59,26 @@ fn cursor(offset: u64) -> FileCursor {
         parser_state_json: Some(r#"{"model":"gpt-5.6-sol"}"#.to_owned()),
         updated_at: Utc.with_ymd_and_hms(2026, 8, 31, 1, 1, 0).unwrap(),
     }
+}
+
+// Older synthetic migration fixtures lower user_version on a current schema.
+// Remove only the future candidate projection before those test-only downgrades.
+fn remove_future_union_fixture(connection: &Connection) {
+    let triggers = connection.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'measurement_union_*'")
+        .unwrap().query_map([], |row| row.get::<_,String>(0)).unwrap()
+        .collect::<Result<Vec<_>,_>>().unwrap();
+    for name in triggers {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{name}\";"))
+            .unwrap();
+    }
+    connection
+        .execute_batch(
+            "DROP TABLE measurement_union_selected;
+        DROP TABLE measurement_union_groups; DROP TABLE measurement_union_dirty;
+        DROP TABLE measurement_union_backfill; DROP TABLE measurement_union_counts;",
+        )
+        .unwrap();
 }
 
 #[test]
@@ -140,7 +160,12 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("request-backfill.sqlite");
     {
-        let mut store = LedgerStore::open(&path).unwrap();
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 30).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
         for index in 0..3 {
             store
                 .upsert_event(&event(
@@ -155,10 +180,7 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
             .execute_batch(
                 "DELETE FROM retained_request_evidence;
              DELETE FROM retained_request_origins;
-             DELETE FROM retained_request_assignments;
-             DROP TABLE request_backfill_state;
-             DELETE FROM schema_migrations WHERE version=31;
-             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=30;",
+             DELETE FROM retained_request_assignments;",
             )
             .unwrap();
     }
@@ -624,6 +646,7 @@ fn schema_25_upgrade_seeds_existing_keys_without_changing_facts() {
     let path = directory.path().join("schema24.sqlite");
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .upsert_event(&event("retained", DataQuality::Confirmed, 10))
             .unwrap();
@@ -826,6 +849,7 @@ fn schema_24_refuses_preexisting_invalid_confirmed_rollups() {
     let path = directory.path().join("invalid-rollup.sqlite");
     {
         let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .connection()
             .execute_batch(
@@ -860,6 +884,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
     let path = directory.path().join("legacy-coverage.sqlite");
     {
         let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .connection()
             .execute_batch(
@@ -1588,6 +1613,7 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
     let path = directory.path().join("schema26.sqlite");
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .upsert_event(&event("unlinked", DataQuality::Confirmed, 10))
             .unwrap();
@@ -2025,6 +2051,13 @@ fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
         store.request_candidate_overlap("sample-a").unwrap(),
         CandidateOverlapStatus::NotLinked
     );
+    let staged = store.stage_source_union_batch(100, 100, 100).unwrap();
+    assert!(staged.projection_ready);
+    assert_eq!((staged.selected_groups, staged.unresolved_groups), (3, 0));
+    let staged_totals: (i64, i64) = store.connection.query_row(
+        "SELECT SUM(total_tokens),SUM(CASE WHEN model='model-only-in-sampling' THEN total_tokens ELSE 0 END)
+         FROM measurement_union_selected", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+    assert_eq!(staged_totals, (600, 100));
 }
 
 #[test]
@@ -2383,6 +2416,7 @@ fn schema_28_indexes_existing_candidate_links_without_rewriting_them() {
     let path = directory.path().join("schema27.sqlite");
     {
         let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store.connection.execute_batch(
             "INSERT INTO sampling_candidate_links VALUES ('sample','candidate','unique_nearest_timestamp');
              DROP INDEX sampling_candidate_target_idx;
@@ -2410,6 +2444,7 @@ fn schema_29_captures_existing_raw_origins_before_compaction() {
     let path = directory.path().join("schema28.sqlite");
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .upsert_event(&event("origin-upgrade", DataQuality::Confirmed, 10))
             .unwrap();
@@ -2446,6 +2481,7 @@ fn schema_30_captures_raw_assignments_without_inventing_compacted_history() {
     let path = directory.path().join("schema29.sqlite");
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .upsert_event(&event("assignment-upgrade", DataQuality::Confirmed, 10))
             .unwrap();
@@ -2752,6 +2788,7 @@ fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
     let path = directory.path().join("schema25.sqlite");
     {
         let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .upsert_event(&event("legacy-raw", DataQuality::Confirmed, 10))
             .unwrap();

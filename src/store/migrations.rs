@@ -3,7 +3,7 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 37;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 38;
 
 const MIGRATION_37: &str = r#"
 ALTER TABLE quota_window_observations ADD COLUMN created_revision INTEGER NOT NULL DEFAULT 0;
@@ -317,6 +317,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             35 => transaction.execute_batch(MIGRATION_35)?,
             36 => transaction.execute_batch(MIGRATION_36)?,
             37 => transaction.execute_batch(MIGRATION_37)?,
+            38 => super::union_projection::migrate(&transaction)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

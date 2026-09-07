@@ -7,7 +7,7 @@ const SAMPLING_SEED: &str = "SELECT event_id FROM retained_request_evidence
 const RECONSTRUCTION_SEED: &str = "SELECT event_id FROM reconstruction_usage_events
     WHERE thread_id=?1 AND COALESCE(source_timestamp,observed_at)>=?2
       AND COALESCE(source_timestamp,observed_at)<?3 LIMIT ?4";
-const COUNTERPARTS: &str = "SELECT p.evidence_source,p.event_id FROM source_record_evidence p
+pub(super) const COUNTERPARTS: &str = "SELECT p.evidence_source,p.event_id FROM source_record_evidence p
     WHERE p.record_key=?1 AND (
       (p.evidence_source='sampling' AND EXISTS(SELECT 1 FROM retained_request_evidence k WHERE k.event_id=p.event_id)) OR
       (p.evidence_source='reconstruction' AND EXISTS(SELECT 1 FROM reconstruction_usage_events r WHERE r.event_id=p.event_id)))
@@ -104,7 +104,7 @@ impl LedgerStore {
     }
 }
 
-fn load_measurement(
+pub(super) fn load_measurement(
     connection: &Connection,
     side: EvidenceSide,
     id: &str,
@@ -125,7 +125,7 @@ fn load_measurement(
             side,
             id: id.to_owned(),
             at: parse_timestamp_column(row.get(0)?, 0)?,
-            thread: row.get(1)?,
+            thread: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
             model: row.get(2)?,
             account: row.get(3)?,
             project: row.get(4)?,
