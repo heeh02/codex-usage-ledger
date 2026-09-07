@@ -2196,6 +2196,178 @@ fn quota_labels_hide_internal_dynamic_pool_keys() {
 }
 
 #[test]
+fn quota_preview_limits_and_stream_scopes_are_explicit() {
+    use crate::quota::normalize_rate_limit_event;
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let base = Utc::now() - ChronoDuration::hours(2);
+    for account in ["account-a", "account-b"] {
+        for index in 0..21 {
+            let snapshot = normalize_rate_limit_event(&serde_json::json!({
+                "limit_id": format!("pool-{}", index % 2), "primary": {
+                    "used_percent": 99-index, "window_minutes":60,
+                    "resets_at":(base + ChronoDuration::minutes(60)).timestamp()
+                }
+            }))
+            .unwrap();
+            store
+                .append_quota_snapshot(
+                    account,
+                    "epoch",
+                    base + ChronoDuration::minutes(index),
+                    &snapshot,
+                )
+                .unwrap();
+        }
+    }
+    let query = UsageQuery {
+        period: Some("lifetime".into()),
+        account: Some("account-a".into()),
+        ..Default::default()
+    };
+    let rows = quota_cycle_views(&store, &query).unwrap();
+    assert_eq!(rows.len(), 20);
+    assert!(
+        rows.iter()
+            .all(|row| row["accountId"] == "account-a" && row["historyLimited"] == true)
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| row["limitId"].as_str().unwrap())
+            .collect::<BTreeSet<_>>()
+            .len(),
+        2
+    );
+    let query = UsageQuery {
+        reference_time: Some(base - ChronoDuration::minutes(1)),
+        ..query
+    };
+    assert!(quota_cycle_views(&store, &query).unwrap().is_empty());
+}
+
+#[test]
+fn quota_history_retains_old_intervals_and_does_not_recount_them() {
+    use crate::quota::normalize_rate_limit_event;
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let base = Utc::now() - ChronoDuration::hours(8);
+    for (minute, used, deadline) in [
+        (0, 20., 120),
+        (60, 90., 120),
+        (135, 0., 240),
+        (180, 20., 240),
+    ] {
+        let snapshot = normalize_rate_limit_event(&serde_json::json!({
+            "limit_id":"history-pool", "primary": {
+                "used_percent": used, "window_minutes":120,
+                "resets_at":(base + ChronoDuration::minutes(deadline)).timestamp()
+            }
+        }))
+        .unwrap();
+        for _ in 0..2 {
+            store
+                .append_quota_snapshot(
+                    "history-account",
+                    "epoch",
+                    base + ChronoDuration::minutes(minute),
+                    &snapshot,
+                )
+                .unwrap();
+        }
+    }
+    for (id, minute) in [("old-usage", 30), ("new-usage", 210)] {
+        let mut event = explorer_event(id, "thread", None);
+        event.observed_at = base + ChronoDuration::minutes(minute);
+        event.source_timestamp = Some(event.observed_at);
+        event.account_fingerprint = Some("history-account".into());
+        store.upsert_event(&event).unwrap();
+    }
+    let query = UsageQuery {
+        account: Some("history-account".into()),
+        period: Some("lifetime".into()),
+        ..Default::default()
+    };
+    let rows = quota_cycle_views(&store, &query).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_ne!(rows[0]["id"], rows[1]["id"]);
+    for row in &rows {
+        assert_eq!(row["localUsage"]["total"], 120);
+        assert_eq!(row["sampleCount"], 2);
+        assert_eq!(row["historyLimited"], false);
+        assert_eq!(row["empiricalRatioIsConversion"], false);
+    }
+    assert_eq!(
+        quota_cycle_views(&store, &query).unwrap()[1]["localUsage"],
+        rows[1]["localUsage"]
+    );
+    assert!(
+        quota_cycle_views(
+            &store,
+            &UsageQuery {
+                account: Some("other-account".into()),
+                ..query
+            }
+        )
+        .unwrap()
+        .is_empty()
+    );
+}
+
+#[test]
+fn same_deadline_decrease_preserves_uncertain_gap_without_token_allocation() {
+    use crate::quota::normalize_rate_limit_event;
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let base = Utc::now() - ChronoDuration::hours(8);
+    for (minute, used) in [(0, 20.), (60, 50.), (180, 10.), (240, 20.)] {
+        let snapshot = normalize_rate_limit_event(&serde_json::json!({
+            "limit_id":"same-deadline", "primary": {
+                "used_percent":used, "window_minutes":1440,
+                "resets_at":(base + ChronoDuration::hours(10)).timestamp()
+            }
+        }))
+        .unwrap();
+        store
+            .append_quota_snapshot(
+                "account",
+                "epoch",
+                base + ChronoDuration::minutes(minute),
+                &snapshot,
+            )
+            .unwrap();
+    }
+    for (id, minute) in [("old", 30), ("uncertain-gap", 120), ("new", 270)] {
+        let mut event = explorer_event(id, "thread", None);
+        event.observed_at = base + ChronoDuration::minutes(minute);
+        event.source_timestamp = Some(event.observed_at);
+        event.account_fingerprint = Some("account".into());
+        store.upsert_event(&event).unwrap();
+    }
+    let rows = quota_cycle_views(
+        &store,
+        &UsageQuery {
+            account: Some("account".into()),
+            period: Some("lifetime".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["boundaryKind"], "observed_decrease");
+    assert_eq!(
+        DateTime::parse_from_rfc3339(rows[0]["boundaryAfter"].as_str().unwrap())
+            .unwrap()
+            .timestamp_millis(),
+        (base + ChronoDuration::minutes(60)).timestamp_millis()
+    );
+    assert_eq!(rows[0]["localUsage"]["total"], 120);
+    assert_eq!(rows[1]["localUsage"]["total"], 120);
+    assert_eq!(
+        DateTime::parse_from_rfc3339(rows[1]["localObservationEnd"].as_str().unwrap())
+            .unwrap()
+            .timestamp_millis(),
+        (base + ChronoDuration::minutes(60)).timestamp_millis()
+    );
+}
+
+#[test]
 fn quota_cards_keep_each_accounts_latest_distinct_pool() {
     use crate::quota::normalize_rate_limit_event;
     let mut store = LedgerStore::open_in_memory().unwrap();

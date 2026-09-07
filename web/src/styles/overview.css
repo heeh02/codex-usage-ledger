@@ -543,7 +543,7 @@
 
 .quota-cycle-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1.25fr) repeat(5, minmax(105px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   overflow: hidden;
   border: 1px solid var(--line-soft);
@@ -562,20 +562,23 @@
 
 .quota-cycle-row span,
 .quota-cycle-row small {
-  overflow: hidden;
   color: var(--muted);
-  font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .quota-cycle-row strong {
-  overflow: hidden;
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 620;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
+
+.quota-cycle-section > header span,
+.quota-cycle-section > header small { font-size: 12px; line-height: 1.4; }
 
 .missing-estimate-panel {
   margin-top: 12px;

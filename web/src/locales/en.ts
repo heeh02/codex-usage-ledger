@@ -1,6 +1,18 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "quota.history_preview": "Quota observation interval preview",
+  "quota.history_preview_scope": "Filtered by selected dates, up to 20 intervals from the latest 1,000 stored snapshots per account. This is not a complete quota archive.",
+  "quota.history_limited": "Preview limits may hide earlier records.",
+  "quota.observation_interval": "Local Token sample interval",
+  "quota.last_observed_used": "Last observed usage",
+  "quota.boundary_decrease": "Decrease observed; reset cause unverified",
+  "quota.boundary_deadline": "Deadline changed; not proof of a quota grant",
+  "quota.boundary_window": "Window information changed",
+  "quota.boundary_conflict": "Conflicting observations at the same time",
+  "quota.boundary_first": "First retained observation",
+  "quota.boundary_unknown": "Unknown boundary type",
+  "quota.boundary_observations": "Observations around boundary",
   "account-switcher.viewing": "Viewing:",
   "account-switcher.title": "Choose usage accounts",
   "account-switcher.close": "Close account selector",

@@ -2391,6 +2391,18 @@
         "accountLabel": {
           "type": "string"
         },
+        "boundaryAfter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boundaryKind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "cycleEnd": {
           "type": [
             "string",
@@ -2423,6 +2435,12 @@
           ],
           "format": "double"
         },
+        "historyLimited": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -2445,6 +2463,12 @@
         "localEvents": {
           "type": "number",
           "format": "double"
+        },
+        "localObservationEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "localObservationStart": {
           "type": "string"

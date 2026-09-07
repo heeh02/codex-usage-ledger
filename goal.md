@@ -38,6 +38,9 @@ for active execution. This extends, rather than completes or resets, the work be
       presentation, working scroll/zoom/keyboard and retained last-good data.
 - [ ] E05: historical account/pool/window quota cycles, same-deadline reset evidence,
       uncertain boundaries and no duplicated cross-window token attribution.
+      Bounded observation-interval preview now retains older segments and same-
+      deadline decreases. Full-history paging, durable incremental projection,
+      grant/cause verification and real-account acceptance remain unfinished.
 - [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
       native acceptance must not be confused with source accuracy or release proof.
 
@@ -1374,3 +1377,27 @@ No live data migration, installed-app replacement or release has occurred.
   existing native-language edits remain separate. Native acceptance, incomplete
   source-union/migration work, shared model exploration and complete quota-cycle
   history still require implementation and verification. Full goal ACTIVE.
+- Batch 137: data-quality workflow identified that the quota-cycle view kept
+  only the newest deadline run from a capped snapshot read. Added a pure window
+  observation segmenter and integrated a bounded older-interval preview: changed
+  deadlines/durations, decreases under unchanged deadlines and conflicting equal-
+  time observations remain distinct evidence, not verified reset causes. Token
+  samples clip to reporting dates and snapshot clock; uncertain transition gaps
+  are not allocated. Account/window stream keys and first-snapshot identities
+  separate preview rows; cross-window account samples are never a summable pool
+  ledger. Optional DTO fields expose observation end, boundary kind/preceding
+  observation and possible truncation; schema/TypeScript generated together.
+  Preview caps (20 intervals / latest 1,000 snapshots per account) are explicit
+  in contract and bilingual UI, NOT a substitute for the full-history goal.
+  Tests cover duplicate ingestion, old runs, same-deadline decreases, unknown
+  metadata, account/pool separation, preview bounds and future snapshot exclusion.
+  No-record composition remains unavailable; exact observed dates replace stale
+  countdowns for past deadlines. Screenshot review found tiny truncated boundary
+  text; rows now wrap at readable size and use a three-column layout on wide
+  screens. Rust 209 tests, Clippy and generated API checks pass; Web 79 tests,
+  typecheck/build and two real-Chrome bilingual wide/narrow quota-page tests pass.
+  Synthetic screenshots inspected. Governance checks pass. No production data,
+  schema migration, source-union policy, native bundle or installed app changed.
+  Full-history incremental storage/paging, independent code-owner review before
+  release, verified grant semantics, source accuracy and native acceptance remain
+  open. Existing native-language edits preserved. Full goal ACTIVE.

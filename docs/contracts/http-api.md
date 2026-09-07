@@ -34,6 +34,44 @@ because they are inputs rather than bundle response data. A new response field
 must be added to the Rust DTO first; an incompatible removal or enum change
 requires an ADR and release boundary.
 
+## Quota observation interval preview
+
+`summary.quotaCycles` is a bounded preview of observed intervals, not a complete
+grant ledger or proof of reset cause. It reads at most the most recent 1,000
+stored snapshots per selected account and returns up to 20 overlapping intervals
+newest first. The optional `historyLimited` flag is true when either preview
+limit may hide evidence; even false does not prove complete source collection.
+Durable full-history pagination and workspace-scope reconciliation remain open
+under ADR 0006. No original Token facts are added or changed by this query.
+
+Intervals split on deadline/window changes, observed percentage decreases
+(including unchanged deadlines), or conflicting equal-time observations. These
+are observations, not verified quota grants. `boundaryKind` distinguishes them;
+optional `boundaryAfter` is the prior observation time, not a precise reset time.
+Duplicate snapshot ingestion does not create a new interval. IDs use the first
+retained snapshot identity and stream key; bounded-preview prefixes can change
+when older observations leave the preview, so these are not durable cycle IDs.
+
+`cycleStart` remains the nominal deadline-minus-window estimate, and `cycleEnd`
+remains the reported deadline. New optional `localObservationEnd`, paired with
+`localObservationStart`, describes the half-open Token sample interval. Both
+edges are clipped to the selected reporting period. For a transition with no
+reported deadline between observations, the previous interval stops at its last
+observation and the new one starts at the next observation: the uncertain gap
+is not allocated. For a reported deadline inside that gap, the previous sample
+can extend to that reported deadline. Equal-time conflicts may have empty
+intervals; no events is unavailable evidence, not a measured zero.
+
+`localUsage` is account activity in that interval (with applicable project/model
+filters), not attribution to a quota pool. The same request may fall within two
+different quota-window previews; consumers must not sum those previews. No
+empirical percentage-to-Token conversion is implied. `usedPercent` is the last
+observed value, not a claim about remaining quota now or at the interval end.
+
+The four added fields are optional compatibility fields. Existing clients can
+ignore them; updated clients label the preview, exact observation dates, unknown
+boundaries and missing samples. No database migration is involved.
+
 ## Conversation pagination
 
 Period descriptors in one bundle share a server-internal reference instant,

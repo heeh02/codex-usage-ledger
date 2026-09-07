@@ -580,18 +580,22 @@ export interface ReconciledAccountDay {
 export interface QuotaCycle {
   accountId: string;
   accountLabel: string;
+  boundaryAfter?: string | null;
+  boundaryKind?: string | null;
   cycleEnd: string | null;
   cycleStart: string | null;
   empiricalRatioIsConversion: boolean;
   empiricalTokensPerUsedPercent: number | null;
   firstObservedAt: string;
   firstUsedPercent: number | null;
+  historyLimited?: boolean | null;
   id: string;
   label: string;
   lastObservedAt: string;
   limitId: string;
   localCoverageRatio: number | null;
   localEvents: number;
+  localObservationEnd?: string | null;
   localObservationStart: string;
   localUsage: TokenUsage;
   role: string;
