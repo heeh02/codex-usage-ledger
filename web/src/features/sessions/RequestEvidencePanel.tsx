@@ -49,10 +49,9 @@ export function RequestEvidencePanel({ threadId, start, end, account, model, dem
           <tbody>{page.rows.map(row => <tr key={row.id}>
             <td><time dateTime={row.at}>{row.at}</time></td>
             <td title={row.turnId ?? undefined}>{row.turnId ?? t('requests.unknown_turn')}</td><td>{row.model ?? '—'}</td>
-            <td><strong>{requestTokenDisplay(row, 'total')}</strong></td>
-            <td>{requestTokenDisplay(row, 'uncached')}</td><td>{requestTokenDisplay(row, 'cached')}</td>
-            <td>{requestTokenDisplay(row, 'cacheWrite')}</td>
-            <td>{requestTokenDisplay(row, 'output')}</td><td>{requestTokenDisplay(row, 'reasoning')}</td><td>{t(`requests.${row.quality}`)}</td>
+            {(['total', 'uncached', 'cached', 'cacheWrite', 'output', 'reasoning'] as const).map(field =>
+              <td key={field} title={requestTokenDisplay(row, field, 'exact')}>{requestTokenDisplay(row, field)}</td>)}
+            <td>{t(`requests.${row.quality}`)}</td>
           </tr>)}</tbody>
         </table></div>
         {!page.rows.length && <p>{t('requests.empty')}</p>}

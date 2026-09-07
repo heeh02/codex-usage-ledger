@@ -1,5 +1,5 @@
 import type { MetricKey, SummaryResponse } from '../api/types';
-import { compactNumber, exactNumber, formatPercent, metricLabel, periodLabel, tokenComposition } from '../lib';
+import { formatTokenMillions, exactNumber, formatPercent, metricLabel, periodLabel, tokenComposition } from '../lib';
 import { useI18n } from '../i18n';
 
 export function TokenOverview({ summary, metric }: { summary: SummaryResponse; metric: MetricKey }) {
@@ -44,7 +44,7 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
       <div className="overview-body">
         <article className="total-stat">
           <span>{isLowerBound ? t('components.token-overview.selected_period_live_lower_bound') : t('components.token-overview.selected_period_account_total')}</span>
-          <strong>{displayTotal === null ? '—' : `${isLowerBound ? '≥ ' : ''}${compactNumber(displayTotal)}`}</strong>
+          <strong>{displayTotal === null ? '—' : `${isLowerBound ? '≥ ' : ''}${formatTokenMillions(displayTotal)}`}</strong>
           <small>{displayTotal === null ? t('components.token-overview.account_total_cannot_be_determined_for_this') : `${exactNumber(displayTotal)} tokens · ${accountScopeLabel}`}</small>
           <div className="total-stat-meta">
             <div>
@@ -64,7 +64,7 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
               <strong>{t('components.token-overview.local_token_composition_four_exclusive_buckets')}</strong>
               <span>{t('components.token-overview.input_cache_read_cache_write_output_local')}</span>
             </div>
-            <span>{compactNumber(confirmed.total)} {t('components.token-overview.local_sample_different_scope_from_the_official')}</span>
+            <span>{formatTokenMillions(confirmed.total)} {t('components.token-overview.local_sample_different_scope_from_the_official')}</span>
           </div>
           <div className="composition-track" aria-label={t('components.explorer.token_composition')}>
             <span className="composition-uncached" style={{ width: `${uncachedShare * 100}%` }} />
@@ -95,7 +95,7 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
       <div className="metric-card-grid">
         {composition.map((metric) => {
           const cacheWriteMetric = metric.key === 'cacheWrite';
-          const value = cacheWriteMetric && !cacheWriteObserved ? '—' : `${cacheWriteMetric && !cacheWriteComplete ? '≥ ' : ''}${compactNumber(metric.value)}`;
+          const value = cacheWriteMetric && !cacheWriteObserved ? '—' : `${cacheWriteMetric && !cacheWriteComplete ? '≥ ' : ''}${formatTokenMillions(metric.value)}`;
           const exact = cacheWriteMetric && !cacheWriteComplete
             ? t('components.token-overview.field_coverage_lower_bound', { coverage: formatPercent(confirmed.cacheWriteCoverage) })
             : exactNumber(metric.value);
@@ -117,21 +117,21 @@ export function TokenOverview({ summary, metric }: { summary: SummaryResponse; m
         <div>
           <span className="trust-dot trusted" />
           <span>{t('components.token-overview.official_booked')}</span>
-          <strong>{official.totalTokens === null ? '—' : compactNumber(official.totalTokens)}</strong>
+          <strong>{official.totalTokens === null ? '—' : formatTokenMillions(official.totalTokens)}</strong>
         </div>
         <div>
           <span className="trust-dot quarantined" />
           <span>{t('components.token-overview.local_complement_floor')}</span>
-          <strong>{compactNumber(official.localComplementTokens)}</strong>
+          <strong>{formatTokenMillions(official.localComplementTokens)}</strong>
         </div>
         <div>
           <span className="trust-dot unknown" />
           <span>{t('components.token-overview.project_attribution_sample')}</span>
-          <strong>{compactNumber(confirmed.total)}</strong>
+          <strong>{formatTokenMillions(confirmed.total)}</strong>
         </div>
         <p>{official.missingOfficialAccountCount > 0 ? t('components.token-overview.primary_ledger_additions', {
-          tail: compactNumber(official.localTailTokens),
-          missing: compactNumber(official.missingAccountLocalTokens),
+          tail: formatTokenMillions(official.localTailTokens),
+          missing: formatTokenMillions(official.missingAccountLocalTokens),
         }) : official.localTailTokens > 0 ? t('components.token-overview.official_coverage_has_not_reached_the_tail') : t('components.token-overview.official_data_covers_the_selected_period')}</p>
       </div>
     </section>

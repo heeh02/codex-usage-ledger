@@ -24,8 +24,9 @@ for active execution. This extends, rather than completes or resets, the work be
 
 - [ ] E01: Token-only M formatting across cards, tables, charts and native views;
       preserve exact raw values, unknown/zero distinction and non-token units.
-      Foundation and conversation distribution/composition/shared ranking are
-      implemented; remaining cards, charts, sidebar and native displays pending.
+      Browser cards, charts, sidebar, quota and request/turn detail now use M;
+      exact integers remain available in detail titles/exports. Native rebuilt
+      application acceptance remains pending.
 - [ ] E02: bottom-left all/historical account selector; viewed scope is independent
       of observed login, with stale observations visible and no auth mutations.
       Browser navigation/selector implemented; native and real-account acceptance
@@ -1356,3 +1357,20 @@ No live data migration, installed-app replacement or release has occurred.
   language edits remain untouched; no installed-app acceptance or accounting
   correctness claim. E01 remaining surfaces, native account acceptance, source
   policy migration and complete quota history remain open; ACTIVE.
+- Batch 136: completed the remaining browser Token-unit conversion across
+  overview/account/quality cards, sidebar and project rankings, own/tree nodes,
+  quota samples, calendar labels, trend axes/readouts/tables and retained turn/
+  request evidence. Metric-aware formatting retains request counts; raw exports
+  and exact detail titles remain integers. Signed diagnostic residuals have a
+  separate formatter rather than being erased as invalid negative usage. Axis
+  gutters accommodate longer M labels without reducing type size. Regression
+  expectations now distinguish recorded `0 M` from absent evidence; request
+  pagination compares column values and exact titles instead of browser-specific
+  row whitespace. Final Web 78 unit tests, typecheck/build and 19 real-Chrome
+  responsive/unit/navigation/pagination scenarios pass. Additional focused M
+  rerun passes; synthetic narrow trend screenshot inspected with visible axes,
+  date readout and navigation. Links, boundaries, privacy, generated-file and
+  version checks pass. No accounting/source/schema/native installation change;
+  existing native-language edits remain separate. Native acceptance, incomplete
+  source-union/migration work, shared model exploration and complete quota-cycle
+  history still require implementation and verification. Full goal ACTIVE.

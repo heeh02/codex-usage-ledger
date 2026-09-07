@@ -13,7 +13,7 @@ import { QualityPage } from './features/quality/QualityPage';
 import { SessionPage } from './features/sessions/SessionPage';
 import { ConversationsPage } from './features/conversations/ConversationsPage';
 import { ModelsPage } from './features/models/ModelsPage';
-import { compactNumber, formatDateTime, formatPeriodRange } from './lib';
+import { formatTokenMillions, formatDateTime, formatPeriodRange } from './lib';
 import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
@@ -405,9 +405,9 @@ function App() {
           {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && (
             <aside className="account-coverage-alert">
               <div><strong>{coverageAlertTitle}</strong><span>{t('app.primary_kpi_explanation', {
-                tail: compactNumber(bundle.summary.official.localTailTokens),
-                missing: compactNumber(bundle.summary.official.missingAccountLocalTokens),
-                residual: compactNumber(bundle.summary.missingAccountEstimate.totalUsage.total),
+                tail: formatTokenMillions(bundle.summary.official.localTailTokens),
+                missing: formatTokenMillions(bundle.summary.official.missingAccountLocalTokens),
+                residual: formatTokenMillions(bundle.summary.missingAccountEstimate.totalUsage.total),
               })}</span></div>
               <button onClick={openAccounts} type="button">{t('app.review_account_calibration')}</button>
             </aside>

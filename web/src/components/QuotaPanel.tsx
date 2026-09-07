@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { QuotaCycle, QuotaPool } from '../api/types';
-import { compactNumber, formatDateTime, formatPercent, relativeReset } from '../lib';
+import { formatTokenMillions, formatDateTime, formatPercent, relativeReset } from '../lib';
 import { EmptyState, Panel } from './Ui';
 import { useI18n } from '../i18n';
 
@@ -51,8 +51,8 @@ function QuotaCycleRow({ cycle }: { cycle: QuotaCycle }) {
         <small>{cycle.windowKind === 'weekly' ? t('components.quota-panel.official_weekly_quota_cycle') : cycle.windowKind === 'short' ? t('components.quota-panel.official_short_window') : t('components.quota-panel.official_custom_window')} · {cycle.sampleCount} {t('components.quota-panel.snapshots')}</small>
       </div>
       <div><span>{t('components.quota-panel.cycle_used')}</span><strong>{cycle.usedPercent === null ? '—' : `${cycle.usedPercent.toFixed(1)}%`}</strong><small>{cycle.usedDeltaPercent === null ? t('components.quota-panel.no_comparable_starting_point') : `${t('components.quota-panel.since_first_observation')} ${cycle.usedDeltaPercent >= 0 ? '+' : ''}${cycle.usedDeltaPercent.toFixed(1)}pp`}</small></div>
-      <div><span>{t('components.quota-panel.local_token_sample')}</span><strong>{compactNumber(cycle.localUsage.total)}</strong><small>{coverage} · {cycle.localEvents} requests</small></div>
-      <div><span>{t('components.quota-panel.four_bucket_composition')}</span><strong>{compactNumber(cycle.localUsage.cached)} {t('components.quota-panel.cache_read')}</strong><small>{t('components.explorer.input')} {compactNumber(cycle.localUsage.uncached)} · {t('components.explorer.write_58af22')} {cycle.localUsage.cacheWriteCoverage > 0 ? `${cycle.localUsage.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${compactNumber(cycle.localUsage.cacheWrite)}` : '—'} · {t('components.quota-panel.output')} {compactNumber(cycle.localUsage.output)}</small></div>
+      <div><span>{t('components.quota-panel.local_token_sample')}</span><strong>{formatTokenMillions(cycle.localUsage.total)}</strong><small>{coverage} · {cycle.localEvents} requests</small></div>
+      <div><span>{t('components.quota-panel.four_bucket_composition')}</span><strong>{formatTokenMillions(cycle.localUsage.cached)} {t('components.quota-panel.cache_read')}</strong><small>{t('components.explorer.input')} {formatTokenMillions(cycle.localUsage.uncached)} · {t('components.explorer.write_58af22')} {cycle.localUsage.cacheWriteCoverage > 0 ? `${cycle.localUsage.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${formatTokenMillions(cycle.localUsage.cacheWrite)}` : '—'} · {t('components.quota-panel.output')} {formatTokenMillions(cycle.localUsage.output)}</small></div>
       <div><span>{t('components.quota-panel.observed_correlation')}</span><strong>—</strong><small>{t('components.quota-panel.pool_attribution_unavailable')}</small></div>
       <div><span>{t('components.quota-panel.cycle_end')}</span><strong>{relativeReset(cycle.cycleEnd)}</strong><small>{cycle.cycleStart ? `${formatDateTime(cycle.cycleStart)} ${t('components.quota-panel.start')}` : t('components.quota-panel.cycle_start_unknown')}</small></div>
     </article>

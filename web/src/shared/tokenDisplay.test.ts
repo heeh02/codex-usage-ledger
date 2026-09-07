@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { compactNumber, formatMetricAmount, formatTokenMillions, setUiLanguage } from '../lib';
+import { compactNumber, formatMetricAmount, formatSignedTokenMillions, formatTokenMillions, metricAxisGutter, setUiLanguage } from '../lib';
 
 afterEach(() => setUiLanguage('zh-CN'));
 
 describe('million-token display', () => {
+  it('reserves space for all M axis labels without shrinking their type', () => {
+    for (const max of [1, 1_000_000, 1_000_000_000_000, Number.MAX_SAFE_INTEGER]) {
+      for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
+        expect(metricAxisGutter(max, 'total')).toBeGreaterThanOrEqual(formatMetricAmount(max * ratio, 'total').length * 8 + 12);
+      }
+    }
+  });
+  it('keeps signed diagnostic differences separate from nonnegative usage', () => {
+    expect(formatSignedTokenMillions(-12_000_000)).toBe('−12 M');
+    expect(formatSignedTokenMillions(-1)).toBe('>−0.001 M');
+    expect(formatSignedTokenMillions(0)).toBe('0 M');
+    expect(formatSignedTokenMillions(null)).toBe('—');
+    expect(formatTokenMillions(-12_000_000)).toBe('—');
+  });
   it.each(['zh-CN', 'en'] as const)('keeps M units in %s without changing non-token counts', language => {
     setUiLanguage(language);
     expect(formatTokenMillions(12_345_678)).toBe('12.35 M');

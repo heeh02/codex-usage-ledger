@@ -4,6 +4,7 @@ import { mockTurnEvidence } from '../../api/turnEvidenceMock';
 import type { TurnEvidenceResponse } from '../../api/turn-evidence.generated';
 import { runScopedRequest } from '../../shared/requestLifecycle';
 import { useI18n } from '../../i18n';
+import { exactNumber, formatTokenMillions } from '../../lib';
 import './request-evidence.css';
 
 export function TurnEvidencePanel({ threadId, start, end, account, model, demo, revision }: {
@@ -36,9 +37,9 @@ export function TurnEvidencePanel({ threadId, start, end, account, model, demo, 
           <tbody>{page.rows.map(row => <tr key={row.groupId}>
             <td>{row.turnId ?? t('requests.unknown_turn')}</td><td>{row.firstAt}</td>
             <td>{row.confirmedRequestCount}/{row.requestCount}</td>
-            {(['total', 'uncached', 'cached', 'cacheWrite', 'output'] as const).map(field => <td key={field}>
+            {(['total', 'uncached', 'cached', 'cacheWrite', 'output'] as const).map(field => <td key={field} title={row.confirmedUsage && (field !== 'cacheWrite' || row.confirmedUsage.cacheWriteCoverage > 0) ? exactNumber(row.confirmedUsage[field]) : undefined}>
               {row.confirmedUsage && (field !== 'cacheWrite' || row.confirmedUsage.cacheWriteCoverage > 0)
-                ? row.confirmedUsage[field].toLocaleString() : '—'}
+                ? formatTokenMillions(row.confirmedUsage[field]) : '—'}
             </td>)}
           </tr>)}</tbody></table>
       </div>

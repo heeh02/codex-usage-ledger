@@ -42,6 +42,6 @@ it('distinguishes absent evidence from recorded zero tokens in both locales', as
       summary: { ...summary, confirmedEvents: 1 },
       explorer: { ...explorer, stats: { ...explorer.stats, localRecent15Events: 1 } }, metric: 'total',
     }));
-    expect(amounts(zero)).toEqual(['0', '0', '0', '1', '0']);
+    expect(amounts(zero)).toEqual(['0 M', '0 M', '0 M', '1', '0 M']);
   }
 });

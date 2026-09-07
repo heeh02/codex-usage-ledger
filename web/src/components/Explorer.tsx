@@ -10,7 +10,7 @@ import type {
   SummaryResponse,
   TokenUsage,
 } from '../api/types';
-import { compactNumber, exactNumber, formatDateTime, formatPercent, formatPeriodRange, metricLabel, metricValue, periodLabel } from '../lib';
+import { compactNumber, formatMetricAmount, formatTokenMillions, exactNumber, formatDateTime, formatPercent, formatPeriodRange, metricLabel, metricValue, periodLabel } from '../lib';
 import { useI18n } from '../i18n';
 import type { AppPage } from '../page';
 import { EmptyState } from './Ui';
@@ -121,7 +121,7 @@ export function LedgerSidebar({
     >
       {project.kind === 'standalone_conversations' ? <ConversationIcon /> : project.kind === 'unmatched_records' ? <OverviewIcon /> : <FolderIcon open={selectedProject === project.id} />}
       <span>{project.kind === 'standalone_conversations' ? t('app.standalone_chats') : project.kind === 'unmatched_records' ? t('app.local_unmatched') : project.label}</span>
-      <small>{compactNumber(displayUsage(project).total)}</small>
+      <small>{formatTokenMillions(displayUsage(project).total)}</small>
     </button>
   );
   return (
@@ -142,16 +142,16 @@ export function LedgerSidebar({
         <button className={page === 'models' ? 'sidebar-item is-active' : 'sidebar-item'} onClick={onModels} type="button"><OverviewIcon /><span>{t('models.title')}</span></button>
         <div className="sidebar-section-heading">
           <span>{t('components.explorer.local_work_evidence')} · {rankingLabel}</span>
-          <small>{explorer ? `${projectFolders.length} ${t('components.explorer.projects_chats')} · ${compactNumber(displayedRankingTotal)}` : t('components.explorer.reading_trusted_snapshot')}</small>
+          <small>{explorer ? `${projectFolders.length} ${t('components.explorer.projects_chats')} · ${formatTokenMillions(displayedRankingTotal)}` : t('components.explorer.reading_trusted_snapshot')}</small>
         </div>
         {rankingWindow && <div className="sidebar-ranking-window"><span>{formatPeriodRange(rankingWindow)}</span>{rankingWindow.crossesMonth && <strong>{t('app.cross_month')}</strong>}<small>{t('app.local_attribution')}</small></div>}
         <label className="sidebar-sort-select"><span>{t('components.explorer.sort')}</span><select value={rankingSort} onChange={(event) => setRankingSort(event.target.value as RankingSort)}><option value="tokens">{t('components.explorer.token_usage')}</option><option value="growth">{t('components.explorer.fastest_growth')}</option><option value="recent">{t('components.explorer.recently_active')}</option><option value="rate">{t('components.explorer.last_15_minutes_3f237f')}</option><option value="sessions">{t('components.explorer.session_count')}</option></select></label>
         {showAccountCoverage && rankingSort !== 'rate' && explorer?.stats.official.totalIsLowerBound && officialRankingTotal !== null && (
-          <div className="sidebar-account-lower-bound"><span>{t('components.explorer.synced')} {explorer.stats.official.knownAccountCount - explorer.stats.official.missingOfficialAccountCount}/{explorer.stats.official.knownAccountCount} {t('components.explorer.accounts')}</span><strong>{t('components.explorer.official')} ≥ {compactNumber(officialRankingTotal)}</strong></div>
+          <div className="sidebar-account-lower-bound"><span>{t('components.explorer.synced')} {explorer.stats.official.knownAccountCount - explorer.stats.official.missingOfficialAccountCount}/{explorer.stats.official.knownAccountCount} {t('components.explorer.accounts')}</span><strong>{t('components.explorer.official')} ≥ {formatTokenMillions(officialRankingTotal)}</strong></div>
         )}
         {showAccountCoverage && rankingSort !== 'rate' && officialRankingTotal !== null && officialRankingTotal > 0 && (
           <div className="sidebar-attribution-coverage">
-            <div><span>{t('components.explorer.work_evidence')} {compactNumber(displayedRankingTotal)}</span><strong>{formatPercent(Math.min(displayedRankingTotal / officialRankingTotal, 1))}</strong></div>
+            <div><span>{t('components.explorer.work_evidence')} {formatTokenMillions(displayedRankingTotal)}</span><strong>{formatPercent(Math.min(displayedRankingTotal / officialRankingTotal, 1))}</strong></div>
             <i><span style={{ width: `${Math.min(displayedRankingTotal / officialRankingTotal, 1) * 100}%` }} /></i>
             <small>{t('components.explorer.relative_to_official_booked_usage_gap_not')}</small>
           </div>
@@ -201,14 +201,14 @@ export function LocalUsagePulse({ explorer, summary, metric }: { explorer: Explo
   const { t } = useI18n();
   const usage = summary.usage.confirmed;
   const hasEvidence = summary.confirmedEvents > 0;
-  const amount = (value: number) => hasEvidence ? compactNumber(value) : '—';
+  const amount = (value: number) => hasEvidence ? formatTokenMillions(value) : '—';
   const detail = hasEvidence ? t('components.explorer.selected_period') : t('usage.no_confirmed_records');
   return <section className="explorer-pulse" aria-label={t('app.local_attribution')}>
     <PulseMetric label={metricLabel(metric)} value={metric === 'requests' ? compactNumber(summary.confirmedEvents) : amount(metricValue(usage, metric, summary.confirmedEvents))} detail={detail} tone="blue" />
     <PulseMetric label={t('components.explorer.cache_read')} value={amount(usage.cached)} detail={hasEvidence ? formatPercent(summary.cacheRate) : detail} tone="green" />
     <PulseMetric label={t('components.explorer.output')} value={amount(usage.output)} detail={detail} tone="purple" />
     <PulseMetric label={t('components.ui.requests')} value={compactNumber(summary.confirmedEvents)} detail={detail} tone="green" />
-    <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={explorer.stats.localRecent15Events > 0 ? compactNumber(explorer.stats.localRecent15Minutes.total) : '—'} detail={explorer.stats.localRecent15Events > 0 ? t('components.explorer.local_attributed_activity_not_quota_burn_rate') : t('usage.no_confirmed_records')} tone="orange" />
+    <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={explorer.stats.localRecent15Events > 0 ? formatTokenMillions(explorer.stats.localRecent15Minutes.total) : '—'} detail={explorer.stats.localRecent15Events > 0 ? t('components.explorer.local_attributed_activity_not_quota_burn_rate') : t('usage.no_confirmed_records')} tone="orange" />
   </section>;
 }
 
@@ -245,11 +245,11 @@ export function ExplorerPulse({ explorer, summary, metric }: { explorer: Explore
   const averageAvailable = selected !== null && accountTotal.coverage.complete;
   return (
     <section className="explorer-pulse" aria-label="Codex usage pulse">
-      <PulseMetric label={t('components.attribution-coverage-panel.account_total')} value={selected === null ? '—' : `${isLowerBound ? '≥ ' : ''}${compactNumber(selected)}`} detail={displayDetail} tone="blue" />
-      <PulseMetric label={t('components.explorer.vs_previous_period')} value={delta === null ? '—' : `${delta >= 0 ? '+' : ''}${formatPercent(delta)}`} detail={previous === null ? t('components.explorer.no_comparable_coverage') : summary.official.previousDisplayIsLowerBound || isLowerBound ? t('components.explorer.current_or_previous_period_is_only_a') : `${t('components.explorer.previous')} ${compactNumber(previous)}`} tone={delta !== null && delta > 0 ? 'orange' : 'green'} />
-      <PulseMetric label={averageLabel} value={averageAvailable && selected !== null ? `${isLowerBound ? '≥ ' : ''}${compactNumber(selected / averageDivisor)}` : '—'} detail={averageAvailable ? `${t('components.explorer.across')} ${officialPointCount} ${t('components.explorer.covered_tail')} ${averageGrain === 'week' ? t('components.explorer.weeks') : averageGrain === 'month' ? t('components.explorer.months') : t('components.explorer.days')}` : t('components.explorer.account_coverage_is_insufficient_for_a_comparable')} tone="green" />
-      <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={stats.localRecent15Events > 0 ? compactNumber(recent) : '—'} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
-      <PulseMetric label={t('components.explorer.local_composition_sample')} value={summary.confirmedEvents > 0 ? compactNumber(summary.usage.confirmed.total) : '—'} detail={summary.confirmedEvents > 0 ? t('components.explorer.four_bucket_composition_covers_matched_local_events') : t('usage.no_confirmed_records')} tone="purple" />
+      <PulseMetric label={t('components.attribution-coverage-panel.account_total')} value={selected === null ? '—' : `${isLowerBound ? '≥ ' : ''}${formatTokenMillions(selected)}`} detail={displayDetail} tone="blue" />
+      <PulseMetric label={t('components.explorer.vs_previous_period')} value={delta === null ? '—' : `${delta >= 0 ? '+' : ''}${formatPercent(delta)}`} detail={previous === null ? t('components.explorer.no_comparable_coverage') : summary.official.previousDisplayIsLowerBound || isLowerBound ? t('components.explorer.current_or_previous_period_is_only_a') : `${t('components.explorer.previous')} ${formatTokenMillions(previous)}`} tone={delta !== null && delta > 0 ? 'orange' : 'green'} />
+      <PulseMetric label={averageLabel} value={averageAvailable && selected !== null ? `${isLowerBound ? '≥ ' : ''}${formatTokenMillions(selected / averageDivisor)}` : '—'} detail={averageAvailable ? `${t('components.explorer.across')} ${officialPointCount} ${t('components.explorer.covered_tail')} ${averageGrain === 'week' ? t('components.explorer.weeks') : averageGrain === 'month' ? t('components.explorer.months') : t('components.explorer.days')}` : t('components.explorer.account_coverage_is_insufficient_for_a_comparable')} tone="green" />
+      <PulseMetric label={t('components.explorer.last_15_minutes_3f237f')} value={stats.localRecent15Events > 0 ? formatTokenMillions(recent) : '—'} detail={t('components.explorer.local_attributed_activity_not_quota_burn_rate')} tone="orange" />
+      <PulseMetric label={t('components.explorer.local_composition_sample')} value={summary.confirmedEvents > 0 ? formatTokenMillions(summary.usage.confirmed.total) : '—'} detail={summary.confirmedEvents > 0 ? t('components.explorer.four_bucket_composition_covers_matched_local_events') : t('usage.no_confirmed_records')} tone="purple" />
     </section>
   );
 }
@@ -258,7 +258,7 @@ function ScopeMetric({ label, usage, detail }: { label: string; usage: TokenUsag
   return (
     <article className="scope-metric">
       <span>{label}</span>
-      <strong>{compactNumber(usage.total)}</strong>
+      <strong>{formatTokenMillions(usage.total)}</strong>
       <small>{detail}</small>
     </article>
   );
@@ -295,9 +295,9 @@ function SessionRow({ session, onOpen }: { session: ExplorerSession; onOpen: () 
         <span>subagents</span>
       </div>
       <div className="session-usage">
-        <strong>{compactNumber(session.treeUsage.total)}</strong>
+        <strong>{formatTokenMillions(session.treeUsage.total)}</strong>
         <span>{t('components.explorer.with_subtree')}</span>
-        <small>{t('components.explorer.own')} {compactNumber(session.ownUsage.total)}</small>
+        <small>{t('components.explorer.own')} {formatTokenMillions(session.ownUsage.total)}</small>
       </div>
       <span className="session-chevron">›</span>
     </button>
@@ -352,13 +352,13 @@ export function ProjectExplorer({
       <section className="scope-metric-grid">
         <article className="scope-metric is-primary-scope">
           <div><span>{periodLabel(period)} {t('components.explorer.attributed_usage')}</span><b>{t('components.explorer.source_selected_lower_bound')}</b></div>
-          <strong>≥ {compactNumber(stats.selectedPeriod.total)}</strong>
+          <strong>≥ {formatTokenMillions(stats.selectedPeriod.total)}</strong>
           <small>{formatPeriodRange(periodWindow)} · {scopeLabel}</small>
         </article>
         <article className="scope-metric">
           <span>{t('components.explorer.input_output')}</span>
-          <strong>{compactNumber(stats.selectedPeriod.input)}</strong>
-          <small>{t('components.explorer.output')} {compactNumber(stats.selectedPeriod.output)} · Reasoning {compactNumber(stats.selectedPeriod.reasoning)}</small>
+          <strong>{formatTokenMillions(stats.selectedPeriod.input)}</strong>
+          <small>{t('components.explorer.output')} {formatTokenMillions(stats.selectedPeriod.output)} · Reasoning {formatTokenMillions(stats.selectedPeriod.reasoning)}</small>
         </article>
         <article className="scope-metric">
           <span>{standalone ? t('components.explorer.chat_scale') : t('components.explorer.session_scale')}</span>
@@ -367,7 +367,7 @@ export function ProjectExplorer({
         </article>
         <article className="scope-metric live-scope">
           <span>{t('components.explorer.last_15_minutes_3f237f')}</span>
-          <strong>{compactNumber(stats.localRecent15Minutes.total)}</strong>
+          <strong>{formatTokenMillions(stats.localRecent15Minutes.total)}</strong>
           <small>{t('components.explorer.local_attributed_usage')} · {stats.activeSessions} active sessions</small>
         </article>
       </section>
@@ -386,9 +386,9 @@ export function ProjectExplorer({
         {trend}
         <section className="project-insights">
           <article className="project-composition panel">
-            <header><div><p className="eyebrow">{t('components.explorer.token_composition')}</p><h2>{standalone ? t('components.explorer.standalone_chat_composition') : unmatched ? t('components.explorer.unmatched_record_composition') : t('components.explorer.project_token_composition')}</h2></div><strong>{compactNumber(stats.selectedPeriod.total)} {t('components.explorer.local_sample')} · {t('components.explorer.write_field_coverage')} {formatPercent(stats.selectedPeriod.cacheWriteCoverage)}</strong></header>
+            <header><div><p className="eyebrow">{t('components.explorer.token_composition')}</p><h2>{standalone ? t('components.explorer.standalone_chat_composition') : unmatched ? t('components.explorer.unmatched_record_composition') : t('components.explorer.project_token_composition')}</h2></div><strong>{formatTokenMillions(stats.selectedPeriod.total)} {t('components.explorer.local_sample')} · {t('components.explorer.write_field_coverage')} {formatPercent(stats.selectedPeriod.cacheWriteCoverage)}</strong></header>
             <MiniComposition usage={stats.selectedPeriod} />
-            <div><span>{stats.selectedPeriod.cacheWriteCoverage >= 0.999 ? t('components.explorer.input') : t('components.explorer.input_unsplit')} <strong>{compactNumber(stats.selectedPeriod.uncached)}</strong></span><span>{t('components.explorer.cache_read')} <strong>{compactNumber(stats.selectedPeriod.cached)}</strong></span><span>{t('components.explorer.cache_write')} <strong>{stats.selectedPeriod.cacheWriteCoverage > 0 ? `${stats.selectedPeriod.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${compactNumber(stats.selectedPeriod.cacheWrite)}` : '—'}</strong></span><span>{t('components.explorer.output')} <strong>{compactNumber(stats.selectedPeriod.output)}</strong></span><span>{t('components.explorer.reasoning_inside_output')} <strong>{compactNumber(stats.selectedPeriod.reasoning)}</strong></span></div>
+            <div><span>{stats.selectedPeriod.cacheWriteCoverage >= 0.999 ? t('components.explorer.input') : t('components.explorer.input_unsplit')} <strong>{formatTokenMillions(stats.selectedPeriod.uncached)}</strong></span><span>{t('components.explorer.cache_read')} <strong>{formatTokenMillions(stats.selectedPeriod.cached)}</strong></span><span>{t('components.explorer.cache_write')} <strong>{stats.selectedPeriod.cacheWriteCoverage > 0 ? `${stats.selectedPeriod.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${formatTokenMillions(stats.selectedPeriod.cacheWrite)}` : '—'}</strong></span><span>{t('components.explorer.output')} <strong>{formatTokenMillions(stats.selectedPeriod.output)}</strong></span><span>{t('components.explorer.reasoning_inside_output')} <strong>{formatTokenMillions(stats.selectedPeriod.reasoning)}</strong></span></div>
           </article>
           {modelBreakdown}
         </section>
@@ -434,7 +434,7 @@ function AgentNodeRow({ node, isRoot, isSelected, metric, onSelect }: { node: Ex
   const ownValue = metricValue(node.ownUsage, metric, node.eventCount);
   const treeValue = metricValue(node.subtreeUsage, metric, node.subtreeEventCount);
   return (
-    <button type="button" role="treeitem" aria-level={node.relativeDepth + 1} aria-selected={isSelected} aria-label={`${node.title}, ${t('components.explorer.own_72d733')} ${compactNumber(ownValue)}, ${t('components.explorer.with_subtree_8e7f6e')} ${compactNumber(treeValue)}`} onClick={onSelect} className={`${isRoot ? 'agent-node is-root' : 'agent-node'}${isSelected ? ' is-selected' : ''}`} style={{ '--node-depth': Math.min(node.relativeDepth, 5) } as CSSProperties}>
+    <button type="button" role="treeitem" aria-level={node.relativeDepth + 1} aria-selected={isSelected} aria-label={`${node.title}, ${t('components.explorer.own_72d733')} ${formatMetricAmount(ownValue, metric)}, ${t('components.explorer.with_subtree_8e7f6e')} ${formatMetricAmount(treeValue, metric)}`} onClick={onSelect} className={`${isRoot ? 'agent-node is-root' : 'agent-node'}${isSelected ? ' is-selected' : ''}`} style={{ '--node-depth': Math.min(node.relativeDepth, 5) } as CSSProperties}>
       <div className="agent-tree-guide"><i /></div>
       <div className="agent-identity">
         <div><strong>{node.title}</strong>{!node.presentInCodex && <span className="is-historical">{t('components.explorer.history')}</span>}{node.agentNickname && <span>{node.agentNickname}</span>}</div>
@@ -442,8 +442,8 @@ function AgentNodeRow({ node, isRoot, isSelected, metric, onSelect }: { node: Ex
         <MiniComposition usage={node.ownUsage} />
       </div>
       <div className="agent-cache"><strong>{nodeCacheRate(node)}</strong><span>cache</span></div>
-      <div className="agent-own"><strong>{compactNumber(ownValue)}</strong><span>{t('components.explorer.own')}</span></div>
-      <div className="agent-tree-total"><strong>{compactNumber(treeValue)}</strong><span>{t('components.explorer.subtree')}</span></div>
+      <div className="agent-own"><strong>{formatMetricAmount(ownValue, metric)}</strong><span>{t('components.explorer.own')}</span></div>
+      <div className="agent-tree-total"><strong>{formatMetricAmount(treeValue, metric)}</strong><span>{t('components.explorer.subtree')}</span></div>
     </button>
   );
 }
@@ -527,14 +527,14 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
         </div>
         <div className="session-detail-actions">
           <div className="session-scope-toggle" role="group" aria-label={t('components.explorer.session_usage_scope')}><button aria-pressed={scope === 'own'} className={scope === 'own' ? 'is-active' : ''} onClick={() => patchView({ scope: 'own' })} type="button">{t('components.explorer.own')}</button><button aria-pressed={scope === 'tree'} className={scope === 'tree' ? 'is-active' : ''} onClick={() => patchView({ scope: 'tree' })} type="button">{t('components.explorer.subtree')}</button></div>
-          <div className="session-detail-total" aria-live="polite"><span>{scope === 'own' ? t('components.explorer.current_session_only') : t('components.explorer.includes_all_subagents')} · {metricLabel(metric)}</span><strong>{compactNumber(selectedValue)}</strong><small>{exactNumber(selectedValue)} {metric === 'requests' ? 'requests' : 'tokens'}</small></div>
+          <div className="session-detail-total" aria-live="polite"><span>{scope === 'own' ? t('components.explorer.current_session_only') : t('components.explorer.includes_all_subagents')} · {metricLabel(metric)}</span><strong>{formatMetricAmount(selectedValue, metric)}</strong><small>{exactNumber(selectedValue)} {metric === 'requests' ? 'requests' : 'tokens'}</small></div>
         </div>
       </header>
       <section className="scope-metric-grid session-scope-grid">
         <ScopeMetric label={t('components.explorer.session_own')} usage={detail.ownUsage} detail={t('components.explorer.current_session_only_64938d')} />
         <ScopeMetric label={t('components.explorer.entire_task_tree')} usage={detail.treeUsage} detail={t('components.explorer.includes_all_descendants')} />
         <article className="scope-metric"><span>Subagents</span><strong>{detail.subagentCount}</strong><small>{t('components.explorer.loaded')} {detail.nodes.length} {t('components.explorer.nodes')}</small></article>
-        <article className="scope-metric"><span>{scope === 'own' ? t('components.explorer.own_four_bucket_composition') : t('components.explorer.subtree_four_bucket_composition')}</span><strong>{compactNumber(focusedUsage.total)}</strong><small>{t('components.explorer.input')} {compactNumber(focusedUsage.uncached)} · {t('components.explorer.read')} {compactNumber(focusedUsage.cached)} · {t('components.explorer.write')} {focusedUsage.cacheWriteCoverage > 0 ? `${focusedUsage.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${compactNumber(focusedUsage.cacheWrite)}` : '—'} · {t('components.explorer.output')} {compactNumber(focusedUsage.output)}</small></article>
+        <article className="scope-metric"><span>{scope === 'own' ? t('components.explorer.own_four_bucket_composition') : t('components.explorer.subtree_four_bucket_composition')}</span><strong>{formatTokenMillions(focusedUsage.total)}</strong><small>{t('components.explorer.input')} {formatTokenMillions(focusedUsage.uncached)} · {t('components.explorer.read')} {formatTokenMillions(focusedUsage.cached)} · {t('components.explorer.write')} {focusedUsage.cacheWriteCoverage > 0 ? `${focusedUsage.cacheWriteCoverage >= 0.999 ? '' : '≥ '}${formatTokenMillions(focusedUsage.cacheWrite)}` : '—'} · {t('components.explorer.output')} {formatTokenMillions(focusedUsage.output)}</small></article>
       </section>
       {detail.officialThreadUsage && (
         <section className="official-thread-panel panel">
@@ -543,8 +543,8 @@ export function SessionExplorer({ detail, metric, view, onViewChange, onOpenSess
             {detail.officialThreadUsage.groups.length ? detail.officialThreadUsage.groups.map((group, index) => (
               <article key={`${group.model ?? 'unknown'}-${index}`}>
                 <div><strong>{group.model ?? t('app.model_unknown')}</strong><span>{group.reasoningEffort ?? t('components.explorer.default_reasoning')} · {group.speed ?? t('components.explorer.standard_speed')}</span></div>
-                <div><strong>{group.totalTokens === null ? '—' : compactNumber(group.totalTokens)}</strong><span>total</span></div>
-                <div><strong>{group.cachedInputTokens === null ? '—' : compactNumber(group.cachedInputTokens)}</strong><span>{t('components.explorer.cache_read')} · {t('components.explorer.write_58af22')} {group.cacheWriteInputTokens === null ? '—' : compactNumber(group.cacheWriteInputTokens)}</span></div>
+                <div><strong>{group.totalTokens === null ? '—' : formatTokenMillions(group.totalTokens)}</strong><span>total</span></div>
+                <div><strong>{group.cachedInputTokens === null ? '—' : formatTokenMillions(group.cachedInputTokens)}</strong><span>{t('components.explorer.cache_read')} · {t('components.explorer.write_58af22')} {group.cacheWriteInputTokens === null ? '—' : formatTokenMillions(group.cacheWriteInputTokens)}</span></div>
                 <div><strong>{(group.estimatedUsageCreditsMicros / 1_000_000).toFixed(2)}</strong><span>credits</span></div>
               </article>
             )) : <EmptyState text={t('components.explorer.official_thread_quota_was_returned_without_model')} />}

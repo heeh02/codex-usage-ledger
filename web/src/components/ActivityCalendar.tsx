@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { MetricKey, TimeseriesResponse } from '../api/types';
-import { metricLabel, metricValue } from '../lib';
+import { formatMetricAmount, metricLabel, metricValue } from '../lib';
 import { useI18n } from '../i18n';
 
 export function ActivityCalendar({ data, metric, onSelectDay }: { data: TimeseriesResponse; metric: MetricKey; onSelectDay: (date: string) => void }) {
@@ -23,7 +23,7 @@ export function ActivityCalendar({ data, metric, onSelectDay }: { data: Timeseri
       {Array.from({ length: offset }, (_, index) => <span key={`blank-${index}`} />)}
       {dates.map(date => {
         const value = values.get(date);
-        const label = `${date} · ${metricLabel(metric)} ${value === undefined ? '—' : value.toLocaleString()}`;
+        const label = `${date} · ${metricLabel(metric)} ${formatMetricAmount(value, metric)}${value === undefined ? '' : ` (${value.toLocaleString()})`}`;
         return <button key={date} type="button" disabled={value === undefined} title={label} aria-label={label} data-level={value === undefined ? 'unknown' : value === 0 ? '0' : String(Math.ceil(value / max * 4))} onClick={() => onSelectDay(date)} />;
       })}
     </div>

@@ -1,5 +1,5 @@
 import type { MetricKey, QualityIssue, QualityResponse, QualityStateSummary, SourceHealth } from '../api/types';
-import { compactNumber, exactNumber, formatDateTime, metricLabel, metricValue, qualityLabel } from '../lib';
+import { formatTokenMillions, exactNumber, formatDateTime, metricLabel, metricValue, qualityLabel } from '../lib';
 import { EmptyState, Panel } from './Ui';
 import { useI18n } from '../i18n';
 
@@ -15,7 +15,7 @@ function QualityStateCard({ item, metric }: { item: QualityStateSummary; metric:
     ? exactNumber(item.eventCount)
     : item.tokenCount === null
       ? '—'
-      : compactNumber(metricValue(item.usage, metric, item.eventCount));
+      : formatTokenMillions(metricValue(item.usage, metric, item.eventCount));
   return (
     <article className={`quality-state-card quality-${item.state}`}>
       <div className="quality-state-heading">
@@ -41,7 +41,7 @@ function IssueRow({ issue }: { issue: QualityIssue }) {
         </div>
         <p>{issue.detail}</p>
         <small>
-          {exactNumber(issue.eventCount)} {t('components.quality-panel.requests')} · {issue.tokenCount === null ? t('components.quality-panel.token_count_unknown') : `${compactNumber(issue.tokenCount)} tokens`} · {t('components.quality-panel.latest')} {formatDateTime(issue.lastSeen)}
+          {exactNumber(issue.eventCount)} {t('components.quality-panel.requests')} · {issue.tokenCount === null ? t('components.quality-panel.token_count_unknown') : `${formatTokenMillions(issue.tokenCount)} tokens`} · {t('components.quality-panel.latest')} {formatDateTime(issue.lastSeen)}
         </small>
       </div>
     </article>
@@ -93,7 +93,7 @@ export function QualityPanel({ data, metric }: { data: QualityResponse; metric: 
             <div><span>{t('components.quality-panel.reconstructed')}</span><strong>{exactNumber(reconstruction.reconstructedSources)}</strong></div>
             <div><span>{t('components.quality-panel.pending_active')}</span><strong>{exactNumber(reconstruction.pendingSources + reconstruction.reconstructingSources)}</strong></div>
             <div><span>{t('components.quality-panel.unrecoverable')}</span><strong>{exactNumber(reconstruction.unrecoverableSources)}</strong></div>
-            <div><span>{t('components.quality-panel.lifetime_selected_attribution')}</span><strong>{compactNumber(reconstruction.selectedTokens)}</strong></div>
+            <div><span>{t('components.quality-panel.lifetime_selected_attribution')}</span><strong>{formatTokenMillions(reconstruction.selectedTokens)}</strong></div>
           </div>
           <small>{t('components.quality-panel.measured_by_bytes_read')}: {formatBytes(reconstruction.bytesProcessed)} / {formatBytes(reconstruction.bytesTotal)}; {t('components.quality-panel.lifetime_selected_attribution_covers_all_history_and')}</small>
         </section>

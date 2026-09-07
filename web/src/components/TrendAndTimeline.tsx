@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ExplorerResponse, MetricKey, TimeseriesResponse } from '../api/types';
-import { compactNumber, dimensionLabel, formatDateTime, formatPercent, metricLabel, metricValue, shortDate } from '../lib';
+import { formatMetricAmount, metricAxisGutter, dimensionLabel, formatDateTime, formatPercent, metricLabel, metricValue, shortDate } from '../lib';
 import { civilTime, contiguous, nextBucket, timeDomain, timeRatio, trendSeries } from '../charts/time';
 import { UsageTrendChart } from './UsageTrendChart';
 import { useI18n } from '../i18n';
@@ -34,11 +34,11 @@ function pointY(value: number, max: number, geometry: ChartGeometry): number {
 }
 
 
-function ChartAxes({ geometry, domain, max }: { geometry: ChartGeometry; domain: [number, number]; max: number }) {
+function ChartAxes({ geometry, domain, max, metric = 'total' }: { geometry: ChartGeometry; domain: [number, number]; max: number; metric?: MetricKey }) {
   return <>
     {[0, 0.5, 1].map(ratio => <g key={ratio}>
       <line x1={geometry.padding.left} x2={geometry.width - geometry.padding.right} y1={pointY(max * ratio, max, geometry)} y2={pointY(max * ratio, max, geometry)} className="chart-gridline" />
-      <text x={geometry.padding.left - 9} y={pointY(max * ratio, max, geometry) + 4} textAnchor="end" className="chart-axis-label">{compactNumber(max * ratio)}</text>
+      <text x={geometry.padding.left - 9} y={pointY(max * ratio, max, geometry) + 4} textAnchor="end" className="chart-axis-label">{formatMetricAmount(max * ratio, metric)}</text>
       <text x={pointXAtRatio(ratio, geometry)} y={geometry.height - 12} textAnchor={ratio === 0 ? 'start' : ratio === 1 ? 'end' : 'middle'} className="chart-date-label">{shortDate(new Date(domain[0] + (domain[1] - domain[0]) * ratio).toISOString().slice(0, 16))}</text>
     </g>)}
   </>;
@@ -52,6 +52,7 @@ function CompositionChart({ data }: { data: TimeseriesResponse }) {
   const domain = timeDomain(points.map(p => p.date), data.grain, data.period);
   if (points.length) domain[1] = Math.max(domain[1], ...points.map(p => nextBucket(p.date, data.grain)));
   const max = Math.max(...points.map((point) => point.confirmed.total), 1);
+  geometry.padding.left = metricAxisGutter(max, 'total');
   const input = points.reduce((sum, point) => sum + point.confirmed.input, 0);
   const cacheWriteObservedInput = points.reduce((sum, point) => sum + point.confirmed.cacheWriteObservedInput, 0);
   const cacheWriteCoverage = input ? cacheWriteObservedInput / input : 0;
@@ -96,12 +97,13 @@ export function DimensionCompareChart({ data, metric }: { data: TimeseriesRespon
   const visible = ranked.filter((series) => selected.includes(series.id)).slice(0, 5);
   const domain = timeDomain(data.projectSeries.flatMap(series => series.points.map(point => point.date)), data.grain, data.period);
   const max = Math.max(...visible.flatMap((series) => series.points.map((point) => metricValue(point.confirmed, metric, point.confirmedEvents))), 1);
+  geometry.padding.left = metricAxisGutter(max, metric);
   const toggle = (id: string) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 5 ? [...current, id] : current);
   return (
     <div className="project-compare-wrap usage-time-chart" ref={geometry.ref}>
       <div className="project-series-picker">{ranked.map((series) => <button className={selected.includes(series.id) ? 'is-selected' : ''} key={series.id} onClick={() => toggle(series.id)} type="button">{dimensionLabel(series.id, series.label)}</button>)}</div>
       {visible.length ? <svg className="trend-chart project-compare-chart" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label={t('comparison.title')}>
-        <ChartAxes geometry={geometry} domain={domain} max={max} />
+        <ChartAxes geometry={geometry} domain={domain} max={max} metric={metric} />
         {visible.map((series, seriesIndex) => contiguous(series.points, data.grain, () => true).map((segment, index) => <g key={`${series.id}-${index}`}>
           <polyline points={segment.map(point => `${pointXAtRatio(timeRatio(point.date, domain), geometry)},${pointY(metricValue(point.confirmed, metric, point.confirmedEvents), max, geometry)}`).join(' ')} className="trend-line project-compare-line" style={{ stroke: PROJECT_COLORS[seriesIndex] }} />
           {segment.length === 1 && <circle cx={pointXAtRatio(timeRatio(segment[0].date, domain), geometry)} cy={pointY(metricValue(segment[0].confirmed, metric, segment[0].confirmedEvents), max, geometry)} r={3} fill={PROJECT_COLORS[seriesIndex]} />}
@@ -142,7 +144,7 @@ function ProjectRanking({ explorer, metric, onOpenProject }: { explorer: Explore
         <button key={project.id} type="button" onClick={() => onOpenProject(project.id)}>
           <span className="ranking-index">{index + 1}</span>
           <div>
-            <div><strong>{dimensionLabel(project.id, project.label)}</strong><span>{compactNumber(value(project))}</span></div>
+            <div><strong>{dimensionLabel(project.id, project.label)}</strong><span>{formatMetricAmount(value(project), metric)}</span></div>
             <i><span style={{ width: `${(value(project) / max) * 100}%` }} /></i>
             <small>{denominator ? `${t('components.trend-and-timeline.local_project_sample')} ${((value(project) / denominator) * 100).toFixed(1)}% · ` : ''}{deltaLabel(project)} · {project.activeSessionCount} active / {project.sessionCount} sessions · {formatDateTime(project.lastActiveAt)}</small>
           </div>
@@ -152,7 +154,7 @@ function ProjectRanking({ explorer, metric, onOpenProject }: { explorer: Explore
       {otherTotal > 0 && (
         <div className="project-gap-row">
           <span className="ranking-index">…</span>
-          <div><div><strong>{t('components.trend-and-timeline.other_projects')} · {otherProjects.length}</strong><span>{compactNumber(otherTotal)}</span></div><i><span style={{ width: `${(otherTotal / max) * 100}%` }} /></i><small>{t('components.trend-and-timeline.local_project_sample')} {denominator ? `${((otherTotal / denominator) * 100).toFixed(1)}%` : '—'} · {t('components.trend-and-timeline.included_in_denominator')}</small></div>
+          <div><div><strong>{t('components.trend-and-timeline.other_projects')} · {otherProjects.length}</strong><span>{formatMetricAmount(otherTotal, metric)}</span></div><i><span style={{ width: `${(otherTotal / max) * 100}%` }} /></i><small>{t('components.trend-and-timeline.local_project_sample')} {denominator ? `${((otherTotal / denominator) * 100).toFixed(1)}%` : '—'} · {t('components.trend-and-timeline.included_in_denominator')}</small></div>
         </div>
       )}
     </div>

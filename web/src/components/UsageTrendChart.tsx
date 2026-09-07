@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MetricKey, TimeseriesResponse } from '../api/types';
 import { bucketDateRange, contiguous, timeRatio, trendSeries, type TrendPoint } from '../charts/time';
-import { compactNumber, metricLabel, shortDate } from '../lib';
+import { formatMetricAmount, metricAxisGutter, metricLabel, shortDate } from '../lib';
 import { useI18n } from '../i18n';
 import { EmptyState } from './Ui';
 
@@ -17,8 +17,8 @@ export function UsageTrendChart({ data, metric, onInspectRange }: { data: Timese
     return () => observer.disconnect();
   }, []);
   const { points, grain, account, domain } = trendSeries(data, metric);
-  const height = 260, left = 66, right = 18, top = 24, bottom = 36;
   const max = Math.max(1, ...points.flatMap(p => [p.value ?? 0, p.previous ?? 0, p.local ?? 0]));
+  const height = 260, left = metricAxisGutter(max, metric), right = 18, top = 24, bottom = 36;
   const x = (date: string) => left + timeRatio(date, domain) * (width - left - right);
   const y = (value: number) => height - bottom - value / max * (height - top - bottom);
   const segments = (field: 'value' | 'previous' | 'local') => contiguous(points, grain, p => p[field] !== null);
@@ -28,7 +28,7 @@ export function UsageTrendChart({ data, metric, onInspectRange }: { data: Timese
   const peak = points.reduce<TrendPoint | null>((best, point) => point.value !== null && (best?.value == null || point.value > best.value) ? point : best, null);
   const total = account ? data.official.displayTotalTokens : points.reduce((sum, p) => sum + (p.value ?? 0), 0);
   const name = account ? t('components.trend-and-timeline.daily_account_reconciliation') : t('app.local_attribution');
-  const format = (value: number | null) => value === null ? '—' : compactNumber(value);
+  const format = (value: number | null) => formatMetricAmount(value, metric);
   const labels = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])].filter(i => i >= 0);
   return <div className="usage-time-chart" ref={container}>
     {!active ? <EmptyState text={t('components.trend-and-timeline.once_collection_starts_a_trusted_daily_token')} /> : <>
@@ -54,7 +54,7 @@ export function UsageTrendChart({ data, metric, onInspectRange }: { data: Timese
           }}>
           {[0, 0.25, 0.5, 0.75, 1].map(ratio => <g key={ratio}>
             <line className="chart-gridline" x1={left} x2={width - right} y1={y(max * ratio)} y2={y(max * ratio)} />
-            <text className="chart-axis-label" x={left - 9} y={y(max * ratio) + 4} textAnchor="end">{compactNumber(max * ratio)}</text>
+            <text className="chart-axis-label" x={left - 9} y={y(max * ratio) + 4} textAnchor="end">{format(max * ratio)}</text>
           </g>)}
           {(['value', 'previous', 'local'] as const).map(field => segments(field).map((segment, i) =>
             <g key={`${field}-${i}`}>
@@ -79,7 +79,7 @@ export function UsageTrendChart({ data, metric, onInspectRange }: { data: Timese
       </div><span>{t('chart.gaps_unknown')}</span></div>
       <details className="chart-data-table"><summary>{t('components.trend-and-timeline.view_trend_data_table')}</summary>
         <div><table><thead><tr><th>{t('components.explorer.time')}</th><th>{name}</th><th>{t('components.explorer.previous')}</th>{account && <th>{t('app.local_attribution')}</th>}</tr></thead>
-          <tbody>{points.map(point => <tr key={point.date}><td>{point.date}</td><td>{point.value?.toLocaleString() ?? '—'}</td><td>{point.previous?.toLocaleString() ?? '—'}</td>{account && <td>{point.local?.toLocaleString() ?? '—'}</td>}</tr>)}</tbody>
+          <tbody>{points.map(point => <tr key={point.date}><td>{point.date}</td><td title={point.value?.toLocaleString()}>{format(point.value)}</td><td title={point.previous?.toLocaleString()}>{format(point.previous)}</td>{account && <td title={point.local?.toLocaleString()}>{format(point.local)}</td>}</tr>)}</tbody>
         </table></div>
       </details>
     </>}

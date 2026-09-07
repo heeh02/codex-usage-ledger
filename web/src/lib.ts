@@ -34,8 +34,20 @@ export function formatMetricAmount(value: number | null | undefined, metric: Met
   return metric === 'requests' ? compactNumber(value) : formatTokenMillions(value);
 }
 
+export function metricAxisGutter(max: number, metric: MetricKey): number {
+  return Math.max(66, ...[0, 0.25, 0.5, 0.75, 1].map(ratio => formatMetricAmount(max * ratio, metric).length * 8 + 12));
+}
+
 export function exactNumber(value: number): string {
   return new Intl.NumberFormat(locale()).format(Math.round(value));
+}
+
+/** Signed diagnostic differences are not usage amounts. */
+export function formatSignedTokenMillions(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const absolute = Math.abs(value);
+  if (value < 0 && absolute < 1_000) return '>−0.001 M';
+  return `${value < 0 ? '−' : ''}${formatTokenMillions(absolute)}`;
 }
 
 export function formatPercent(value: number | null): string {
