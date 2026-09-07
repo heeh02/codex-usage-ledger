@@ -9,7 +9,7 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     let rollout = home.join("sessions/rollout.jsonl");
     fs::write(&rollout,concat!(
         "{\"timestamp\":\"2026-01-01T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"root\"}}\n",
-        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1100,\"total_tokens\":1100},\"last_token_usage\":{\"input_tokens\":100,\"total_tokens\":100}}}}\n"
+        "{\"timestamp\":\"2026-01-01T00:00:01Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":1100,\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":1100},\"last_token_usage\":{\"input_tokens\":100,\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0,\"total_tokens\":100}}}}\n"
     )).unwrap();
     let index = rusqlite::Connection::open(home.join("state_5.sqlite")).unwrap();
     index

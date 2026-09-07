@@ -1,5 +1,6 @@
 //! Sealed, review-only JSONL drafts. No apply operation or ledger writes.
 use super::*;
+pub(super) const CURRENT_RECONSTRUCTION_POLICY: &str = "reconstruction_shared_stream_v2";
 use crate::store::ReconstructionAuditFact;
 use std::{
     collections::BTreeMap,
@@ -276,7 +277,10 @@ fn verify_with_store(
         match entry {
             Entry::Header(value) if header.is_none() && records == 0 => {
                 if value.version != 1
-                    || value.policy != "reconstruction_uuid7_strict_v1"
+                    || !matches!(
+                        value.policy.as_str(),
+                        "reconstruction_uuid7_strict_v1" | CURRENT_RECONSTRUCTION_POLICY
+                    )
                     || !(35..=40).contains(&value.ledger_schema)
                     || value.machine_id.is_empty()
                     || value.thread.is_empty()
@@ -443,6 +447,13 @@ fn validate_record(header: &ManifestHeader, row: &ManifestRecord) -> Result<()> 
                 "unemitted_unknown_or_zero",
             ]
             .contains(&rule)
+                || (header.policy == CURRENT_RECONSTRUCTION_POLICY
+                    && [
+                        "invalid_or_missing_cumulative_usage",
+                        "missing_usage_timestamp",
+                        "counter_continuity_gap",
+                    ]
+                    .contains(&rule))
         })
     } else {
         row.suppression_rule.is_none()
@@ -554,6 +565,31 @@ mod tests {
         bytes.push(b'\n');
         fs::write(path, bytes).unwrap();
     }
+    #[test]
+    fn gap_reasons_require_the_new_parser_policy_without_rewriting_old_drafts() {
+        let (_temp, path) = fixture();
+        assert!(verify_correction_manifest(&path).is_ok());
+        let mut entries = rows(&path);
+        for entry in &mut entries {
+            if let Entry::Record(row) = entry {
+                row.suppression_rule = Some("counter_continuity_gap".into());
+            }
+        }
+        reseal(&path, &entries);
+        assert!(verify_correction_manifest(&path).is_err());
+        if let Entry::Header(header) = &mut entries[0] {
+            header.policy = CURRENT_RECONSTRUCTION_POLICY.into();
+        }
+        reseal(&path, &entries);
+        let report = verify_correction_manifest(&path).unwrap();
+        assert!(!report.migration_authorized);
+        if let Entry::Header(header) = &mut entries[0] {
+            header.policy = "unknown-future-policy".into();
+        }
+        reseal(&path, &entries);
+        assert!(verify_correction_manifest(&path).is_err());
+    }
+
     #[test]
     fn intact_draft_conserves_components_without_authorizing_migration() {
         let (_temp, path) = fixture();

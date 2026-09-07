@@ -22,11 +22,20 @@ duplicate-timestamp ties are ambiguous. If a candidate prefers another anchor,
 the unmatched anchor remains unknown: it cannot consume a farther leftover
 record merely because its nearest record was already used.
 
-The five standard integer fields (input, cache read, output, reasoning and total)
-must be present and valid. Null/partial/malformed usage is not a measured zero.
-Missing or null optional cache-write detail remains unknown. An invalid nearest
+The shared source parser requires five unsigned integer fields (input, cache
+read, output, reasoning and total); unsigned numeric strings remain supported.
+It never fabricates missing fields or derives an absent declared total. Complete
+but non-conserving records remain available to the diagnostic guard for quarantine;
+sampling and reconstruction accept only invariant-valid quantities.
+Null/partial/malformed usage is not a measured zero. Optional cache-write aliases
+`cache_write_input_tokens`, `cache_write_tokens` and `input_cache_write_tokens`
+have the same semantics: null/absent is unknown, consistent non-null aliases are
+one field, conflicting aliases invalidate the snapshot. An invalid nearest
 snapshot remains an unavailable candidate, so filtering it out cannot force a
 match to an older amount. Only explicit `event_msg`/`token_count` records qualify.
+Null/absent `info` is a metadata-only notification, not a numeric candidate or
+counter reset; existing quota normalization remains independent. A non-null,
+incomplete usage payload is different and is not silently ignored as metadata.
 
 For example, anchors at 0/20 ms and candidate rows at 15/150 ms previously
 allowed a greedy 0→15, 20→150 assignment. The new rule associates 20→15 only;
@@ -64,6 +73,12 @@ facts. Their first cumulative snapshot is not attributed as a new amount.
 Last-only records remain supported for a whole stream observed from its start;
 after cumulative mode begins, missing/invalid totals break continuity rather than
 bridging the gap into a later timestamp. A restart restores the same numeric state.
+Reconstruction now persists an additive `counter_continuity_lost` checkpoint bit;
+missing/invalid cumulative snapshots and malformed JSON cannot transfer gap usage
+to the next dated/model/account observation. That next valid counter establishes
+a baseline only. A valid counter without a timestamp likewise advances only the
+baseline, not dated consumption. Skipped non-usage JSON is validated without
+allocating prompt trees, and first-line UTF-8 BOM handling matches reconstruction.
 Each supplied sampling-source cohort, its log cursor, and its candidate counter
 cursors commit in one transaction. A failed candidate-cursor write rolls back
 the facts and log cursor too. This is not yet a bounded-history scan/latency claim.
@@ -101,8 +116,8 @@ Whole-file metadata-free root streams retain the legacy anchored path; this is
 not available to indexed children or offset-only unknown histories and is not
 full canonical provenance proof.
 
-**Production promotion remains gated.** Legacy last-only evidence, malformed
-field parity, reset/rollback identification, source continuity, cross-poll
+**Production promotion remains gated.** Legacy last-only/partial evidence,
+reset/rollback identification, source continuity, cross-poll
 association coverage and unresolved anchors still require eligibility review.
 A local row/version key does not prove distinct consumption. Shared arithmetic
 and boundary decisions do not certify missing history or authorize migration.
@@ -123,6 +138,17 @@ The same source fixture now contains foreign metadata and an inherited baseline
 before its own start. Dedicated regressions cover the child's fast first sample,
 foreign replay across a long gap and serialized restart, rejected UUIDv4 starts,
 numeric-only checkpoint upgrade and partial/future boundary records.
+Malformed-JSON/restart ingestion keeps the gap out of all five aggregate
+dimensions. A quota-only notification sharing the next sample's timestamp
+neither creates a tie nor breaks continuity. Cache aliases, unsigned strings,
+undated counters and first-line BOM are covered. Older synthetic fixtures now
+state intended zero reasoning/cache values explicitly; missing-field tests
+separately require unknown rather than weakening parser rules to pass fixtures.
+
+These rules gate complete local evidence; they do not establish that missing
+components erase an otherwise real upstream request. Historical partial records
+need separate completeness/eligibility review, not deletion or measured-zero
+replacement. No old confirmed row is changed by these forward parser edits.
 
 Legacy association enrichment must use source observations and actual rollout
 positions with frozen-value validation; equality of copied numbers is not a

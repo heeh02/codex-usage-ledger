@@ -123,6 +123,22 @@ impl CandidateCounterCheckpoint {
         let total = record
             .pointer("/payload/info/total_token_usage")
             .and_then(parse_candidate_usage);
+        let is_token = record.get("type").and_then(Value::as_str) == Some("event_msg")
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+        if is_token && !crate::replay::is_usage_snapshot(record) {
+            return (None, Some("post_sampling_metadata_only"));
+        }
+        if is_token && record_timestamp(record).is_none() {
+            self.break_continuity();
+            self.previous_total = total;
+            return (None, Some("post_sampling_missing_usage_timestamp"));
+        }
+        if is_token
+            && total.is_none()
+            && (self.cumulative_seen || record.pointer("/payload/info/total_token_usage").is_some())
+        {
+            self.break_continuity();
+        }
         if record.get("type").and_then(Value::as_str) == Some("session_meta") {
             self.allow_unframed = false;
         }
@@ -196,6 +212,13 @@ impl CandidateCounterCheckpoint {
             None
         };
         (step.usage, reason)
+    }
+
+    fn break_continuity(&mut self) {
+        self.previous_total = None;
+        self.cumulative_seen = true;
+        self.allow_initial_sample = false;
+        self.last_token_at = None;
     }
 }
 
@@ -998,6 +1021,14 @@ fn read_usage_candidates(
             break;
         }
         durable_offset = reader.stream_position()?;
+        let record_text = if line_start == 0 {
+            line.strip_prefix('\u{feff}').unwrap_or(&line)
+        } else {
+            &line
+        };
+        if line.trim().is_empty() {
+            continue;
+        }
         if ![
             "token_count",
             "session_meta",
@@ -1007,20 +1038,26 @@ fn read_usage_candidates(
         .iter()
         .any(|kind| line.contains(kind))
         {
+            // Validate skipped JSON without allocating/storing prompt bodies.
+            // A malformed line may have been a token record; never bridge it.
+            if serde_json::from_str::<serde::de::IgnoredAny>(record_text).is_err() {
+                counter.break_continuity();
+            }
             continue;
         }
-        let value: Value = match serde_json::from_str(&line) {
+        let value: Value = match serde_json::from_str(record_text) {
             Ok(value) => value,
-            Err(_) => continue,
+            Err(_) => {
+                counter.break_continuity();
+                continue;
+            }
         };
         if record_timestamp(&value).is_some_and(|timestamp| timestamp > safe_before) {
             durable_offset = line_start;
             break;
         }
         let (usage, unavailable_reason) = counter.observe_record(&value, thread_id, is_child);
-        if value.get("type").and_then(Value::as_str) != Some("event_msg")
-            || value.pointer("/payload/type").and_then(Value::as_str) != Some("token_count")
-        {
+        if !crate::replay::is_usage_snapshot(&value) {
             continue;
         }
         let Some(observed_at) = value
@@ -1149,22 +1186,7 @@ fn extract_field(body: &str, marker: &str) -> Option<String> {
 }
 
 fn parse_candidate_usage(value: &Value) -> Option<TokenUsage> {
-    let input_tokens = value.get("input_tokens")?.as_u64()?;
-    let cache_write = match value.get("cache_write_input_tokens") {
-        None | Some(Value::Null) => None,
-        Some(value) => Some(value.as_u64()?),
-    };
-    let usage = TokenUsage {
-        input_tokens,
-        cached_input_tokens: value.get("cached_input_tokens")?.as_u64()?,
-        cache_write_input_tokens: cache_write.unwrap_or_default(),
-        cache_write_observed_input_tokens: cache_write.map_or(0, |_| input_tokens),
-        output_tokens: value.get("output_tokens")?.as_u64()?,
-        reasoning_output_tokens: value.get("reasoning_output_tokens")?.as_u64()?,
-        total_tokens: value.get("total_tokens")?.as_u64()?,
-    };
-    usage.validate().ok()?;
-    Some(usage)
+    crate::replay::parse_usage(value).filter(|usage| usage.validate().is_ok())
 }
 
 fn timestamp_nanos(value: DateTime<Utc>) -> i128 {
@@ -1217,6 +1239,93 @@ mod tests {
 
     use super::*;
     use crate::store::AggregateFilter;
+
+    #[test]
+    fn undated_usage_advances_only_the_baseline_not_the_next_dated_amount() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("undated.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(1);
+        let mut first: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        let mut missing = first.clone();
+        missing.as_object_mut().unwrap().remove("timestamp");
+        missing["payload"]["info"]["total_token_usage"] = serde_json::json!({"input_tokens":190,"cached_input_tokens":170,
+            "output_tokens":10,"reasoning_output_tokens":3,"total_tokens":200});
+        let mut next = missing.clone();
+        next["timestamp"] = serde_json::json!((at + chrono::Duration::seconds(1)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            next["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                next["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        fs::write(
+            &path,
+            format!(
+                "\u{feff}{}\n{first}\n{missing}\n{next}\n",
+                serde_json::json!({"type":"session_meta","payload":{"id":"root"}})
+            ),
+        )
+        .unwrap();
+        let mut state = CandidateCounterCheckpoint::new(0);
+        let (records, _) =
+            read_usage_candidates(&path, 0, &mut 0, Utc::now(), &mut state, "root", false).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].usage.unwrap().total_tokens, 100);
+        assert_eq!(records[1].usage.unwrap().total_tokens, 50);
+    }
+
+    #[test]
+    fn rollout_adapters_share_missing_and_cache_alias_semantics() {
+        let at = Utc::now();
+        let line: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        let full = line["payload"]["info"]["last_token_usage"].clone();
+        let mut numeric_strings = full.clone();
+        for value in numeric_strings.as_object_mut().unwrap().values_mut() {
+            *value = serde_json::json!(value.as_u64().unwrap().to_string());
+        }
+        assert_eq!(
+            parse_candidate_usage(&numeric_strings),
+            parse_candidate_usage(&full)
+        );
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            let mut partial = full.clone();
+            partial.as_object_mut().unwrap().remove(field);
+            let parsed = crate::replay::parse_token_sample(
+                &serde_json::json!({"payload":{"info":{"last_token_usage":partial}}}),
+            );
+            assert_eq!(parsed.last, None, "{field} must not be manufactured");
+        }
+        for alias in [
+            "cache_write_input_tokens",
+            "cache_write_tokens",
+            "input_cache_write_tokens",
+        ] {
+            let mut sample = full.clone();
+            sample[alias] = serde_json::json!(5);
+            let parsed = parse_candidate_usage(&sample).unwrap();
+            assert_eq!(parsed.cache_write_input_tokens, 5);
+            assert_eq!(parsed.cache_write_observed_input_tokens, 90);
+            sample[alias] = Value::Null;
+            let parsed = crate::replay::parse_token_sample(
+                &serde_json::json!({"payload":{"info":{"last_token_usage":sample}}}),
+            );
+            assert_eq!(parsed.last.unwrap().cache_write_observed_input_tokens, 0);
+        }
+        let mut conflict = full;
+        conflict["cache_write_input_tokens"] = serde_json::json!(5);
+        conflict["cache_write_tokens"] = serde_json::json!(6);
+        assert!(parse_candidate_usage(&conflict).is_none());
+    }
 
     #[test]
     fn bounded_header_recovery_does_not_assume_a_live_stream() {
@@ -2217,7 +2326,10 @@ mod tests {
         let inherited = serde_json::json!({"timestamp":(at-chrono::Duration::milliseconds(500)).to_rfc3339(),
             "type":"event_msg","payload":{"type":"token_count","info":{
                 "total_token_usage":inherited_usage,"last_token_usage":inherited_usage}}});
-        fs::write(&rollout, format!("{}\n{}\n{inherited}\n{}\n{}\n{}\n{}\n",
+        let quota_only = serde_json::json!({"timestamp":(at+chrono::Duration::seconds(1)).to_rfc3339(),
+            "type":"event_msg","payload":{"type":"token_count","info":null,
+                "rate_limits":{"primary":{"used_percent":10}}}});
+        fs::write(&rollout, format!("{}\n{}\n{inherited}\n{}\n{}\n{}\n{quota_only}\n{}\n",
             serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),
             serde_json::json!({"type":"session_meta","payload":{"id":"ancestor"}}),
             serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":at.timestamp()}}),
@@ -2357,6 +2469,117 @@ mod tests {
                 );
             }
         }
+        // A malformed record without any token keyword must still break both
+        // adapters' continuity. The next valid timestamp establishes a baseline.
+        let baseline_at = third_at + chrono::Duration::seconds(1);
+        let mut after_gap = third.clone();
+        after_gap["timestamp"] = serde_json::json!(baseline_at.to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            after_gap["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                after_gap["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 100
+            );
+        }
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "broken-json\n{after_gap}"
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, baseline_at, "gap-baseline");
+        let sample = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((sample.matched, sample.unmatched), (0, 1));
+        assert_eq!(
+            crate::reconstruction::ingest_reconstruction_batch(
+                &mut store,
+                temporary.path(),
+                "machine",
+                8
+            )
+            .unwrap()
+            .inserted_events,
+            0
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected
+        );
+        drop(store);
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        after_gap["timestamp"] =
+            serde_json::json!((baseline_at + chrono::Duration::seconds(1)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            after_gap["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                after_gap["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{after_gap}"
+        )
+        .unwrap();
+        insert_log(
+            &logs,
+            baseline_at + chrono::Duration::seconds(1),
+            "after-gap",
+        );
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        let mut expected_after = expected;
+        expected_after.input_tokens += 50;
+        expected_after.cached_input_tokens += 50;
+        expected_after.total_tokens += 50;
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected_after
+        );
+        for dimension in [
+            crate::store::AggregateDimension::Account,
+            crate::store::AggregateDimension::Model,
+            crate::store::AggregateDimension::Project,
+            crate::store::AggregateDimension::Thread,
+            crate::store::AggregateDimension::Day,
+        ] {
+            let buckets = store
+                .aggregate_exact_time_series(
+                    crate::store::TimeGrain::Day,
+                    Some(dimension),
+                    &AggregateFilter::default(),
+                    "Asia/Shanghai",
+                )
+                .unwrap();
+            assert_eq!(
+                buckets
+                    .iter()
+                    .map(|bucket| bucket.usage.total_tokens)
+                    .sum::<u64>(),
+                480,
+                "{dimension:?}"
+            );
+        }
+        assert_eq!(
+            ingest_post_sampling(&mut store, temporary.path(), "machine")
+                .unwrap()
+                .bytes_read,
+            0
+        );
         let digest = crate::reconstruction::source_record_digest(&first);
         second = first.clone();
         second["timestamp"] = serde_json::json!("2020-01-01T00:00:00Z");

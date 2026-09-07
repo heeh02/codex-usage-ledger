@@ -62,6 +62,8 @@ separate categories. `suppressedByRule` explains the current parser's rule for
 each stored-but-unemitted row: foreign history, child prefix, unchanged counter,
 initial/reset counter without valid last usage, awaiting canonical metadata, or
 an explicitly unresolved unknown/zero reason. These are parser explanations,
+with separate invalid cumulative, missing timestamp and broken-continuity reasons
+under the current shared-stream draft policy. They are
 not server-certified billing decisions. Their counts/components must sum to the
 suppressed category. Missing legacy source keys remain separately counted.
 

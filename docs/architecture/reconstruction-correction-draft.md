@@ -48,8 +48,11 @@ Exactly one header, ordered measurement records, one completion, then one seal:
 
 - `header`: schema, machine/source/thread, stored and observed file identities,
   initial file length, creation time and explicit parser policy
-  `reconstruction_uuid7_strict_v1`. Semantic parser changes require a new policy
-  identifier and review; this is not a claim about an installed app version.
+  `reconstruction_shared_stream_v2` for new drafts. It includes shared numeric/
+  stream handling and strict fields/continuity semantics. Existing
+  `reconstruction_uuid7_strict_v1` drafts remain verifiable as historical artifacts,
+  not silently upgraded to the new policy. Semantic parser changes require a new
+  policy identifier and review; this is not an installed app version claim.
 - `record`: strictly increasing source byte offset, source-record JSON digest,
   comparison action, suppression reason if applicable, and nullable stored and
   proposed facts. Old hashes and all Token fields are retained. Proposed source
@@ -61,6 +64,9 @@ Exactly one header, ordered measurement records, one completion, then one seal:
 
 The verifier checks order, lengths, counts, byte positions, event/key identity,
 Token invariants, action consistency, allowed suppression reasons and the seal.
+The new policy additionally permits `invalid_or_missing_cumulative_usage`,
+`missing_usage_timestamp` and `counter_continuity_gap` suppression explanations;
+declaring those under the old policy is rejected. They are not deletion authority.
 It recomputes category counts and all stored/proposed Token components. A missing
 side stays null. Old and proposed amounts are alternatives, never additive usage.
 The seal includes completion metadata, not just measurement lines.

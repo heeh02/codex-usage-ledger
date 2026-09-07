@@ -21,6 +21,37 @@ mod tests {
     }
 
     #[test]
+    fn incomplete_counter_is_explained_in_audit_and_review_draft() {
+        let (temp, _store, path) = fixture();
+        let mut records: Vec<Value> = fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        records[1]["payload"]["info"]["total_token_usage"]
+            .as_object_mut()
+            .unwrap()
+            .remove("reasoning_output_tokens");
+        fs::write(&path, format!("{}\n{}\n", records[0], records[1])).unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        let report = serde_json::to_value(
+            super::super::audit_reconstruction_file(&db, temp.path(), "root", 4096, 100, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            report["suppressedByRule"]["invalid_or_missing_cumulative_usage"]["records"],
+            1
+        );
+        assert_eq!(report["migrationReady"], false);
+        let output = tempfile::tempdir().unwrap();
+        let draft = output.path().join("incomplete-counter-draft.jsonl");
+        super::super::write_correction_manifest(&db, temp.path(), "root", 4096, 100, false, &draft)
+            .unwrap();
+        super::super::verify_correction_manifest(&draft).unwrap();
+    }
+
+    #[test]
     fn correction_draft_roundtrips_without_changing_sources_or_overwriting_files() {
         let (temp, store, path) = fixture();
         let out = tempfile::tempdir().unwrap();
@@ -198,8 +229,8 @@ mod tests {
             writeln!(file, "{padding}").unwrap();
         }
         let token = serde_json::json!({"timestamp":"2026-01-01T00:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{
-            "total_token_usage":{"input_tokens":1200,"cached_input_tokens":1060,"output_tokens":0,"total_tokens":1200},
-            "last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":0,"total_tokens":100}}}});
+            "total_token_usage":{"input_tokens":1200,"cached_input_tokens":1060,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":1200},
+            "last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":100}}}});
         writeln!(file, "{token}").unwrap();
         drop(file);
         let db = temp.path().join("ledger.sqlite3");
@@ -354,8 +385,8 @@ mod tests {
         let path = sessions.join("rollout.jsonl");
         let meta = serde_json::json!({"timestamp":"2026-01-01T00:00:00Z","type":"session_meta","payload":{"id":"root"}});
         let token = serde_json::json!({"timestamp":"2026-01-01T00:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{
-            "total_token_usage":{"input_tokens":1100,"cached_input_tokens":1000,"output_tokens":0,"total_tokens":1100},
-            "last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":0,"total_tokens":100}}}});
+            "total_token_usage":{"input_tokens":1100,"cached_input_tokens":1000,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":1100},
+            "last_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":100}}}});
         fs::write(&path, format!("{meta}\n{token}\n")).unwrap();
         let index = Connection::open(temp.path().join("state_5.sqlite")).unwrap();
         index

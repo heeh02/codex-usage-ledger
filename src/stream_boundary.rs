@@ -99,11 +99,10 @@ impl StreamBoundary {
             let near = |earlier: DateTime<Utc>| {
                 at.signed_duration_since(earlier).num_milliseconds().max(0) <= 2_000
             };
-            let inherited = if has_counter {
-                last_token_at.is_some_and(near)
-            } else {
-                self.canonical_at.is_some_and(near)
-            };
+            let inherited = last_token_at
+                .filter(|_| has_counter)
+                .map(near)
+                .unwrap_or_else(|| self.canonical_at.is_some_and(near));
             if inherited {
                 return BoundaryAction::Baseline;
             }

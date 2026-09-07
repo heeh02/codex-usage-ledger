@@ -122,6 +122,8 @@ struct ReconstructionCheckpoint {
     foreign_replay: bool,
     canonical_at: Option<DateTime<Utc>>,
     previous_total: Option<TokenUsage>,
+    #[serde(default)]
+    counter_continuity_lost: bool,
     /// Counter bookkeeping predating the first identifiable sample, never an
     /// event to assign to its timestamp/model/account. None can mean incomparable.
     #[serde(default)]
@@ -144,6 +146,7 @@ impl ReconstructionCheckpoint {
             foreign_replay: false,
             canonical_at: None,
             previous_total: None,
+            counter_continuity_lost: false,
             initial_counter_prefix: None,
             last_token_at: None,
             model: target.model.clone(),
@@ -636,10 +639,26 @@ fn process_line(
     }
     let record = match line.parse_json() {
         Ok(record) => record,
-        Err(_) => return Ok(None),
+        Err(_) => {
+            state.previous_total = None;
+            state.last_token_at = None;
+            state.counter_continuity_lost = true;
+            return Ok(None);
+        }
     };
     let sample = parse_token_sample(&record);
     let total = sample.total.filter(|usage| valid_usage(*usage));
+    let is_token = record.get("type").and_then(Value::as_str) == Some("event_msg")
+        && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+    if is_token && !crate::replay::is_usage_snapshot(&record) {
+        return Ok(None);
+    }
+    if is_token && (total.is_none() || source_timestamp(&record).is_none()) {
+        state.previous_total = total;
+        state.last_token_at = None;
+        state.counter_continuity_lost = total.is_none();
+        return Ok(None);
+    }
     let mut boundary = StreamBoundary {
         phase: state.phase,
         foreign_replay: state.foreign_replay,
@@ -686,6 +705,7 @@ fn process_line(
         BoundaryAction::Baseline => {
             if let Some(total) = total {
                 state.previous_total = Some(total);
+                state.counter_continuity_lost = false;
                 state.last_token_at = source_timestamp(&record);
                 state.prefix_events = state.prefix_events.saturating_add(1);
             }
@@ -701,9 +721,18 @@ fn process_line(
         return Ok(None);
     };
 
-    let step = crate::counter::normalize_counter(state.previous_total, total, sample.last);
+    let had_continuity_gap = state.counter_continuity_lost;
+    let last = if had_continuity_gap {
+        None
+    } else {
+        sample.last
+    };
+    let step = crate::counter::normalize_counter(state.previous_total, total, last);
+    state.counter_continuity_lost = false;
     if state.previous_total.is_none() {
-        state.initial_counter_prefix = step.initial_prefix;
+        if !had_continuity_gap {
+            state.initial_counter_prefix = step.initial_prefix;
+        }
         if step.usage.is_none() {
             state.prefix_events = state.prefix_events.saturating_add(1);
         }
@@ -1014,6 +1043,96 @@ mod tests {
             cwd: Some("/tmp/project".to_owned()),
             model: Some("gpt-test".to_owned()),
         }
+    }
+
+    #[test]
+    fn damaged_counter_cannot_move_gap_usage_to_the_next_timestamp() {
+        let mut target = child_target();
+        target.parent_thread_id = None;
+        let mut state = ReconstructionCheckpoint::new(&target);
+        let attribution = TargetAttribution {
+            project: ProjectAttribution {
+                project_id: None,
+                project_name: None,
+                confidence: AttributionConfidence::Unknown,
+                method: "test".into(),
+            },
+            parent_thread_id: None,
+        };
+        process_line(&mut state,&line(0,serde_json::json!({"timestamp":"2026-09-01T00:00:00Z","type":"session_meta","payload":{"id":"child"}})),&target,"m","s","f",&attribution,&[]).unwrap();
+        assert_eq!(
+            process_line(
+                &mut state,
+                &line(1, token("2026-09-01T00:00:01Z", 100, 100)),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .unwrap()
+            .event
+            .usage
+            .total_tokens,
+            100
+        );
+        let mut broken = token("2026-09-01T00:00:02Z", 200, 100);
+        broken["payload"]["info"]["total_token_usage"] = Value::Null;
+        assert!(
+            process_line(
+                &mut state,
+                &line(2, broken),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .is_none()
+        );
+        state = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(
+            process_line(
+                &mut state,
+                &line(3, token("2026-09-01T00:00:03Z", 300, 100)),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .is_none(),
+            "cannot assign a 200-token gap to the next valid timestamp"
+        );
+        assert_eq!(
+            state.initial_counter_prefix,
+            Some(TokenUsage::default()),
+            "a later gap baseline must not overwrite the original prefix metadata"
+        );
+        assert_eq!(
+            process_line(
+                &mut state,
+                &line(4, token("2026-09-01T00:00:04Z", 350, 100)),
+                &target,
+                "m",
+                "s",
+                "f",
+                &attribution,
+                &[]
+            )
+            .unwrap()
+            .unwrap()
+            .event
+            .usage
+            .total_tokens,
+            50
+        );
     }
 
     #[test]

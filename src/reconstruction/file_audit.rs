@@ -111,7 +111,7 @@ pub(super) fn run_file_audit(
         let source = &sources[0];
         sink.begin(correction_manifest::ManifestHeader {
             version: 1,
-            policy: "reconstruction_uuid7_strict_v1".into(),
+            policy: correction_manifest::CURRENT_RECONSTRUCTION_POLICY.into(),
             ledger_schema: store.schema_version()?,
             machine_id: source.machine_id.clone(),
             source_id: source.source_id.clone(),
@@ -201,6 +201,7 @@ pub(super) fn run_file_audit(
                 let previous_unchanged = state.unchanged_events;
                 let previous_resets = state.counter_resets;
                 let had_previous_total = state.previous_total.is_some();
+                let had_continuity_gap = state.counter_continuity_lost;
                 let proposal = process_line(
                     &mut state,
                     line,
@@ -234,6 +235,12 @@ pub(super) fn run_file_audit(
                         "child_prefix_guard"
                     } else if state.unchanged_events > previous_unchanged {
                         "unchanged_counter"
+                    } else if state.counter_continuity_lost {
+                        "invalid_or_missing_cumulative_usage"
+                    } else if source_timestamp(&record).is_none() {
+                        "missing_usage_timestamp"
+                    } else if had_continuity_gap {
+                        "counter_continuity_gap"
                     } else if !had_previous_total && state.initial_counter_prefix.is_some() {
                         "initial_counter_without_last"
                     } else if state.counter_resets > previous_resets {

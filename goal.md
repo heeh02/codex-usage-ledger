@@ -140,8 +140,9 @@ continuity/rebinding; matching inode alone is not sufficient. See the
   current importer; agreement between these representations is not independent
   numeric calibration. See [sampling provenance](docs/architecture/sampling-value-provenance.md).
   Shared numeric normalization and canonical/replay boundary decisions are
-  implemented for new sampling and reconstruction reads. Legacy stream eligibility,
-  source continuity and malformed-counter parity remain open.
+  implemented for new sampling and reconstruction reads; shared strict parsing
+  and broken-counter continuity now cover both primary adapters. Legacy partial
+  evidence eligibility and source continuity remain open.
   Next accounting priority is legacy provenance enrichment and
   reviewed promotion. Raw snapshot positions alone cannot prove independent
   quantities when counters are re-emitted or history is inherited.
@@ -1843,3 +1844,28 @@ No live data migration, installed-app replacement or release has occurred.
   legacy provenance, reset/rollback eligibility or complete account history.
   Controlled union promotion, historical migration, real-account/native acceptance
   and the full goal remain open. No live ledger or installed app was changed.
+- Batch 156: reproduced missing-field synthesis and broken cumulative continuity
+  assigning a gap to a later timestamp. Sampling/reconstruction now share one
+  presence-aware source parser: five standard unsigned fields are required,
+  numeric strings remain supported, null write detail is unknown, and all three
+  write aliases must agree. Complete non-conserving diagnostic evidence remains
+  quarantinable. Reconstruction now persists continuity loss; damaged counters
+  or malformed JSON require a new baseline rather than allocating the gap to a
+  later model/account/time. A later baseline preserves original-prefix metadata.
+  Undated valid counters advance only the baseline. Skipped JSON is validated
+  without constructing prompt trees and first-line BOM handling is aligned.
+  Metadata-only token_count quota notifications are explicitly excluded from
+  quantity candidates and do not break counters or create matching ties.
+  A cross-adapter fixture verifies inherited history, stale last usage, a quota
+  notification, malformed JSON, restart and resumed increment; component totals
+  and all five aggregate dimensions agree without allocating the gap. Existing
+  synthetic fixtures now state intended zero fields explicitly, while dedicated
+  missing-field tests require unknown. Audit/draft output explains invalid
+  cumulative, undated and gap-baseline suppression separately. New drafts use
+  reconstruction_shared_stream_v2; old sealed policy-v1 drafts stay verifiable
+  without being relabeled, and new reasons cannot masquerade as old policy.
+  Rust 291 tests, Clippy and generated API contracts pass. No historical facts,
+  live ledger, installed app or account state was changed. Legacy partial-field
+  eligibility, reset/rollback interpretation, source-occurrence linkage and
+  controlled union promotion still require review; this is not real-account
+  calibration or permission to delete partially known history. Full goal ACTIVE.

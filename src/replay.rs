@@ -650,7 +650,17 @@ pub(crate) fn task_belongs_to_canonical_stream(
     matches!((started_at_ms, canonical_ms), (Some(started), Some(canonical)) if started.saturating_add(2_000) >= canonical)
 }
 
-/// Extract both cumulative context and the actual per-sampling delta.
+/// Distinguish numeric snapshots from token_count metadata notifications.
+pub(crate) fn is_usage_snapshot(record: &Value) -> bool {
+    record.get("type").and_then(Value::as_str) == Some("event_msg")
+        && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count")
+        && record
+            .pointer("/payload/info")
+            .is_some_and(|info| !info.is_null())
+}
+
+/// Extract quantities, if present. A token_count with null/absent info can
+/// carry a quota update only and is not itself a damaged cumulative snapshot.
 pub fn parse_token_sample(record: &Value) -> TokenSample {
     let info = record.pointer("/payload/info");
     TokenSample {
@@ -663,32 +673,32 @@ pub fn parse_token_sample(record: &Value) -> TokenSample {
     }
 }
 
-fn parse_usage(value: &Value) -> Option<TokenUsage> {
+/// Parse present unsigned fields without inventing absent measurements. Keep
+/// invariant validation at the consumer so diagnostic guards can quarantine
+/// complete but non-conserving records rather than losing their raw evidence.
+pub(crate) fn parse_usage(value: &Value) -> Option<TokenUsage> {
     let object = value.as_object()?;
-    let input_tokens = object.get("input_tokens").and_then(json_u64).unwrap_or(0);
-    let cached_input_tokens = object
-        .get("cached_input_tokens")
-        .and_then(json_u64)
-        .unwrap_or(0);
-    let cache_write_value = object
-        .get("cache_write_input_tokens")
-        .or_else(|| object.get("cache_write_tokens"))
-        .or_else(|| object.get("input_cache_write_tokens"));
-    let cache_write_input_tokens = cache_write_value.and_then(json_u64).unwrap_or(0);
-    let cache_write_observed_input_tokens = if cache_write_value.is_some() {
-        input_tokens
-    } else {
-        0
-    };
-    let output_tokens = object.get("output_tokens").and_then(json_u64).unwrap_or(0);
-    let reasoning_output_tokens = object
-        .get("reasoning_output_tokens")
-        .and_then(json_u64)
-        .unwrap_or(0);
-    let total_tokens = object
-        .get("total_tokens")
-        .and_then(json_u64)
-        .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
+    let input_tokens = object.get("input_tokens").and_then(json_u64)?;
+    let cached_input_tokens = object.get("cached_input_tokens").and_then(json_u64)?;
+    let mut cache_write = None;
+    for name in [
+        "cache_write_input_tokens",
+        "cache_write_tokens",
+        "input_cache_write_tokens",
+    ] {
+        if let Some(value) = object.get(name).filter(|value| !value.is_null()) {
+            let parsed = json_u64(value)?;
+            if cache_write.is_some_and(|previous| previous != parsed) {
+                return None;
+            }
+            cache_write = Some(parsed);
+        }
+    }
+    let cache_write_input_tokens = cache_write.unwrap_or(0);
+    let cache_write_observed_input_tokens = cache_write.map_or(0, |_| input_tokens);
+    let output_tokens = object.get("output_tokens").and_then(json_u64)?;
+    let reasoning_output_tokens = object.get("reasoning_output_tokens").and_then(json_u64)?;
+    let total_tokens = object.get("total_tokens").and_then(json_u64)?;
     Some(TokenUsage {
         input_tokens,
         cached_input_tokens,
@@ -884,7 +894,7 @@ mod tests {
     fn missing_last_usage_never_becomes_confirmed_usage() {
         let lines = fixture_lines(
             "{\"type\":\"session_meta\",\"timestamp\":\"2026-08-31T00:00:00Z\",\"payload\":{\"id\":\"01a05549-db09-7e23-a8fa-4591323280d0\"}}\n\
-             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":9,\"output_tokens\":1,\"total_tokens\":10}}}}\n",
+             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":9,\"cached_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0,\"total_tokens\":10}}}}\n",
         );
         let mut guard = guard();
         guard.process_line(&lines[0], observed_at());
@@ -897,7 +907,7 @@ mod tests {
     fn non_conserving_last_usage_is_quarantined() {
         let lines = fixture_lines(
             "{\"type\":\"session_meta\",\"timestamp\":\"2026-08-31T00:00:00Z\",\"payload\":{\"id\":\"01a05549-db09-7e23-a8fa-4591323280d0\"}}\n\
-             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":90,\"output_tokens\":10,\"reasoning_output_tokens\":11,\"total_tokens\":101}}}}\n",
+             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":90,\"cached_input_tokens\":0,\"output_tokens\":10,\"reasoning_output_tokens\":11,\"total_tokens\":101}}}}\n",
         );
         let mut guard = guard();
         guard.process_line(&lines[0], observed_at());
@@ -918,6 +928,7 @@ mod tests {
                 "cached_input_tokens": 70,
                 "cache_write_input_tokens": 10,
                 "output_tokens": 20,
+                "reasoning_output_tokens": 0,
                 "total_tokens": 120
             }}}
         });
@@ -933,6 +944,7 @@ mod tests {
                 "input_tokens": 100,
                 "cached_input_tokens": 70,
                 "output_tokens": 20,
+                "reasoning_output_tokens": 0,
                 "total_tokens": 120
             }}}
         });
