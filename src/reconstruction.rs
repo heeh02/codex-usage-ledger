@@ -258,6 +258,7 @@ pub fn ingest_reconstruction_batch_for_project(
 
     let mut refreshed = store.reconstruction_sources()?;
     let mut identity_reviews = Vec::new();
+    let mut unbound_sources_checked = false;
     for status in refreshed
         .iter()
         .filter(|source| source.machine_id == machine_id)
@@ -279,9 +280,22 @@ pub fn ingest_reconstruction_batch_for_project(
             continue;
         };
         let Ok(metadata) = fs::metadata(&target.path) else {
+            report
+                .issues
+                .push("indexed_reconstruction_source_unavailable".to_owned());
             continue;
         };
         let current_identity = physical_file_identity(&target.path, &metadata)?;
+        if status.file_identity.is_empty() && status.status == ReconstructionStatus::Unrecoverable {
+            store.refresh_arrived_unbound_source(
+                machine_id,
+                &status.source_id,
+                &current_identity,
+                metadata.len(),
+            )?;
+            unbound_sources_checked = true;
+            continue;
+        }
         if !status.file_identity.is_empty() && status.file_identity != current_identity {
             // A device number change is not proof of replacement, and even a
             // replacement is not permission to delete retained history.
@@ -300,6 +314,8 @@ pub fn ingest_reconstruction_batch_for_project(
     }
     if !identity_reviews.is_empty() {
         store.upsert_reconstruction_sources(&identity_reviews)?;
+    }
+    if unbound_sources_checked || !identity_reviews.is_empty() {
         refreshed = store.reconstruction_sources()?;
     }
     report.identity_review_sources = refreshed

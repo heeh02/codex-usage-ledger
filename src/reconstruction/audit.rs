@@ -245,6 +245,96 @@ mod tests {
     }
 
     #[test]
+    fn unbound_source_recovery_never_overrides_history_progress_or_review() {
+        for evidence in [
+            "events",
+            "cursor",
+            "bytes",
+            "prefix",
+            "unchanged",
+            "reset",
+            "review",
+        ] {
+            let (temp, mut store, _) = fixture();
+            store.connection().execute_batch("UPDATE reconstruction_sources SET file_identity='',status='unrecoverable',bytes_processed=0,prefix_events=0,unchanged_events=0,counter_resets=0,last_error='initial failure'").unwrap();
+            if evidence != "events" {
+                store
+                    .connection()
+                    .execute("DELETE FROM reconstruction_usage_events", [])
+                    .unwrap();
+            }
+            if evidence != "cursor" {
+                store
+                    .connection()
+                    .execute("DELETE FROM file_cursors", [])
+                    .unwrap();
+            }
+            let sql = match evidence {
+                "bytes" => "UPDATE reconstruction_sources SET bytes_processed=1",
+                "prefix" => "UPDATE reconstruction_sources SET prefix_events=1",
+                "unchanged" => "UPDATE reconstruction_sources SET unchanged_events=1",
+                "reset" => "UPDATE reconstruction_sources SET counter_resets=1",
+                "review" => {
+                    "UPDATE reconstruction_sources SET last_error='source_identity_verification_required'"
+                }
+                _ => "SELECT 1",
+            };
+            store.connection().execute_batch(sql).unwrap();
+            let saved = store.get_cursor("machine", &source_id("root")).unwrap();
+            for _ in 0..2 {
+                let report =
+                    ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+                assert_eq!(report.identity_review_sources, 1, "{evidence}");
+                assert_eq!(report.bytes_read, 0, "{evidence}");
+                assert_eq!(report.inserted_events, 0, "{evidence}");
+                let source = store.reconstruction_sources().unwrap().remove(0);
+                assert!(source.file_identity.is_empty(), "{evidence}");
+                assert_eq!(
+                    store.get_cursor("machine", &source_id("root")).unwrap(),
+                    saved,
+                    "{evidence}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_source_missing_on_first_discovery_is_imported_when_it_arrives() {
+        let (temp, old_store, path) = fixture();
+        drop(old_store);
+        let parked = temp.path().join("parked.jsonl");
+        fs::rename(&path, &parked).unwrap();
+        let mut store = LedgerStore::open(temp.path().join("late-ledger.sqlite3")).unwrap();
+        let absent = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(absent.inserted_events, 0);
+        assert!(
+            absent
+                .issues
+                .iter()
+                .any(|issue| issue == "indexed_reconstruction_source_unavailable")
+        );
+        drop(store);
+        let mut store = LedgerStore::open(temp.path().join("late-ledger.sqlite3")).unwrap();
+        fs::rename(parked, path).unwrap();
+        let arrived = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(
+            arrived.inserted_events, 1,
+            "a transiently missing first file must not be permanently skipped"
+        );
+        assert_eq!(
+            store
+                .aggregate_rollup_usage(&crate::store::AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            100
+        );
+        let idle = ingest_reconstruction_batch(&mut store, temp.path(), "machine", 1).unwrap();
+        assert_eq!(idle.bytes_read, 0);
+        assert_eq!(idle.inserted_events, 0);
+    }
+
+    #[test]
     fn structurally_inconsistent_checkpoint_cannot_replay_from_zero() {
         let (temp, mut store, path) = fixture();
         let target = load_targets(temp.path()).unwrap().remove(0);

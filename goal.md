@@ -1224,3 +1224,20 @@ No live data migration, installed-app replacement or release has occurred.
   not rebuilt in this batch. This is preservation/validation, not approved safe
   rebinding, full race-proof source snapshots, or historical counter correction.
   Continuity recovery, source-union migration and native acceptance keep ACTIVE.
+- Batch 130: resumed the pending late-source recovery patch; its prior tool
+  handle was no longer available and no compiler was running, so reran scoped
+  validation. A source indexed before its file exists previously stayed
+  unavailable forever. First binding now resumes automatically only after one
+  immediate transaction verifies empty identity, no events/cursor/progress and
+  no review marker. Inconsistent unbound history is held for review, and generic
+  unavailable-source cleanup preserves its cursor. Missing indexed files now
+  report a collection issue rather than silently appearing healthy. Disk reopen/
+  arrival/idle tests and seven separate history/progress/review gates pass.
+  Full-suite execution exposed two old fixtures crossing the seven-day raw
+  retention deadline; raw-upsert test time and replay-test rollup reads were
+  corrected separately without relaxing production retention/conflict rules.
+  Final Rust 197 tests, Clippy, API contracts and governance checks pass.
+  No original ledger, source files, native bundle or installed application changed.
+  This fixes first discovery only; safe rebinding of previously observed sources,
+  historical union/migration and native acceptance remain unfinished. Full goal
+  remains ACTIVE.

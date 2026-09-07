@@ -74,6 +74,27 @@ that every failure was an actual file replacement. Verification/rebinding is
 still required before resuming held sources; returning to the same pathname
 does not automatically clear a prior review state.
 
+## Late first-file arrival
+
+Codex may index a conversation before its rollout exists. Previously that first
+missing-file observation created an unbound unavailable source which never
+became eligible again, even after the file appeared. An existing indexed file
+can now initialize an unbound source only if an immediate transaction confirms
+empty identity, no processed bytes/prefix/repeat/reset progress, no reconstruction
+events, no saved cursor and no identity-review marker. This is the first binding
+of a never-ingested source, not rebinding or repair of historical usage.
+
+Unbound sources with any of those prior-history signals are instead marked for
+verification within the same transaction. Generic unavailable-cursor cleanup
+does not erase unbound checkpoints before this check. Missing indexed files
+produce a collection issue so a failed first discovery is not silently healthy.
+After successful first binding, ordinary bounded import/cursor handling applies.
+
+Tests cover file arrival across ledger reopen, one-time import and zero-read
+idle polls. Separate event/cursor/processed-byte/prefix/repeat/reset/review cases
+must all preserve the unbound source and old checkpoint over repeated polls.
+This does not auto-resume a previously bound source or recover deleted records.
+
 Synthetic tests cover legacy/proposed differences, byte and row limits, canonical
 mismatch, root containment, opt-in device drift, read-only source/index/ledger
 bytes, and preservation through repeated drift or actual file replacement.

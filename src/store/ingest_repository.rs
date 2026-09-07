@@ -1,6 +1,45 @@
 use super::*;
 
 impl LedgerStore {
+    /// First binding only; inconsistent unbound history is held for review.
+    /// Returns whether metadata changed, never deletes history or checkpoints.
+    pub(crate) fn refresh_arrived_unbound_source(
+        &mut self,
+        machine_id: &str,
+        source_id: &str,
+        identity: &str,
+        bytes_total: u64,
+    ) -> StoreResult<bool> {
+        if identity.is_empty() {
+            return Err(StoreError::InvalidRequestQuery(
+                "source identity is required",
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated=transaction.execute("UPDATE reconstruction_sources SET file_identity=?3,bytes_total=?4,
+                status='pending',last_error=NULL,updated_at=?5
+            WHERE machine_id=?1 AND source_id=?2 AND file_identity='' AND bytes_processed=0
+                AND prefix_events=0 AND unchanged_events=0 AND counter_resets=0
+                AND status='unrecoverable' AND COALESCE(last_error,'')<>?6
+                AND NOT EXISTS(SELECT 1 FROM reconstruction_usage_events e WHERE e.machine_id=?1 AND e.source_id=?2)
+                AND NOT EXISTS(SELECT 1 FROM file_cursors c WHERE c.machine_id=?1 AND c.source_id=?2)",
+            params![machine_id,source_id,identity,sql_u64(bytes_total,"source_bytes_total")?,timestamp(Utc::now()),RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED])?;
+        let reviewed = if updated == 0 {
+            transaction.execute("UPDATE reconstruction_sources SET last_error=?3,updated_at=?4
+            WHERE machine_id=?1 AND source_id=?2 AND file_identity='' AND status='unrecoverable'
+                AND COALESCE(last_error,'')<>?3 AND (bytes_processed<>0 OR prefix_events<>0 OR unchanged_events<>0 OR counter_resets<>0
+                OR EXISTS(SELECT 1 FROM reconstruction_usage_events e WHERE e.machine_id=?1 AND e.source_id=?2)
+                OR EXISTS(SELECT 1 FROM file_cursors c WHERE c.machine_id=?1 AND c.source_id=?2))",
+            params![machine_id,source_id,RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED,timestamp(Utc::now())])?
+        } else {
+            0
+        };
+        transaction.commit()?;
+        Ok(updated + reviewed > 0)
+    }
+
     pub fn upsert_event(&mut self, event: &UsageEvent) -> StoreResult<UpsertOutcome> {
         let transaction = self
             .connection
@@ -279,6 +318,7 @@ impl LedgerStore {
                    AND source_id IN (
                        SELECT source_id FROM reconstruction_sources
                        WHERE machine_id = ?1 AND status = 'unrecoverable'
+                         AND file_identity <> ''
                          AND COALESCE(last_error, '') <> ?2
                    )",
                 params![machine_id, RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED],
