@@ -42,29 +42,9 @@ pub(crate) struct ObservationSegment {
 pub(crate) fn segments(samples: &[WindowSample]) -> Vec<ObservationSegment> {
     let mut result: Vec<ObservationSegment> = Vec::new();
     for (index, current) in samples.iter().enumerate() {
-        let boundary = index.checked_sub(1).and_then(|previous| {
-            let previous = samples[previous];
-            let changed = current.reset != previous.reset
-                || current.seconds != previous.seconds
-                || current.used != previous.used;
-            if current.at <= previous.at && changed {
-                Some(Boundary::ConflictingTimestamp)
-            } else if current.seconds != previous.seconds {
-                Some(Boundary::WindowChange)
-            } else if current.reset != previous.reset {
-                Some(Boundary::DeadlineChange)
-            } else if previous
-                .used
-                .zip(current.used)
-                .is_some_and(|(before, after)| after < before)
-            {
-                // Even a small drop is preserved. A decrease does not identify
-                // a reset, its cause, the number of grants, or a token capacity.
-                Some(Boundary::ObservedDecrease)
-            } else {
-                None
-            }
-        });
+        let boundary = index
+            .checked_sub(1)
+            .and_then(|previous| boundary_between(samples[previous], *current));
         if index == 0 || boundary.is_some() {
             result.push(ObservationSegment {
                 samples: index..index + 1,
@@ -76,6 +56,29 @@ pub(crate) fn segments(samples: &[WindowSample]) -> Vec<ObservationSegment> {
         }
     }
     result
+}
+
+/// Local predecessor rule shared by preview and persistent history projection.
+pub(crate) fn boundary_between(previous: WindowSample, current: WindowSample) -> Option<Boundary> {
+    let changed = current.reset != previous.reset
+        || current.seconds != previous.seconds
+        || current.used != previous.used;
+    if current.at <= previous.at && changed {
+        Some(Boundary::ConflictingTimestamp)
+    } else if current.seconds != previous.seconds {
+        Some(Boundary::WindowChange)
+    } else if current.reset != previous.reset {
+        Some(Boundary::DeadlineChange)
+    } else if previous
+        .used
+        .zip(current.used)
+        .is_some_and(|(before, after)| after < before)
+    {
+        // A decrease is evidence, not proof of a grant or its cause.
+        Some(Boundary::ObservedDecrease)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

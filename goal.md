@@ -40,9 +40,10 @@ for active execution. This extends, rather than completes or resets, the work be
       uncertain boundaries and no duplicated cross-window token attribution.
       Bounded observation-interval preview now retains older segments and same-
       deadline decreases. Schema 36 indexes all retained snapshots in resumable
-      batches and indexes new appends atomically. Full-history paging, durable
-      interval segmentation, grant/cause verification and real-account acceptance
-      remain unfinished.
+      batches and indexes new appends atomically. Schema 37 now supports versioned
+      interval boundaries and stable full-history backend/CLI pages. HTTP/UI
+      delivery, per-interval Token drill-down, grant/cause verification and
+      real-account acceptance remain unfinished.
 - [ ] E06: reconcile source overlap and coverage with reviewed migration receipts;
       native acceptance must not be confused with source accuracy or release proof.
 
@@ -1423,3 +1424,22 @@ No live data migration, installed-app replacement or release has occurred.
   its explicit preview limit: full-history seek paging, interval projection,
   health presentation, real-shadow migration/code-owner review, source-union
   accuracy and native acceptance remain open. Full goal ACTIVE.
+- Batch 139: implemented schema-37 versioned quota boundaries with the existing
+  predecessor rule, atomically updating only a new window and its successor.
+  Backfill readiness gates a minimum readable revision; an issued view fixes
+  account(s), ledger instance, revision and observation cutoff. HMAC-authenticated
+  seek cursors preserve old boundary versions and window membership across late
+  appends and disk reopen, without holding a long-lived database transaction.
+  The read-only quota-history CLI traverses all retained intervals beyond the
+  preview cap, including an all-account ordered view with account ownership on
+  each row. It returns observation metadata and safe Token-sampling ranges, not
+  copied Token totals or claims of quota grants/source completeness. Synthetic
+  traversal covers 1,105 snapshots / 553 intervals; old-view rows/counts remain
+  stable when a late insert moves a boundary. Rollback, upgrade, cursor tampering,
+  foreign-scope, all-account and read-only subprocess checks pass. Rust 219 tests,
+  Clippy and existing generated API checks pass. ADR 0008 documents semantics
+  and review gates. No original ledger/private audit copy, native bundle or
+  installed app was migrated. Existing native language edits remain separate.
+  The HTTP/UI still uses its explicit preview: wiring the full-history reader,
+  per-cycle Token/model/project drill-down, real-shadow review, source-union
+  correction and native acceptance remain unfinished. Full goal ACTIVE.

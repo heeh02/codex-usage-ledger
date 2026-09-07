@@ -38,6 +38,17 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Read all retained quota observation intervals by stable seek pages; never migrates or writes.
+    QuotaHistory {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long, default_value_t=20, value_parser=clap::value_parser!(u16).range(1..=100))]
+        limit: u16,
+    },
     /// Read-only paired raw/retained hash audit. Does not authorize repair.
     AuditRetainedHashes {
         #[arg(long)]
@@ -235,6 +246,22 @@ async fn main() -> Result<()> {
                 allow_device_drift,
             )?;
             println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::QuotaHistory {
+            db,
+            account,
+            cursor,
+            limit,
+        } => {
+            anyhow::ensure!(
+                cursor.as_ref().is_none_or(|value| value.len() <= 8192),
+                "quota cursor is too large"
+            );
+            let cursor: Option<codex_usage_ledger::cli_support::QuotaHistoryCursor> =
+                cursor.as_deref().map(serde_json::from_str).transpose()?;
+            let store = LedgerStore::open_read_only(&db)?;
+            let page = store.quota_history_page(&account, cursor.as_ref(), usize::from(limit))?;
+            println!("{}", serde_json::to_string_pretty(&page)?);
         }
         Command::BackfillRequests { db, batches } => {
             // Reject missing/old ledgers before opening for writes. Migration
@@ -599,6 +626,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
         warn!(%error, "quota window index backfill deferred");
     }
+    if let Err(error) = writer.backfill_quota_history_chunk(200) {
+        warn!(%error, "quota boundary backfill deferred");
+    }
     let compacted = compact_expired_raw_events(&mut writer, "daemon")?;
     writer.set_collector_status(&initial_status)?;
     info!(
@@ -621,6 +651,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                 }
                 if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
                     warn!(%error, "quota window index backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_history_chunk(200) {
+                    warn!(%error, "quota boundary backfill deferred");
                 }
                 if ticks.is_multiple_of(6) {
                     if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
@@ -838,6 +871,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
         warn!(%error, "quota window index backfill deferred");
     }
+    if let Err(error) = writer.backfill_quota_history_chunk(200) {
+        warn!(%error, "quota boundary backfill deferred");
+    }
     // Opening the dashboard is not a request to delete historical raw details.
     // Keep retention in explicit optimize/collection workflows with its guards.
     writer.set_collector_status(&CollectorStatus {
@@ -858,6 +894,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
                 catalog_ticks = catalog_ticks.saturating_add(1);
                 if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
                     warn!(%error, "quota window index backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_history_chunk(200) {
+                    warn!(%error, "quota boundary backfill deferred");
                 }
                 if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
                     warn!(%error, "retained request backfill deferred");

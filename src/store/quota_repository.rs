@@ -48,6 +48,8 @@ pub(super) fn project_quota_snapshot_in(
                 if !same {
                     return Err(StoreError::QuotaWindowConflict);
                 }
+            } else {
+                super::quota_history_repository::observe_window_in(connection, &id)?;
             }
             ordinal += 1;
         }
@@ -228,7 +230,10 @@ mod tests {
         let path = directory.path().join("quota.sqlite3");
         seed_legacy(&path, 1005);
         let mut store = LedgerStore::open(&path).unwrap();
-        assert_eq!(store.schema_version().unwrap(), 36);
+        assert_eq!(
+            store.schema_version().unwrap(),
+            migrations::CURRENT_SCHEMA_VERSION
+        );
         let before = original_digest(&store);
         assert!(
             store

@@ -158,7 +158,7 @@ fn request_backfill_resumes_without_restarting_or_changing_rollups() {
              DELETE FROM retained_request_assignments;
              DROP TABLE request_backfill_state;
              DELETE FROM schema_migrations WHERE version=31;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=30;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=30;",
             )
             .unwrap();
     }
@@ -639,7 +639,7 @@ fn schema_25_upgrade_seeds_existing_keys_without_changing_facts() {
              DROP TRIGGER effective_reconstruction_keys_delete;
              DROP TABLE effective_source_dirty_keys;
              DELETE FROM schema_migrations WHERE version = 25;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 24;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 24;",
             )
             .unwrap();
     }
@@ -831,7 +831,7 @@ fn schema_24_refuses_preexisting_invalid_confirmed_rollups() {
             .execute_batch(
                 "DROP TRIGGER daily_usage_rollups_confirmed_usage_insert_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_update_guard;
-                 DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
+                 DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
                  INSERT INTO daily_usage_rollups(
                      local_day, thread_key, account_key, project_key, model_key, quality,
                      event_count, input_tokens, cached_input_tokens,
@@ -867,7 +867,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
                  DROP TRIGGER reconstruction_usage_update_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_insert_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_update_guard;
-                 DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
+                 DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
                  INSERT INTO reconstruction_usage_events(
                      event_id, event_hash, observed_at, source_timestamp, thread_id,
                      parent_thread_id, model, cwd, account_fingerprint, account_confidence,
@@ -1596,7 +1596,7 @@ fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
             .execute_batch(
                 "DROP TABLE sampling_candidate_links;
              DELETE FROM schema_migrations WHERE version=27;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=26;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=26;",
             )
             .unwrap();
     }
@@ -2387,7 +2387,7 @@ fn schema_28_indexes_existing_candidate_links_without_rewriting_them() {
             "INSERT INTO sampling_candidate_links VALUES ('sample','candidate','unique_nearest_timestamp');
              DROP INDEX sampling_candidate_target_idx;
              DELETE FROM schema_migrations WHERE version=28;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=27;"
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=27;"
         ).unwrap();
     }
     let store = LedgerStore::open(&path).unwrap();
@@ -2418,7 +2418,7 @@ fn schema_29_captures_existing_raw_origins_before_compaction() {
             .execute_batch(
                 "DROP TABLE retained_request_origins;
              DELETE FROM schema_migrations WHERE version=29;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=28;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=28;",
             )
             .unwrap();
     }
@@ -2454,7 +2454,7 @@ fn schema_30_captures_raw_assignments_without_inventing_compacted_history() {
             .execute_batch(
                 "DROP TABLE retained_request_assignments;
              DELETE FROM schema_migrations WHERE version=30;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=29;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=29;",
             )
             .unwrap();
     }
@@ -2760,7 +2760,7 @@ fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
             .execute_batch(
                 "DROP TABLE retained_request_evidence;
              DELETE FROM schema_migrations WHERE version=26;
-             DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=25;",
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=25;",
             )
             .unwrap();
     }

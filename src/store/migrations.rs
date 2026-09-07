@@ -3,7 +3,45 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 36;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 37;
+
+const MIGRATION_37: &str = r#"
+ALTER TABLE quota_window_observations ADD COLUMN created_revision INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX quota_window_ordered_stream_idx
+ON quota_window_observations(account_fingerprint,stream_key,observed_at,snapshot_id,window_ordinal);
+CREATE TABLE quota_boundary_state (
+    id INTEGER PRIMARY KEY CHECK(id=1), instance_id TEXT NOT NULL, cursor_key BLOB NOT NULL,
+    revision INTEGER NOT NULL, ready_revision INTEGER,
+    last_rowid INTEGER NOT NULL, target_rowid INTEGER NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1))
+);
+INSERT INTO quota_boundary_state
+SELECT 1,lower(hex(randomblob(16))),randomblob(32),0,
+       CASE WHEN target=0 AND (SELECT complete FROM quota_window_index_state WHERE id=1)=1 THEN 0 ELSE NULL END,
+       0,target,target=0 FROM (
+    SELECT COALESCE((SELECT rowid FROM quota_window_observations ORDER BY rowid DESC LIMIT 1),0) AS target
+);
+CREATE TABLE quota_boundary_versions (
+    observation_id TEXT NOT NULL REFERENCES quota_window_observations(observation_id),
+    valid_from INTEGER NOT NULL, valid_to INTEGER,
+    account_fingerprint TEXT NOT NULL, stream_key TEXT NOT NULL,
+    observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL,
+    boundary_kind TEXT NOT NULL, boundary_after TEXT,
+    PRIMARY KEY(observation_id,valid_from),
+    CHECK(valid_to IS NULL OR valid_to>valid_from)
+);
+CREATE UNIQUE INDEX quota_boundary_current_idx ON quota_boundary_versions(observation_id) WHERE valid_to IS NULL;
+CREATE INDEX quota_boundary_account_page_idx
+ON quota_boundary_versions(account_fingerprint,observed_at DESC,snapshot_id DESC,window_ordinal DESC,valid_from);
+CREATE INDEX quota_boundary_stream_page_idx
+ON quota_boundary_versions(account_fingerprint,stream_key,observed_at,snapshot_id,window_ordinal,valid_from);
+CREATE INDEX quota_boundary_live_page_idx
+ON quota_boundary_versions(account_fingerprint,observed_at DESC,snapshot_id DESC,window_ordinal DESC) WHERE valid_to IS NULL;
+CREATE INDEX quota_boundary_all_page_idx
+ON quota_boundary_versions(observed_at DESC,snapshot_id DESC,window_ordinal DESC,valid_from);
+CREATE INDEX quota_boundary_all_live_idx
+ON quota_boundary_versions(observed_at DESC,snapshot_id DESC,window_ordinal DESC) WHERE valid_to IS NULL;
+"#;
 
 const MIGRATION_36: &str = r#"
 CREATE TABLE quota_window_observations (
@@ -278,6 +316,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             34 => transaction.execute_batch(MIGRATION_34)?,
             35 => transaction.execute_batch(MIGRATION_35)?,
             36 => transaction.execute_batch(MIGRATION_36)?,
+            37 => transaction.execute_batch(MIGRATION_37)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;
