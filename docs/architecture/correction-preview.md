@@ -5,6 +5,43 @@ into a separate SQLite file. It is not an installed-app ledger, production sourc
 selector, or authorization to correct history. Original and candidate facts are
 stored as alternatives and must never be added together.
 
+## Sampling consistency comparison
+
+```sh
+codex-usage-ledger compare-correction-sources \
+  --preview ./correction-preview.sqlite3 --against-db ./synthetic-ledger.sqlite3 \
+  --thread synthetic-thread --start 2026-01-01T00:00:00Z \
+  --end 2026-01-02T00:00:00Z --limit 10000
+```
+
+This read-only comparison opens a ready preview and a supported schema-35–39
+audit ledger. It creates neither database and never migrates either. The two
+read transactions are independent snapshots, not a common revision; the preview
+manifest hash references its creation evidence, not revalidation against current
+source files. `previewRevalidated`, `identityProven` and
+`productionPolicyChanged` remain false. There is deliberately no merged total.
+
+For each sampling observation in the exact half-open interval, search candidate
+timestamps within an inclusive 250 ms, with nanosecond-precise comparisons.
+Candidate context extends 250 ms outside the interval and sampling context
+extends 500 ms, so reverse neighbors outside the selected interval can invalidate
+apparent uniqueness. Thread/time index seeks load at most the combined requested
+observation budget (1–10,000); exceeding it fails rather than silently truncating.
+The budget includes both context margins, not just records eventually reported.
+
+Groups distinguish unconfirmed/invalid sampling, missing assignments, absent or
+ambiguous neighbors, conflicting dimensions/amounts, different record keys,
+compatible shared keys and compatible values without identity. Amount equality
+compares six consumed fields; differences in the cache-write observation weight
+are counted separately. Group usage sums its sampling side only, with unknown
+usage remaining null. Candidate records without sampling neighbors are counted
+but are not declared independent inference. `--include-rows` exposes bounded
+event/time diagnostics for private inspection; omit it for a compact summary.
+
+Use this result to investigate conflicts before any reviewed union promotion.
+Mutually unique neighbors and equal values alone never create a shared key or
+authorize deleting, relabeling or adding historical facts.
+
 ```sh
 codex-usage-ledger create-correction-preview \
   --manifest ./correction-draft.jsonl --against-db ./synthetic-ledger.sqlite3 \

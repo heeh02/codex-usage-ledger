@@ -81,6 +81,7 @@ pub struct UnionShadow {
     pub selected: Vec<Measurement>,
     pub unresolved: Vec<UnresolvedGroup>,
     pub shared_records_collapsed: usize,
+    pub write_coverage_reconciliations: usize,
     pub canonical_records_outside_window: usize,
     pub complete_for_supplied_records: bool,
     pub history_complete: bool,
@@ -113,11 +114,12 @@ pub fn plan(
         end,
         scope: "supplied_local_measurements_not_inference_usage",
         production_policy_changed: false,
-        version: 2,
+        version: 3,
         input_records: records.len(),
         selected: Vec::new(),
         unresolved: Vec::new(),
         shared_records_collapsed: 0,
+        write_coverage_reconciliations: 0,
         canonical_records_outside_window: 0,
         complete_for_supplied_records: false,
         history_complete: false,
@@ -161,7 +163,10 @@ pub fn plan(
                 || record.project != first.project
         }) {
             Some(UnresolvedReason::ConflictingDimensions)
-        } else if group.iter().any(|record| record.usage != first.usage) {
+        } else if group
+            .iter()
+            .any(|record| !same_token_amounts(record.usage.unwrap(), first.usage.unwrap()))
+        {
             Some(UnresolvedReason::ConflictingUsage)
         } else if group.iter().any(|record| {
             (record.at - first.at)
@@ -183,7 +188,19 @@ pub fn plan(
         // Preserve the sampling observation's current attribution/time when the
         // same source measurement exists on both sides. Never filter before this.
         report.shared_records_collapsed += group.len() - 1;
-        let selected = group.remove(0);
+        let coverage = first.usage.unwrap().cache_write_observed_input_tokens;
+        let coverage_disagrees = group
+            .iter()
+            .any(|r| r.usage.unwrap().cache_write_observed_input_tokens != coverage);
+        if coverage_disagrees {
+            report.write_coverage_reconciliations += 1;
+        }
+        let mut selected = group.remove(0);
+        selected
+            .usage
+            .as_mut()
+            .unwrap()
+            .cache_write_observed_input_tokens = if coverage_disagrees { 0 } else { coverage };
         if selected.at >= start && selected.at < end {
             report.selected.push(selected);
         } else {
@@ -234,6 +251,13 @@ fn aggregate(
         )?;
     }
     Ok(grouped.into_values().collect())
+}
+
+/// Coverage weight is knowledge metadata, not an amount consumed. Callers still
+/// need record identity, valid fields, matching dimensions and time evidence.
+pub(crate) fn same_token_amounts(a: TokenUsage, mut b: TokenUsage) -> bool {
+    b.cache_write_observed_input_tokens = a.cache_write_observed_input_tokens;
+    a == b
 }
 
 pub(crate) fn add(total: &mut TokenUsage, next: TokenUsage) -> Result<(), UnionError> {
@@ -316,6 +340,55 @@ mod tests {
         assert!(usage.validate().is_ok());
         assert_eq!(report.selected[0].id, "a");
     }
+
+    #[test]
+    fn shared_record_coverage_difference_preserves_unknown_without_losing_amounts() {
+        for (sample_weight, reconstructed_weight) in [(0, 100), (100, 0), (40, 100)] {
+            let mut a = record("sample", EvidenceSide::Sampling, "shared");
+            let mut b = record("rebuilt", EvidenceSide::Reconstruction, "shared");
+            a.usage.as_mut().unwrap().cache_write_observed_input_tokens = sample_weight;
+            b.usage.as_mut().unwrap().cache_write_observed_input_tokens = reconstructed_weight;
+            let report = run(vec![a, b]);
+            assert!(report.complete_for_supplied_records);
+            assert_eq!(report.shared_records_collapsed, 1);
+            assert_eq!(report.write_coverage_reconciliations, 1);
+            let usage = report.usage.unwrap();
+            assert_eq!(usage.total_tokens, 120);
+            assert_eq!(usage.cache_write_observed_input_tokens, 0);
+            assert_eq!(usage.cache_write_input_tokens, 10);
+            assert!(usage.validate().is_ok());
+            for buckets in [
+                &report.aggregates.as_ref().unwrap().by_day,
+                &report.aggregates.as_ref().unwrap().by_model,
+                &report.aggregates.as_ref().unwrap().by_account,
+                &report.aggregates.as_ref().unwrap().by_project,
+                &report.aggregates.as_ref().unwrap().by_thread,
+            ] {
+                assert_eq!(buckets[0].usage, usage);
+            }
+        }
+        let a = record("sample", EvidenceSide::Sampling, "shared");
+        let mut b = record("rebuilt", EvidenceSide::Reconstruction, "shared");
+        b.record_key = None;
+        assert!(
+            run(vec![a, b]).usage.is_none(),
+            "compatible amounts cannot manufacture identity"
+        );
+    }
+
+    #[test]
+    fn write_amount_disagreement_still_conflicts_even_when_totals_and_coverage_match() {
+        let a = record("sample", EvidenceSide::Sampling, "shared");
+        let mut b = record("rebuilt", EvidenceSide::Reconstruction, "shared");
+        b.usage.as_mut().unwrap().cache_write_input_tokens = 11;
+        let report = run(vec![a, b]);
+        assert!(report.usage.is_none());
+        assert_eq!(report.write_coverage_reconciliations, 0);
+        assert_eq!(
+            report.unresolved[0].reason,
+            UnresolvedReason::ConflictingUsage
+        );
+    }
     #[test]
     fn shadow_dimensions_conserve_after_pairing_without_relabeling_unknowns() {
         let a = record("a", EvidenceSide::Sampling, "shared");
@@ -329,7 +402,7 @@ mod tests {
         let mut d = record("d", EvidenceSide::Sampling, "named-unknown");
         d.account = Some("unknown".into());
         let json = serde_json::to_value(run(vec![a, b, c, d])).unwrap();
-        assert_eq!(json["version"], 2);
+        assert_eq!(json["version"], 3);
         assert_eq!(json["aggregates"]["dayTimezone"], "UTC");
         assert_eq!(json["aggregates"]["records"], 3);
         for dimension in ["byDay", "byAccount", "byModel", "byProject", "byThread"] {

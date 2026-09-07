@@ -188,6 +188,49 @@ fn reconstruction_audit_cli_is_bounded_and_read_only() {
     let read: serde_json::Value = serde_json::from_slice(&read.stdout).unwrap();
     assert_eq!(read["candidate"]["usage"]["total_tokens"], 100);
     assert_eq!(read["candidate"]["byTime"][0]["key"], "2026-01");
+    let compare = |limit: &str| {
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .arg("compare-correction-sources")
+            .arg("--preview")
+            .arg(&preview)
+            .arg("--against-db")
+            .arg(&db)
+            .args([
+                "--thread",
+                "root",
+                "--start",
+                "2026-01-01T00:00:00Z",
+                "--end",
+                "2026-01-02T00:00:00Z",
+                "--limit",
+                limit,
+                "--include-rows",
+            ])
+            .output()
+            .unwrap()
+    };
+    let compared = compare("1");
+    assert!(
+        compared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compared.stderr)
+    );
+    let compared: serde_json::Value = serde_json::from_slice(&compared.stdout).unwrap();
+    assert_eq!(
+        compared["scope"],
+        "sampling_vs_candidate_consistency_not_a_union"
+    );
+    assert_eq!(compared["samplingInScope"], 0);
+    assert_eq!(compared["candidatesInScope"], 1);
+    assert_eq!(compared["candidatesWithoutSamplingNeighbors"], 1);
+    assert_eq!(compared["identityProven"], false);
+    assert_eq!(compared["productionPolicyChanged"], false);
+    assert_eq!(compared["previewRevalidated"], false);
+    assert!(
+        compared.get("usage").is_none(),
+        "a comparison is not a merged total"
+    );
+    assert!(!compare("0").status.success());
     assert_eq!(fs::read(&preview).unwrap(), preview_before);
     assert_eq!(fs::read(&db).unwrap(), before);
     assert_eq!(fs::read(&rollout).unwrap(), source);

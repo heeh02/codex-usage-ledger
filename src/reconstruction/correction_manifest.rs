@@ -277,7 +277,7 @@ fn verify_with_store(
             Entry::Header(value) if header.is_none() && records == 0 => {
                 if value.version != 1
                     || value.policy != "reconstruction_uuid7_strict_v1"
-                    || !(35..=38).contains(&value.ledger_schema)
+                    || !(35..=39).contains(&value.ledger_schema)
                     || value.machine_id.is_empty()
                     || value.thread.is_empty()
                     || value.source_id != source_id(&value.thread)

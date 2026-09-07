@@ -3,7 +3,19 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 38;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 39;
+
+const MIGRATION_39: &str = r#"
+ALTER TABLE measurement_union_counts ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 2;
+UPDATE measurement_union_backfill SET last_id=NULL,
+ target_id=(SELECT event_id FROM retained_request_evidence ORDER BY event_id DESC LIMIT 1),
+ complete=NOT EXISTS(SELECT 1 FROM retained_request_evidence)
+ WHERE evidence_source='sampling';
+UPDATE measurement_union_backfill SET last_id=NULL,
+ target_id=(SELECT event_id FROM reconstruction_usage_events ORDER BY event_id DESC LIMIT 1),
+ complete=NOT EXISTS(SELECT 1 FROM reconstruction_usage_events)
+ WHERE evidence_source='reconstruction';
+"#;
 
 const MIGRATION_37: &str = r#"
 ALTER TABLE quota_window_observations ADD COLUMN created_revision INTEGER NOT NULL DEFAULT 0;
@@ -318,6 +330,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             36 => transaction.execute_batch(MIGRATION_36)?,
             37 => transaction.execute_batch(MIGRATION_37)?,
             38 => super::union_projection::migrate(&transaction)?,
+            39 => transaction.execute_batch(MIGRATION_39)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

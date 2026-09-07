@@ -79,6 +79,14 @@ Next: establish legacy identity/coverage eligibility and scope-query semantics,
 record a controlled real-shadow comparison, then promote all consumers together.
 Staging readiness is not history completeness or release acceptance.
 
+Schema 39 now requeues the candidate for coverage-policy revision 2: six
+consumed amounts remain strict, while unequal cache-write observation weights
+become unknown without discarding matching amounts. This applies only after
+shared record identity and dimensions resolve. A bounded preview/sampling
+comparison found a real compatible cohort with metadata-only differences but
+missing shared identities; these remain ineligible for automatic union. See the
+[comparison contract](docs/architecture/correction-preview.md).
+
 Full-source inspection now changes the next action: legacy cohorts may have no
 shared/receipt keys at all, and parser corrections are not uniform across files.
 One private root sample agrees at every old position while another has retained
@@ -1656,3 +1664,20 @@ No live data migration, installed-app replacement or release has occurred.
   headings while scrolling. Documentation/module/privacy/generated/version and
   reachable-history checks pass. No source accounting, real ledger or installed
   native bundle was changed; the full goal remains ACTIVE.
+- Batch 148: completed coverage-only reconciliation in the shared source-union
+  planner (CLI report version 3) and schema-39 bounded invalidation of prior
+  candidate groups. Matching six consumed amounts retain their values once;
+  conflicting observation weights become unknown, not inferred complete input
+  coverage. Real write-amount conflicts still withdraw selection. Added genuine
+  previous-schema upgrade/source-preservation and all-dimension tests. The
+  read-only candidate/sampling comparator uses exact 250-ms neighbors, expanded
+  reverse context, a combined observation cap and explicit ambiguity/identity
+  classes; it never emits a merged total or invents keys from proximity. A real
+  existing preview/audit-copy comparison reproduced a cohort with identical
+  consumed amounts/dimensions, many differing coverage weights and missing
+  identities, alongside unconfirmed sampling. Exact private evidence is outside
+  the repository. Both database hashes and the audit-copy schema remained
+  unchanged. Rust 258 tests, Clippy and API/governance checks pass. No original
+  ledger, active selector, installed app or account state changed. Legacy
+  identity/correction eligibility, candidate query parity, controlled promotion
+  and real-account/native acceptance remain unfinished; full goal ACTIVE.

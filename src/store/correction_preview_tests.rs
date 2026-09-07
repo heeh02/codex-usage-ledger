@@ -203,3 +203,48 @@ fn observed_zero_invalid_ranges_incomplete_and_foreign_files_stay_distinct() {
     connection.pragma_update(None, "application_id", 0).unwrap();
     assert!(read_correction_preview(&path, &CorrectionPreviewFilter::default()).is_err());
 }
+
+#[test]
+fn overlap_loader_closes_reverse_window_and_counts_context_against_budget() {
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("source.sqlite3");
+    let preview = temp.path().join("preview.sqlite3");
+    let mut source = LedgerStore::open(&db).unwrap();
+    for (id, at, offset) in [
+        ("outside", "2026-01-01T00:00:00.550Z", 1),
+        ("seed", "2026-01-01T00:00:01Z", 2),
+    ] {
+        let mut event = crate::store::tests::event(id, DataQuality::Confirmed, offset);
+        event.source_timestamp = Some(at.parse().unwrap());
+        source.upsert_event(&event).unwrap();
+    }
+    let connection = new_preview(&preview).unwrap();
+    let candidate = fact("candidate", "2026-01-01T00:00:00.800Z", None, "model");
+    insert_fact(&connection, "candidate", 0, &candidate).unwrap();
+    connection
+        .execute(
+            "UPDATE preview_meta SET ready=1,manifest_sha256=?1",
+            ["a".repeat(64)],
+        )
+        .unwrap();
+    drop(connection);
+    let start = "2026-01-01T00:00:01Z".parse().unwrap();
+    let end = "2026-01-01T00:00:02Z".parse().unwrap();
+    let before = std::fs::read(&preview).unwrap();
+    let source_before = std::fs::read(&db).unwrap();
+    assert!(
+        crate::store::compare_preview_sampling(&preview, &db, "thread", start, end, 2, true)
+            .is_err()
+    );
+    let report = serde_json::to_value(
+        crate::store::compare_preview_sampling(&preview, &db, "thread", start, end, 3, true)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report["loadedSampling"], 2);
+    assert_eq!(report["samplingInScope"], 1);
+    assert_eq!(report["groups"]["ambiguous_neighbors"]["records"], 1);
+    assert_eq!(report["rows"][0]["reverseSamplingNeighbors"], 2);
+    assert_eq!(std::fs::read(&preview).unwrap(), before);
+    assert_eq!(std::fs::read(&db).unwrap(), source_before);
+}

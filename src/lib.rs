@@ -52,7 +52,7 @@ pub mod cli_support {
     pub use crate::store::{
         AggregateDimension, AggregateFilter, CollectorStatus, CorrectionPreviewFilter,
         CorrectionPreviewGrain, LedgerStore, LedgerTableCounts, QuotaHistoryCursor,
-        QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, create_correction_preview,
-        read_correction_preview,
+        QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, compare_preview_sampling,
+        create_correction_preview, read_correction_preview,
     };
 }

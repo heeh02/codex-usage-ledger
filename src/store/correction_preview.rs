@@ -185,10 +185,31 @@ pub fn read_correction_preview(
     if matches!((filter.start,filter.end),(Some(start),Some(end)) if start>=end) {
         return Err(anyhow!("preview start must precede end"));
     }
+    let connection = open_preview_read_only(path)?;
+    let transaction = connection.unchecked_transaction()?;
+    let manifest_body_sha256 = preview_hash(&transaction)?;
+    let old = read_side(&transaction, "old", filter, timezone)?;
+    let candidate = read_side(&transaction, "candidate", filter, timezone)?;
+    transaction.commit()?;
+    Ok(CorrectionPreview {
+        scope: "single_source_correction_preview",
+        manifest_body_sha256,
+        filter: filter.clone(),
+        old,
+        candidate,
+        production_policy_changed: false,
+        migration_authorized: false,
+    })
+}
+
+pub(super) fn open_preview_read_only(path: &Path) -> Result<Connection> {
     let connection = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     connection.pragma_update(None, "query_only", "ON")?;
     connection.pragma_update(None, "trusted_schema", "OFF")?;
-    let transaction = connection.unchecked_transaction()?;
+    Ok(connection)
+}
+
+pub(super) fn preview_hash(transaction: &Connection) -> Result<String> {
     let app: i64 = transaction.pragma_query_value(None, "application_id", |row| row.get(0))?;
     let version: i64 = transaction.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if app != APP_ID || version != 1 {
@@ -203,18 +224,7 @@ pub fn read_correction_preview(
         .optional()?
         .flatten();
     let manifest_body_sha256 = hash.ok_or_else(|| anyhow!("correction preview is incomplete"))?;
-    let old = read_side(&transaction, "old", filter, timezone)?;
-    let candidate = read_side(&transaction, "candidate", filter, timezone)?;
-    transaction.commit()?;
-    Ok(CorrectionPreview {
-        scope: "single_source_correction_preview",
-        manifest_body_sha256,
-        filter: filter.clone(),
-        old,
-        candidate,
-        production_policy_changed: false,
-        migration_authorized: false,
-    })
+    Ok(manifest_body_sha256)
 }
 
 fn read_side(

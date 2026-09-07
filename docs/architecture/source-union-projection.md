@@ -16,6 +16,16 @@ schema-37 upgrade and fresh-database paths are tested. Read-only open still
 requires the current schema. Real migration receipts and code-owner review are
 required before installation; synthetic migration tests do not satisfy that gate.
 
+Schema 39 adds `policy_version=2` to candidate diagnostic counts for the
+planner's version-3 coverage reconciliation. It resets only the two historical
+seek checkpoints to new indexed high-water IDs. Existing candidate/source rows
+remain in place, but readiness becomes false while any retained input awaits
+bounded reconsideration. No old migration is edited and no source amount is
+rewritten. A genuine schema-38 upgrade test starts with an old coverage-only
+conflict, verifies pending state, resumes processing, preserves all source facts,
+and confirms no writes on the next completed tick. Policy version alone does
+not prove every group has been reprocessed: readers must also require readiness.
+
 `measurement_union_backfill` persists a seek position and fixed initial high-water
 ID for each side. `measurement_union_dirty` is a unique queue of affected groups.
 `measurement_union_groups` records member count and an explicit unresolved reason.

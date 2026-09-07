@@ -20,11 +20,11 @@ use codex_usage_ledger::{
         CorrectionPreviewFilter, CorrectionPreviewGrain, LedgerStore, POST_SAMPLING_SOURCE_ID,
         RetainedRequestCursor, RetainedRequestScope, audit_inherited_prefix,
         audit_reconstruction_file, audit_reconstruction_prefix, compact_expired_raw_events,
-        create_correction_preview, discover_rollouts, fetch_official_account_usage,
-        ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
-        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
-        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
-        read_correction_preview, sync_account_history, sync_native_catalog,
+        compare_preview_sampling, create_correction_preview, discover_rollouts,
+        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
+        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
+        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
+        prepare_store, read_correction_preview, sync_account_history, sync_native_catalog,
         verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
     },
 };
@@ -157,6 +157,23 @@ enum Command {
         model: Option<String>,
         #[arg(long)]
         thread: Option<String>,
+    },
+    /// Compare sampling with a candidate preview without deduplicating by proximity.
+    CompareCorrectionSources {
+        #[arg(long)]
+        preview: PathBuf,
+        #[arg(long)]
+        against_db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 10000)]
+        limit: usize,
+        #[arg(long)]
+        include_rows: bool,
     },
     /// Resume retained request detail backfill in an existing current-schema ledger.
     /// Writes derived details, but never imports sources or changes token rollups.
@@ -448,6 +465,28 @@ async fn main() -> Result<()> {
                         model,
                         thread
                     }
+                )?)?
+            );
+        }
+        Command::CompareCorrectionSources {
+            preview,
+            against_db,
+            thread,
+            start,
+            end,
+            limit,
+            include_rows,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&compare_preview_sampling(
+                    &preview,
+                    &against_db,
+                    &thread,
+                    start,
+                    end,
+                    limit,
+                    include_rows
                 )?)?
             );
         }

@@ -51,9 +51,30 @@ not be presented as exact inference usage or a replacement dashboard total.
 Source replay, copied files with different identities and absent legacy keys
 still require independent coverage/replay evidence and migration receipts.
 
-## Version 2 dimensional validation
+## Version 3 coverage reconciliation
 
-CLI report `version=2` adds a required nullable `aggregates` object. It is
+The current CLI report is `version=3`. It adds `writeCoverageReconciliations`
+and separates six consumed Token amounts from the cache-write observation
+weight. A pair still requires the same explicit record key, valid amounts,
+matching dimensions and the existing exact time bound. Different input, read,
+write, output, reasoning or total amounts remain a conflict. Equal values or
+proximity without a key remain unresolved.
+
+When only the observation weights disagree, retain the six matching amounts
+once and set the selected coverage weight to zero (unknown). Neither the larger
+weight nor the smaller one establishes the true overlap of observed input.
+This does not turn an absent write field into observed zero; any recorded
+positive write amount is retained, even when its coverage cannot be certified.
+The source facts are unchanged. The counter includes reconciled groups whose
+canonical timestamp is subsequently excluded by the requested window.
+
+Schema 39 invalidates prior staged policy results through bounded reprocessing;
+see the [projection upgrade contract](source-union-projection.md). This version
+does not enable production consumption or infer identities for legacy history.
+
+## Dimensional validation (introduced in version 2)
+
+CLI report version 2 introduced a required nullable `aggregates` object. It is
 available only when the supplied record set is fully resolved and has at least
 one selected measurement, under exactly the same conditions as `usage`. Its
 `records` counts selected measurements, not input observations or model calls.

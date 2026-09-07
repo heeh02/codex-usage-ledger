@@ -21,7 +21,7 @@ codex-usage-ledger verify-reconstruction-correction \
   --manifest ./correction-draft.jsonl --against-db ./synthetic-ledger.sqlite3
 ```
 
-The generator uses the same read-only schema-35–38 source audit and one ledger
+The generator uses the same read-only schema-35–39 source audit and one ledger
 snapshot. It streams each Token position directly to the draft while scanning;
 it does not accumulate the full report in memory or reread the source for export.
 Default source budgets are 1 GiB / one million Token rows. Audit limits still

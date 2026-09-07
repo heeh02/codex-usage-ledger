@@ -471,3 +471,52 @@ fn member_budget_is_per_batch_and_late_pair_moves_one_canonical_day() {
     );
     check_counts(&store);
 }
+
+#[test]
+fn schema_39_requeues_old_policy_without_rewriting_source_facts() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("schema38.sqlite3");
+    let before;
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 38).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+        };
+        let mut sample = keyed("sample", "shared", 1);
+        sample.usage.cache_write_observed_input_tokens = 0;
+        store.upsert_event(&sample).unwrap();
+        let mut peer = sample;
+        peer.event_id = "peer".into();
+        peer.usage.cache_write_observed_input_tokens = 100;
+        reconstruct(&store, peer);
+        store
+            .connection
+            .execute_batch(
+                "DELETE FROM measurement_union_dirty;
+            INSERT INTO measurement_union_groups VALUES('key','shared',2,'conflicting_usage');",
+            )
+            .unwrap();
+        before = fact_snapshot(&store);
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    let pending = store.source_union_projection_progress().unwrap();
+    assert_eq!(pending.policy_version, 2);
+    assert!(!pending.projection_ready);
+    assert_eq!(fact_snapshot(&store), before);
+    let ready = drain(&mut store);
+    assert_eq!((ready.selected_groups, ready.unresolved_groups), (1, 0));
+    let usage = selected_usage(&store);
+    assert_eq!(usage.total_tokens, 120);
+    assert_eq!(usage.cache_write_observed_input_tokens, 0);
+    assert_eq!(fact_snapshot(&store), before);
+    let changes = store.connection.total_changes();
+    assert!(
+        store
+            .stage_source_union_batch(1, 1, 1)
+            .unwrap()
+            .projection_ready
+    );
+    assert_eq!(store.connection.total_changes(), changes);
+}

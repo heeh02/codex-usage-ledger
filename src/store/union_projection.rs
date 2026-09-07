@@ -15,6 +15,7 @@ mod tests;
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UnionProjectionProgress {
+    pub policy_version: u32,
     pub scope: &'static str,
     pub scanned_records: usize,
     pub recomputed_groups: usize,
@@ -378,6 +379,11 @@ fn progress(
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     )?;
     Ok(UnionProjectionProgress {
+        policy_version: connection.query_row(
+            "SELECT policy_version FROM measurement_union_counts WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?,
         scope: "staged_local_measurements_not_inference_usage",
         scanned_records: scanned,
         recomputed_groups: recomputed,

@@ -17,7 +17,7 @@ codex-usage-ledger audit-reconstruction-file --db ./synthetic-ledger.sqlite3 \
 ```
 
 The dedicated source-audit opener permits the unchanged evidence tables in
-schemas 35–38, with SQLite read-only/query-only access. It will not create,
+schemas 35–39, with SQLite read-only/query-only access. It will not create,
 migrate, optimize, refresh projections or discover authentication. Other CLI,
 HTTP and storage readers retain their current-schema requirement. This explicit
 allowlist must be reviewed rather than automatically expanded by a future
