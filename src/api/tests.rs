@@ -1,6 +1,130 @@
 use super::*;
 
 #[test]
+fn session_distributions_follow_actual_models_accounts_and_full_descendant_scope() {
+    let now = Utc.with_ymd_and_hms(2026, 9, 7, 12, 30, 0).unwrap();
+    for period in ["lifetime", "rolling7"] {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        for (id, thread, model, account, at) in [
+            (
+                "a",
+                "root",
+                Some("model-a"),
+                Some("account-a"),
+                now - ChronoDuration::hours(1),
+            ),
+            (
+                "b",
+                "root",
+                Some("model-b"),
+                Some("account-b"),
+                now - ChronoDuration::hours(2),
+            ),
+            (
+                "c",
+                "child",
+                Some("model-b"),
+                None,
+                now - ChronoDuration::hours(3),
+            ),
+            (
+                "unrelated",
+                "other",
+                Some("other-model"),
+                Some("other-account"),
+                now - ChronoDuration::hours(1),
+            ),
+        ] {
+            let mut event = explorer_event(id, thread, (thread == "child").then_some("root"));
+            event.model = model.map(str::to_owned);
+            event.account_fingerprint = account.map(str::to_owned);
+            event.source_timestamp = Some(at);
+            store.upsert_event(&event).unwrap();
+        }
+        store
+            .upsert_thread_catalog_batch(&[
+                native_catalog_thread("root", None, Some("project"), 0, "Root"),
+                native_catalog_thread("child", Some("root"), Some("project"), 1, "Child"),
+                native_catalog_thread("other", None, Some("project"), 0, "Other"),
+            ])
+            .unwrap();
+        let query = UsageQuery {
+            period: Some(period.into()),
+            reference_time: Some(now),
+            session: Some("root".into()),
+            node_limit: Some(1),
+            ..Default::default()
+        };
+        let bundle = http_bundle(&store, &query).unwrap();
+        let detail = &bundle["explorer"]["selectedSession"];
+        for (scope, expected, events) in [("own", "ownUsage", 2), ("tree", "treeUsage", 3)] {
+            for dim in ["models", "accounts"] {
+                let rows = detail["localDistributions"][scope][dim].as_array().unwrap();
+                assert_eq!(
+                    rows.iter()
+                        .map(|row| row["events"].as_u64().unwrap())
+                        .sum::<u64>(),
+                    events
+                );
+                for field in [
+                    "input",
+                    "cached",
+                    "cacheWrite",
+                    "cacheWriteObservedInput",
+                    "uncached",
+                    "output",
+                    "reasoning",
+                    "total",
+                ] {
+                    assert_eq!(
+                        rows.iter()
+                            .map(|row| row["usage"][field].as_u64().unwrap())
+                            .sum::<u64>(),
+                        detail[expected][field].as_u64().unwrap()
+                    );
+                }
+                assert!(
+                    !rows
+                        .iter()
+                        .any(|row| row["label"].as_str().unwrap().contains("other"))
+                );
+            }
+        }
+        assert!(
+            detail["localDistributions"]["tree"]["accounts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"].is_null())
+        );
+        let child = http_explorer(
+            &store,
+            &UsageQuery {
+                session: Some("child".into()),
+                ..query.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            child["selectedSession"]["localDistributions"]["own"]["models"][0]["usage"]["total"],
+            120
+        );
+        let filtered = http_explorer(
+            &store,
+            &UsageQuery {
+                account: Some("account-a".into()),
+                ..query
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            filtered["selectedSession"]["localDistributions"]["tree"]["models"][0]["id"],
+            "model-a"
+        );
+    }
+}
+
+#[test]
 fn calendar_timezone_scopes_conserve_summary_projects_and_conversations() {
     let now = Utc.with_ymd_and_hms(2026, 3, 9, 12, 30, 0).unwrap();
     for timezone in ["UTC", "America/New_York", "Asia/Kathmandu"] {

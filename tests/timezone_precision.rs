@@ -98,6 +98,18 @@ async fn legacy_hourly_facts_remain_visible_but_unprovable_timezone_splits_retur
             );
         }
     }
+    let (status, detail)=tokio::task::spawn_blocking(move || {
+        let mut stream=std::net::TcpStream::connect(address).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+        write!(stream,"GET /v1/explorer?period=custom&startDate=2026-01-01&endDate=2026-01-01&timezone=UTC&session=root HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n").unwrap();
+        let mut response=String::new();stream.read_to_string(&mut response).unwrap();
+        let (headers,body)=response.split_once("\r\n\r\n").unwrap();
+        (headers.split_whitespace().nth(1).unwrap().to_owned(),serde_json::from_str::<serde_json::Value>(body).unwrap())
+    }).await.unwrap();
+    assert_eq!(status, "200");
+    assert_eq!(detail["selectedSession"]["treeUsage"]["total"], 120);
+    assert!(detail["selectedSession"]["localDistributions"]["tree"]["models"].is_null());
+    assert!(detail["selectedSession"]["localDistributions"]["tree"]["accounts"].is_null());
     server.abort();
     let _ = server.await;
 }

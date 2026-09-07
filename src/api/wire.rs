@@ -946,6 +946,7 @@ pub struct OfficialThreadUsage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerSessionDetail {
+    pub local_distributions: Option<SessionDistributions>,
     pub node_page: Option<ExplorerSessionPage>,
     pub own_event_count: Option<f64>,
     pub tree_event_count: Option<f64>,
@@ -966,6 +967,27 @@ pub struct ExplorerSessionDetail {
     pub official_thread_usage: Nullable<OfficialThreadUsage>,
     pub nodes: Vec<ExplorerSessionNode>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDistributionRow {
+    pub id: Nullable<String>,
+    pub label: String,
+    pub events: f64,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SessionDistributionScope {
+    pub models: Nullable<Vec<SessionDistributionRow>>,
+    pub accounts: Nullable<Vec<SessionDistributionRow>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SessionDistributions {
+    pub own: SessionDistributionScope,
+    pub tree: SessionDistributionScope,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

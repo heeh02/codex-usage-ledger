@@ -5,6 +5,7 @@ import { useI18n } from '../../i18n';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
 import { RequestEvidencePanel } from './RequestEvidencePanel';
 import { TurnEvidencePanel } from './TurnEvidencePanel';
+import { SessionDistributions } from './SessionDistributions';
 
 interface SessionPageProps {
   dataMode: 'http' | 'mock';
@@ -27,13 +28,14 @@ export function SessionPage({ dataMode, bundle, filters, onFiltersChange, metric
     ...bundle.timeseries,
     grain: detail?.samplingGrain ?? bundle.timeseries.grain,
     official: { ...bundle.timeseries.official, primaryScope: false },
-    comparisonPoints: [], projectSeries: [],
+    comparisonPoints: [], projectSeries: [], modelSeries: [], accountSeries: [], dailyPoints: [],
     points: timeline.map(point => ({ date: point.bucket, confirmed: point.usage, confirmedEvents: point.events,
       quarantined: empty, unknown: empty, quarantinedEvents: 0, unknownEvents: 0 })),
   };
   return <>{onBack && <button className="session-parent-back" type="button" onClick={onBack}>{t('chats.back_parent')}</button>}<SessionExplorer detail={detail ?? null} metric={metric} view={view} onViewChange={onViewChange} onOpenSession={onOpenSession}
     nodeControls={detail && <NodeControls detail={detail} filters={filters} onChange={onFiltersChange} />}
     trend={<UsageTrendPanel data={series} metric={metric} allowProjectCompare={false} title={t('components.explorer.usage_trajectory')} />} />
+    {detail && <SessionDistributions detail={detail} scope={view.scope} />}
     {detail && <RequestEvidencePanel key={JSON.stringify([detail.id, filters.period, filters.startDate, filters.endDate, filters.account, filters.model])}
       threadId={detail.id} revision={bundle} start={bundle.summary.period.start ?? '1970-01-01T00:00:00Z'}
       end={bundle.summary.period.end} demo={dataMode === 'mock'} account={filters.account} model={filters.model} />}

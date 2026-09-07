@@ -625,6 +625,44 @@ fn explorer_session_detail(
         .get(&root.thread_id)
         .copied()
         .unwrap_or_default();
+    let distribution = |thread_ids: &[String],
+                        expected: TokenUsage,
+                        expected_events: u64|
+     -> Result<serde_json::Value, StoreError> {
+        let mut output = serde_json::Map::new();
+        for (name, dimension) in [
+            ("models", AggregateDimension::Model),
+            ("accounts", AggregateDimension::Account),
+        ] {
+            let buckets = store.conversation_dimension_usage(
+                dimension,
+                thread_ids,
+                &filter,
+                requires_exact_window(query),
+            )?;
+            let mut total = TokenUsage::default();
+            let mut events = 0u64;
+            for bucket in &buckets {
+                add_usage_saturating(&mut total, bucket.usage);
+                events = events.saturating_add(bucket.event_count);
+            }
+            if expected_events == 0 || total != expected || events != expected_events {
+                output.insert(name.into(), serde_json::Value::Null);
+                continue;
+            }
+            let mut rows=buckets.into_iter().map(|bucket|serde_json::json!({
+                "id":bucket.key,"label":bucket.key.as_ref().map(|id|if dimension==AggregateDimension::Account {account_label(id)} else {id.clone()}).unwrap_or_else(||"unknown".into()),
+                "events":bucket.event_count,"usage":token_value(bucket.usage)
+            })).collect::<Vec<_>>();
+            rows.sort_by_key(|row| std::cmp::Reverse(row["usage"]["total"].as_u64().unwrap_or(0)));
+            output.insert(name.into(), serde_json::json!(rows));
+        }
+        Ok(serde_json::Value::Object(output))
+    };
+    let local_distributions = serde_json::json!({
+        "own":distribution(std::slice::from_ref(&root_thread_id),root_own.0,root_own.1)?,
+        "tree":distribution(&ids,root_tree,root_events)?,
+    });
     let search = query
         .node_search
         .as_deref()
@@ -711,6 +749,7 @@ fn explorer_session_detail(
         "treeUsage": token_value(root_tree),
         "ownEventCount": root_own.1,
         "treeEventCount": root_events,
+        "localDistributions": local_distributions,
         "nodePage": { "total": matched_nodes, "offset": offset, "limit": limit, "hasMore": offset.saturating_add(nodes.len()) < matched_nodes, "search": search, "sort": "hierarchy" },
         "subagentCount": total_nodes.saturating_sub(1),
         "samplingTimeline": timeline.into_iter().map(|(bucket, (events, usage))| serde_json::json!({

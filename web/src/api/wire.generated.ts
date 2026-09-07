@@ -167,6 +167,7 @@ export interface ExplorerRankingWindows {
 export interface ExplorerSessionDetail {
   createdAt: string;
   id: string;
+  localDistributions?: SessionDistributions | null;
   model: string | null;
   nodePage?: ExplorerSessionPage | null;
   nodes: ExplorerSessionNode[];
@@ -185,6 +186,20 @@ export interface ExplorerSessionDetail {
   treeUsage: TokenUsage;
   truncated: boolean;
   updatedAt: string;
+}
+export interface SessionDistributions {
+  own: SessionDistributionScope;
+  tree: SessionDistributionScope;
+}
+export interface SessionDistributionScope {
+  accounts: SessionDistributionRow[] | null;
+  models: SessionDistributionRow[] | null;
+}
+export interface SessionDistributionRow {
+  events: number;
+  id: string | null;
+  label: string;
+  usage: TokenUsage;
 }
 export interface ExplorerSessionPage {
   hasMore: boolean;

@@ -1,6 +1,20 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "sessions.distributions": "Models and accounts used in this conversation",
+  "sessions.distributions_own": "This conversation only · Local records in the selected dates and filters, excluding subagents.",
+  "sessions.distributions_tree": "Including subagents · Local records in the selected dates and filters, aligned with this page's total.",
+  "sessions.models_used": "Model usage",
+  "sessions.accounts_used": "Account usage",
+  "sessions.distributions_unavailable": "No aligned breakdown detail is available for this scope. Global totals and the starting model are not used as substitutes.",
+  "sessions.unknown_dimension": "Unidentified",
+  "sessions.mix_total": "Total tokens",
+  "sessions.mix_uncached": "Uncached input",
+  "sessions.mix_cached": "Cache read",
+  "sessions.mix_cacheWrite": "Cache write",
+  "sessions.mix_output": "Output",
+  "sessions.mix_events": "Sampling records",
+  "sessions.partial_split": "partly known",
   "collection.identity_review": "Source read continuity needs verification",
   "collection.identity_review_detail": "Continuity of a source file or saved read checkpoint cannot be confirmed. Historical usage and read positions are retained; affected reconstruction is paused for verification. No automatic clearing or recount.",
   "app.time_precision_unavailable_title": "Time precision is unavailable for this range",

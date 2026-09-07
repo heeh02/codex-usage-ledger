@@ -765,6 +765,16 @@
         "id": {
           "type": "string"
         },
+        "localDistributions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionDistributions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "model": {
           "type": [
             "string",
@@ -2756,6 +2766,75 @@
         "bucket",
         "events",
         "usage"
+      ]
+    },
+    "SessionDistributionRow": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "number",
+          "format": "double"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "events",
+        "usage"
+      ]
+    },
+    "SessionDistributionScope": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionDistributionRow"
+          }
+        },
+        "models": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionDistributionRow"
+          }
+        }
+      },
+      "required": [
+        "models",
+        "accounts"
+      ]
+    },
+    "SessionDistributions": {
+      "type": "object",
+      "properties": {
+        "own": {
+          "$ref": "#/$defs/SessionDistributionScope"
+        },
+        "tree": {
+          "$ref": "#/$defs/SessionDistributionScope"
+        }
+      },
+      "required": [
+        "own",
+        "tree"
       ]
     },
     "SourceHealth": {

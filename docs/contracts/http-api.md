@@ -116,6 +116,22 @@ include roots with matching usage in the selected period. Existing clients can
 still read `sessions`; updated clients use the page metadata to load the rest.
 No stored event or catalog membership is modified by pagination.
 
+Conversation detail adds optional `localDistributions`, with `own` and `tree`
+scopes. Each contains nullable `models`/`accounts` lists of `{id,label,events,usage}`.
+Usage comes from event/rollup dimensions, not the catalog's starting model or
+current login. Unknown dimension IDs are null, not another account's identity.
+Each available list conserves every usage component and event count against
+the corresponding own/tree total; missing or mismatching detail returns null.
+No confirmed samples also returns null, while recorded zero samples remain
+counted. Node search/pagination does not restrict the distribution denominator.
+Older backends without this field display an unavailable state in the new UI.
+
+Exact-window thread-scoped distributions read retained/request evidence and
+check against the accepted total; old aggregate-only history may therefore lack
+a distribution even when a total remains visible. Such gaps are not filled from
+global breakdowns, official totals or model labels. This addition does not change
+accounting selection and is not a completeness or independent-inference claim.
+
 For `period=rolling7`, conversation sorting and displayed own/tree totals use
 the exact half-open timestamp range, not all events from the boundary dates.
 The same per-thread/time projection feeds detail nodes and own/descendant

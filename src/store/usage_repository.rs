@@ -313,6 +313,17 @@ impl LedgerStore {
         filter: &AggregateFilter,
         timezone: &str,
     ) -> StoreResult<Vec<UsageSeriesBucket>> {
+        self.aggregate_exact_series_scoped(grain, dimension, filter, timezone, None)
+    }
+
+    fn aggregate_exact_series_scoped(
+        &self,
+        grain: TimeGrain,
+        dimension: Option<AggregateDimension>,
+        filter: &AggregateFilter,
+        timezone: &str,
+        threads: Option<&[String]>,
+    ) -> StoreResult<Vec<UsageSeriesBucket>> {
         if uses_effective_source(filter) {
             self.refresh_effective_source_selection()?;
         }
@@ -323,11 +334,12 @@ impl LedgerStore {
             timezone,
             self.connection.total_changes(),
         );
-        if let Some(value) = self
-            .exact_series_memo
-            .borrow_mut()
-            .as_mut()
-            .and_then(|memo| memo.get(&memo_key))
+        if threads.is_none()
+            && let Some(value) = self
+                .exact_series_memo
+                .borrow_mut()
+                .as_mut()
+                .and_then(|memo| memo.get(&memo_key))
         {
             return Ok(value);
         }
@@ -344,7 +356,16 @@ impl LedgerStore {
             Some(AggregateDimension::Quality) => "quality".to_owned(),
             Some(AggregateDimension::Day) | None => "NULL".to_owned(),
         };
-        let (where_sql, values) = build_filter(filter);
+        let (mut where_sql, mut values) = build_filter(filter);
+        if let Some(threads) = threads {
+            where_sql.push_str(if where_sql.is_empty() {
+                " WHERE "
+            } else {
+                " AND "
+            });
+            where_sql.push_str("thread_id IN (SELECT value FROM json_each(?))");
+            values.push(SqlValue::Text(serde_json::to_string(threads)?));
+        }
         let table = if uses_effective_source(filter) {
             "effective_usage_events"
         } else {
@@ -428,10 +449,90 @@ impl LedgerStore {
                 usage: aggregate.usage,
             })
             .collect::<Vec<_>>();
-        if let Some(memo) = self.exact_series_memo.borrow_mut().as_mut() {
+        if threads.is_none()
+            && let Some(memo) = self.exact_series_memo.borrow_mut().as_mut()
+        {
             memo.insert(memo_key, &result);
         }
         Ok(result)
+    }
+
+    pub(crate) fn conversation_dimension_usage(
+        &self,
+        dimension: AggregateDimension,
+        threads: &[String],
+        filter: &AggregateFilter,
+        exact_window: bool,
+    ) -> StoreResult<Vec<UsageBucket>> {
+        if threads.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !matches!(
+            dimension,
+            AggregateDimension::Model | AggregateDimension::Account
+        ) {
+            return Err(StoreError::InvalidRequestQuery(
+                "conversation dimension must be model or account",
+            ));
+        }
+        if exact_window {
+            let series = self.aggregate_exact_series_scoped(
+                TimeGrain::Day,
+                Some(dimension),
+                filter,
+                "UTC",
+                Some(threads),
+            )?;
+            let mut groups = BTreeMap::<Option<String>, UsageAggregate>::new();
+            for row in series {
+                let group = groups.entry(row.dimension_key).or_insert(UsageAggregate {
+                    event_count: 0,
+                    usage: TokenUsage::default(),
+                });
+                group.event_count = group
+                    .event_count
+                    .checked_add(row.event_count)
+                    .ok_or(StoreError::AggregateOverflow)?;
+                checked_add_usage(&mut group.usage, row.usage)?;
+            }
+            return Ok(groups
+                .into_iter()
+                .map(|(key, row)| UsageBucket {
+                    key,
+                    event_count: row.event_count,
+                    usage: row.usage,
+                })
+                .collect());
+        }
+        self.refresh_effective_source_selection()?;
+        let column = if dimension == AggregateDimension::Model {
+            "model_key"
+        } else {
+            "account_key"
+        };
+        let (mut where_sql, mut values) = build_rollup_filter(filter);
+        append_rollup_thread_filter(&mut where_sql, &mut values, threads);
+        let mut statement=self.connection.prepare(&format!("SELECT {column},SUM(event_count),SUM(input_tokens),SUM(cached_input_tokens),
+            SUM(cache_write_input_tokens),SUM(cache_write_observed_input_tokens),SUM(output_tokens),SUM(reasoning_output_tokens),SUM(total_tokens)
+            FROM effective_daily_usage_rollups AS daily_usage_rollups {where_sql} GROUP BY {column}"))?;
+        let rows = statement.query_map(params_from_iter(values), |row| {
+            let key: String = row.get(0)?;
+            Ok(UsageBucket {
+                key: (!key.is_empty()).then_some(key),
+                event_count: u64_from_sql(row.get(1)?, 1)?,
+                usage: TokenUsage {
+                    input_tokens: u64_from_sql(row.get(2)?, 2)?,
+                    cached_input_tokens: u64_from_sql(row.get(3)?, 3)?,
+                    cache_write_input_tokens: u64_from_sql(row.get(4)?, 4)?,
+                    cache_write_observed_input_tokens: u64_from_sql(row.get(5)?, 5)?,
+                    output_tokens: u64_from_sql(row.get(6)?, 6)?,
+                    reasoning_output_tokens: u64_from_sql(row.get(7)?, 7)?,
+                    total_tokens: u64_from_sql(row.get(8)?, 8)?,
+                },
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
     }
 
     pub fn aggregate_time_series_for_threads(
