@@ -218,6 +218,14 @@ pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error(
+        "reconstruction policy checkpoint changed concurrently; retry without overwriting progress"
+    )]
+    ReconstructionPolicyConflict,
+    #[error(
+        "existing reconstruction history extends beyond the resume boundary; reviewed migration required"
+    )]
+    ReconstructionPolicyOverlap,
     #[error("quota interval dimensions do not reconcile with the selected total")]
     QuotaIntervalMismatch,
     #[error("stored quota window projection disagrees with its immutable snapshot")]

@@ -200,6 +200,89 @@ impl LedgerStore {
         Ok(())
     }
 
+    /// Enumerate compact policy progress without loading every main parser blob.
+    pub(crate) fn pending_reconstruction_policy_cursors(
+        &self,
+        machine_id: &str,
+    ) -> StoreResult<Vec<String>> {
+        let mut query=self.connection.prepare("SELECT source_id FROM file_cursors WHERE machine_id=?1
+            AND source_id >= 'reconstruction-policy-upgrade-v2:' AND source_id < 'reconstruction-policy-upgrade-v2;'
+            AND (CASE WHEN json_valid(parser_state_json) THEN json_extract(parser_state_json,'$.finished') ELSE 0 END) IS NOT 1")?;
+        Ok(query
+            .query_map([machine_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Compare-and-swap both cursor lanes without changing usage facts; completed
+    /// requalification changes parser state at the same committed byte boundary.
+    pub(crate) fn commit_reconstruction_policy_step(
+        &mut self,
+        expected_main: &FileCursor,
+        expected_progress: Option<&FileCursor>,
+        progress: &FileCursor,
+        source: &ReconstructionSourceStatus,
+        replacement: Option<&FileCursor>,
+    ) -> StoreResult<()> {
+        if source.source_id != expected_main.source_id
+            || source.machine_id != expected_main.machine_id
+            || source.file_identity != expected_main.file_identity
+            || source.bytes_processed != expected_main.byte_offset
+            || progress.byte_offset > expected_main.byte_offset
+            || progress.line_number > expected_main.line_number
+            || progress.machine_id != expected_main.machine_id
+            || progress.file_identity != expected_main.file_identity
+            || progress.source_id == expected_main.source_id
+            || replacement.is_some_and(|next| {
+                next.source_id != expected_main.source_id
+                    || next.machine_id != expected_main.machine_id
+                    || next.file_identity != expected_main.file_identity
+                    || next.byte_offset != expected_main.byte_offset
+                    || next.line_number != expected_main.line_number
+            })
+        {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let matches = |cursor: &FileCursor| -> StoreResult<bool> {
+            Ok(transaction.query_row("SELECT EXISTS(SELECT 1 FROM file_cursors WHERE machine_id=?1 AND source_id=?2
+                AND file_identity=?3 AND byte_offset=?4 AND line_number=?5 AND parser_state_json IS ?6)",
+                params![cursor.machine_id,cursor.source_id,cursor.file_identity,sql_u64(cursor.byte_offset,"cursor_offset")?,
+                    sql_u64(cursor.line_number,"cursor_line")?,cursor.parser_state_json],|row|row.get(0))?)
+        };
+        if !matches(expected_main)? {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        if let Some(expected) = expected_progress {
+            if expected.machine_id != progress.machine_id
+                || expected.source_id != progress.source_id
+                || !matches(expected)?
+            {
+                return Err(StoreError::ReconstructionPolicyConflict);
+            }
+        } else if transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_cursors WHERE machine_id=?1 AND source_id=?2)",
+            params![progress.machine_id, progress.source_id],
+            |row| row.get::<_, bool>(0),
+        )? {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        if replacement.is_some() && transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM reconstruction_usage_events WHERE machine_id=?1 AND source_id=?2 AND file_identity=?3 AND byte_offset>=?4)",
+            params![expected_main.machine_id,expected_main.source_id,expected_main.file_identity,sql_u64(progress.byte_offset,"resume_boundary")?],
+            |row|row.get::<_,bool>(0))? {
+            return Err(StoreError::ReconstructionPolicyOverlap);
+        }
+        advance_cursor_in(&transaction, progress)?;
+        if let Some(replacement) = replacement {
+            advance_cursor_in(&transaction, replacement)?;
+        }
+        upsert_reconstruction_source_in(&transaction, source)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn upsert_reconstruction_sources(
         &mut self,
         sources: &[ReconstructionSourceStatus],

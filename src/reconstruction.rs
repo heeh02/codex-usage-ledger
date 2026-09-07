@@ -35,6 +35,7 @@ use crate::{
 };
 
 mod audit;
+mod policy_upgrade;
 pub use audit::audit_reconstruction_prefix;
 mod file_audit;
 pub use file_audit::audit_reconstruction_file;
@@ -98,6 +99,8 @@ enum SourceContinuityError {
     Unavailable,
     #[error("the saved reconstruction checkpoint cannot be verified by this reader")]
     CheckpointUnavailable,
+    #[error("the saved reconstruction parser policy requires review")]
+    UnsupportedPolicy,
 }
 
 fn source_read_error(error: std::io::Error, has_checkpoint: bool) -> anyhow::Error {
@@ -116,6 +119,8 @@ fn source_read_error(error: std::io::Error, has_checkpoint: bool) -> anyhow::Err
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ReconstructionCheckpoint {
     schema_version: u32,
+    #[serde(default)]
+    parser_policy: Option<String>,
     tail: TailCheckpoint,
     phase: ReconstructionPhase,
     #[serde(default)]
@@ -141,6 +146,7 @@ impl ReconstructionCheckpoint {
     fn new(target: &Target) -> Self {
         Self {
             schema_version: STATE_SCHEMA_VERSION,
+            parser_policy: Some(correction_manifest::CURRENT_RECONSTRUCTION_POLICY.into()),
             tail: TailCheckpoint::default(),
             phase: ReconstructionPhase::AwaitingCanonical,
             foreign_replay: false,
@@ -355,6 +361,14 @@ pub fn ingest_reconstruction_batch_for_project(
         .filter(|source| source.status == ReconstructionStatus::Unrecoverable)
         .count() as u64;
 
+    let pending_policy_sources = store
+        .pending_reconstruction_policy_cursors(machine_id)?
+        .into_iter()
+        .filter_map(|id| {
+            id.strip_prefix(policy_upgrade::SOURCE_PREFIX)
+                .map(source_id)
+        })
+        .collect::<HashSet<_>>();
     let mut queue = refreshed
         .into_iter()
         .filter(|source| source.machine_id == machine_id)
@@ -369,7 +383,8 @@ pub fn ingest_reconstruction_batch_for_project(
         .filter_map(|status| {
             let target = target_by_source.get(&status.source_id)?.clone();
             let len = fs::metadata(&target.path).ok()?.len();
-            (len != status.bytes_processed).then_some((status, target, len))
+            (len != status.bytes_processed || pending_policy_sources.contains(&status.source_id))
+                .then_some((status, target, len))
         })
         .collect::<Vec<_>>();
     // Finish a small working set before opening more large partial JSON lines.
@@ -425,12 +440,18 @@ pub fn ingest_reconstruction_batch_for_project(
                     return Err(error);
                 }
                 let continuity_review = error.downcast_ref::<SourceContinuityError>().is_some();
+                let policy_review = matches!(
+                    error.downcast_ref::<SourceContinuityError>(),
+                    Some(SourceContinuityError::UnsupportedPolicy)
+                );
                 let mut status = status_by_source
                     .get(&source_id(&target.thread_id))
                     .cloned()
                     .unwrap_or(previous_status);
                 status.status = ReconstructionStatus::Unrecoverable;
-                status.last_error = Some(if continuity_review {
+                status.last_error = Some(if policy_review {
+                    policy_upgrade::REVIEW_REQUIRED.to_owned()
+                } else if continuity_review {
                     crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned()
                 } else {
                     error.to_string()
@@ -440,11 +461,13 @@ pub fn ingest_reconstruction_batch_for_project(
                 // Continuity failures retain the original checkpoint for
                 // review, including races after the earlier metadata scan.
                 if continuity_review {
-                    report.identity_review_sources =
-                        report.identity_review_sources.saturating_add(1);
+                    if !policy_review {
+                        report.identity_review_sources =
+                            report.identity_review_sources.saturating_add(1);
+                    }
                     report
                         .issues
-                        .push(crate::store::RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED.to_owned());
+                        .push(status.last_error.clone().expect("review reason"));
                 } else {
                     store.remove_cursor(machine_id, &status.source_id)?;
                 }
@@ -530,6 +553,25 @@ fn ingest_target(
                     != Some(state.tail.next_offset)))
     {
         return Err(SourceContinuityError::CheckpointUnavailable.into());
+    }
+    if state.parser_policy.as_deref() != Some(correction_manifest::CURRENT_RECONSTRUCTION_POLICY) {
+        if !matches!(
+            state.parser_policy.as_deref(),
+            None | Some("reconstruction_uuid7_strict_v1")
+        ) {
+            return Err(SourceContinuityError::UnsupportedPolicy.into());
+        }
+        if let Some(cursor) = &existing_cursor {
+            return policy_upgrade::advance(
+                store,
+                target,
+                cursor,
+                &state,
+                previous_status,
+                account_epochs,
+                RECONSTRUCTION_READ_CHUNK_BYTES,
+            );
+        }
     }
     let before = state.tail.next_offset;
     if !state.tail.partial_line.is_empty() {

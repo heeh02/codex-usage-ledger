@@ -75,8 +75,11 @@ Parser promotion must also re-qualify persisted reconstruction checkpoints, not
 just historical event rows. A checkpoint created by older replay rules may carry
 an already-wrong live/prefix state; running a newer binary from that offset alone
 does not prove the remaining stream is interpreted under the new policy.
-Verify a resumable policy-upgrade path alongside source-continuity and historical
-projection review before any installed-app/main-selector promotion.
+The [resumable policy-upgrade path](docs/architecture/reconstruction-policy-upgrade.md)
+now requalifies a valid legacy checkpoint in a separate cursor lane before its
+next ingestion work, without rewriting historical quantities. Source-continuity,
+historical projection review and real-data/native acceptance remain required
+before any installed-app/main-selector promotion.
 
 Schema 38 now stages the request-level union durably, with bounded resumable
 backfill and change-triggered group recomputation; see the
@@ -1898,3 +1901,27 @@ No live data migration, installed-app replacement or release has occurred.
   Historical replay completeness/eligibility, source-occurrence linkage,
   controlled union promotion and real-account/native acceptance remain open.
   Full goal remains ACTIVE.
+- Batch 158 (2026-09-08): added parser-policy tagging and lazy, resumable
+  reconstruction checkpoint requalification. A valid legacy checkpoint is not
+  trusted merely because its byte offset is valid: the shared parser rebuilds
+  state through the old committed prefix in bounded slices, discarding proposals
+  instead of inserting historical events. A separate compact cursor preserves
+  progress and a framed hash chain across restart; no large partial-line buffer
+  is stored in that lane. Completion atomically records a receipt and replaces
+  only parser state at the same main byte/line boundary. Old partial records
+  remain uncommitted for normal tailing. Compact pending-cursor lookup keeps
+  upgrades scheduled without file growth; healthy progress is not a source error.
+  Main/progress compare-and-swap and source checks preserve concurrent changes,
+  and existing history extending into the resume range requires review rather
+  than automatic requalification. Unsupported policies preserve the cursor and
+  report policy review separately from identity review. Tests demonstrate the
+  unsafe old-state continuation, retain the complete preexisting fact/hash, and
+  add only the legitimate subsequent child increment; all five dimensions and
+  components conserve. Bounded multi-slice/restart, idle no-repeat, partial-line,
+  source-change, transaction rollback, overlap and future-policy tests pass.
+  Rust 304 tests, Clippy and API contracts pass; the strengthened counterfactual
+  checkpoint assertion was also rerun with the focused suite. No original/audit
+  ledger or installed app was changed. This qualifies future resumption only,
+  not old usage rows or source continuity beyond the stated metadata checks.
+  Historical correction/union promotion, real-account parity and populated native
+  acceptance remain open; the full goal remains ACTIVE.
