@@ -493,7 +493,7 @@ impl LedgerStore {
             )", [], |row| row.get(0),
         )?;
         if mismatch {
-            return Err(StoreError::RollupNotVerified);
+            return Err(StoreError::RetainedEvidenceMismatch);
         }
         let deleted = transaction.execute(
             "DELETE FROM usage_events

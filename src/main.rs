@@ -809,7 +809,8 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     }
 
     prepare_fast_ledger(&mut writer, "serve")?;
-    compact_expired_raw_events(&mut writer, "serve")?;
+    // Opening the dashboard is not a request to delete historical raw details.
+    // Keep retention in explicit optimize/collection workflows with its guards.
     writer.set_collector_status(&CollectorStatus {
         mode: "serve".to_owned(),
         phase: "idle".to_owned(),

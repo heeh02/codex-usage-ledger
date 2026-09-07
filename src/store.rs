@@ -252,6 +252,10 @@ pub enum StoreError {
     RollupMismatch,
     #[error("daily rollup must be verified before raw event compaction")]
     RollupNotVerified,
+    #[error(
+        "retained request evidence differs from raw facts; compaction rolled back without deleting this batch"
+    )]
+    RetainedEvidenceMismatch,
     #[error("compacted event {event_id} was replayed with different immutable usage data")]
     CompactedEventConflict { event_id: String },
     #[error("reconstruction event {event_id} was replayed with different immutable data")]

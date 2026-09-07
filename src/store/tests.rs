@@ -1006,6 +1006,50 @@ fn upgrades_v15_to_cache_write_buckets_without_changing_old_totals() {
 }
 
 #[test]
+fn compaction_reports_retained_conflicts_without_weakening_or_consuming_evidence() {
+    for mismatch in [
+        "event_hash='different'",
+        "cached_input_tokens=cached_input_tokens+1",
+    ] {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        store
+            .upsert_event(&event("conflict", DataQuality::Confirmed, 1))
+            .unwrap();
+        while !store.backfill_rollup_chunk(100).unwrap().complete {}
+        store.verify_rollup_before_compaction().unwrap();
+        store
+            .connection
+            .execute(
+                &format!("UPDATE retained_request_evidence SET {mismatch}"),
+                [],
+            )
+            .unwrap();
+        let before = store.ledger_table_counts().unwrap();
+        let result = store.compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100);
+        assert!(matches!(result, Err(StoreError::RetainedEvidenceMismatch)));
+        assert_eq!(store.ledger_table_counts().unwrap(), before);
+        assert_eq!(
+            store
+                .aggregate_rollup_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            120
+        );
+        assert_eq!(
+            store
+                .connection
+                .query_row("SELECT suppress_delete FROM rollup_control", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
 fn event_upsert_is_replay_safe_and_cursor_is_transactional() {
     let mut store = LedgerStore::open_in_memory().unwrap();
     let mut original = event("event-1", DataQuality::Confirmed, 10);

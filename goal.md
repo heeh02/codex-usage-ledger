@@ -1262,3 +1262,20 @@ No live data migration, installed-app replacement or release has occurred.
   evidence of inference accuracy. No installed app or original ledger change.
   Source-union migration, safe source continuity and private-copy startup failure
   remain priorities; full goal ACTIVE.
+- Batch 132: traced private-copy serve startup failure to automatic compaction,
+  not inability to query the ledger. Metadata-only paired checks showed hash
+  differences without differences in compared token/time/model fields; this
+  does not justify ignoring or rewriting hashes. Dashboard-only mode no longer
+  compacts raw history, while explicit/collection compaction retains strict
+  checks. Retained/raw mismatch now has a distinct rollback error instead of
+  misleadingly saying the rollup was never verified. A RED subprocess regression
+  reproduced startup exit; final HTTP process test reaches idle and preserves
+  raw rows, compacted-key count and conflicting retained hash. Hash/token
+  mismatch store regressions prove compaction still rolls back. Rust 200 tests,
+  Clippy/contracts/governance pass. The real isolated service starts, all 13
+  scope audits pass, and the in-app browser reached conversation detail and
+  switched own/tree. Four local distribution scopes conserve components/counts.
+  Private findings stay in the external receipt. Tab/server stopped; no installed
+  app or original-ledger modification, no native rebuild in this batch. Historical
+  hash provenance, safe source rebinding and union/migration accuracy remain open;
+  this is a dashboard availability fix, not evidence repair. Full goal ACTIVE.
