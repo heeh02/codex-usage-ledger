@@ -5,6 +5,7 @@
 
 mod account_history;
 pub mod api;
+mod counter;
 mod identity;
 // Retained parser entry points support synthetic diagnostics and future source
 // adapters even when the production CLI uses the narrower sampling path.

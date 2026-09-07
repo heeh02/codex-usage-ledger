@@ -757,45 +757,25 @@ fn process_line(
         }
     }
 
-    let (usage, reset) = match state.previous_total {
-        None => {
-            let Some(last) = sample.last.filter(|usage| valid_usage(*usage)) else {
-                state.initial_counter_prefix = Some(total);
-                state.previous_total = Some(total);
-                state.last_token_at = Some(at);
-                state.prefix_events = state.prefix_events.saturating_add(1);
-                return Ok(None);
-            };
-            state.initial_counter_prefix = total
-                .checked_delta(last)
-                .filter(|usage| valid_usage(*usage));
-            (last, false)
+    let step = crate::counter::normalize_counter(state.previous_total, total, sample.last);
+    if state.previous_total.is_none() {
+        state.initial_counter_prefix = step.initial_prefix;
+        if step.usage.is_none() {
+            state.prefix_events = state.prefix_events.saturating_add(1);
         }
-        Some(previous) if total == previous => {
-            state.last_token_at = Some(at);
-            state.unchanged_events = state.unchanged_events.saturating_add(1);
-            return Ok(None);
-        }
-        Some(previous) => match total.checked_delta(previous) {
-            Some(delta) if valid_usage(delta) => (delta, false),
-            _ => {
-                let Some(last) = sample.last.filter(|usage| valid_usage(*usage)) else {
-                    state.previous_total = Some(total);
-                    state.last_token_at = Some(at);
-                    state.counter_epoch = state.counter_epoch.saturating_add(1);
-                    state.counter_resets = state.counter_resets.saturating_add(1);
-                    return Ok(None);
-                };
-                (last, true)
-            }
-        },
-    };
+    }
     state.previous_total = Some(total);
     state.last_token_at = Some(at);
-    if reset {
+    if step.unchanged {
+        state.unchanged_events = state.unchanged_events.saturating_add(1);
+    }
+    if step.reset {
         state.counter_epoch = state.counter_epoch.saturating_add(1);
         state.counter_resets = state.counter_resets.saturating_add(1);
     }
+    let Some(usage) = step.usage else {
+        return Ok(None);
+    };
     if usage.is_zero() {
         return Ok(None);
     }

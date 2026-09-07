@@ -136,11 +136,12 @@ continuity/rebinding; matching inode alone is not sufficient. See the
 [prefix audit and identity-review contract](docs/architecture/reconstruction-prefix-audit.md).
 
 - Official account totals and local activity have explicit, independent scopes.
-- Retained sampling amounts are copied from associated rollout rows in the
+- Retained sampling amounts are derived from associated rollout usage in the
   current importer; agreement between these representations is not independent
   numeric calibration. See [sampling provenance](docs/architecture/sampling-value-provenance.md).
-  Next accounting priority is shared counter/replay normalization for sampling
-  candidates and reconstruction, followed by legacy provenance enrichment and
+  Shared numeric counter normalization is implemented for new sampling and
+  reconstruction reads; canonical/replay boundary normalization remains open.
+  Next accounting priority is shared stream ownership/replay handling, followed by legacy provenance enrichment and
   reviewed promotion. Raw snapshot positions alone cannot prove independent
   quantities when counters are re-emitted or history is inherited.
 - Official reads now use an explicit observed-source binding, guarded before
@@ -1796,3 +1797,24 @@ No live data migration, installed-app replacement or release has occurred.
   and invalid-neighbor regressions. No original/audit ledger,
   source binding or installed app was rewritten. The shared-normalization gap
   remains an explicit production-switch blocker, not a completed calibration.
+- Batch 154: reproduced an unchanged cumulative snapshot being accepted as new
+  sampling consumption, then shared numeric counter normalization between
+  sampling and reconstruction. Valid increases use counter deltas instead of
+  stale last-usage amounts; unchanged consumed components do not create another
+  quantity, and coverage-only changes cannot trigger a false counter reset.
+  Candidate cursor JSON version 2 persists the baseline/continuity state; an
+  offset-only legacy checkpoint establishes a baseline without replaying history.
+  Invalid/missing totals break cumulative continuity and cannot silently fall
+  back to an older snapshot. Unavailable nearest candidates retain explicit
+  reasons rather than measured zero or a spurious source link. Sampling facts,
+  log cursor and candidate counter cursors now commit atomically per supplied
+  source cohort; injected cursor-write failure rolls back all three and retry
+  succeeds once. Restart, unchanged-tick zero-read, stale-last and shared-origin
+  component conservation across account/project/model/thread/calendar tests pass.
+  Rust 281 tests, Clippy and generated API contracts pass. This is a numerical
+  normalization step, not complete stream normalization: canonical/foreign
+  history boundaries, reset/rollback eligibility, legacy provenance, bounded
+  cohort performance and controlled union promotion remain open. Repeated
+  anchors are withheld as unknown; this does not recover the missing request
+  identity or certify history. No original/audit database, installed app or
+  account state was changed. Full goal remains ACTIVE.

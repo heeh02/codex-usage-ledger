@@ -138,6 +138,33 @@ impl LedgerStore {
         Ok(outcome)
     }
 
+    /// Sampling quantities depend on rollout counter state. Commit the entire
+    /// supplied cohort and both kinds of cursor together, or none of them.
+    pub(crate) fn upsert_sampling_events_and_cursors(
+        &mut self,
+        events: &[UsageEvent],
+        log_cursor: &FileCursor,
+        candidates: &[(FileCursor, bool)],
+    ) -> StoreResult<BatchOutcome> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut outcome = BatchOutcome::default();
+        for event in events {
+            outcome.observe(upsert_event_in(&transaction, event)?);
+        }
+        advance_cursor_in(&transaction, log_cursor)?;
+        for (cursor, reset) in candidates {
+            if *reset {
+                write_cursor_in(&transaction, cursor)?;
+            } else {
+                advance_cursor_in(&transaction, cursor)?;
+            }
+        }
+        transaction.commit()?;
+        Ok(outcome)
+    }
+
     /// Persists replay-safe reconstruction facts, source progress and the
     /// matching byte/parser cursor atomically. Reconstruction is deliberately
     /// isolated from `usage_events`; the effective views choose one source per
