@@ -24,6 +24,19 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Largest-source migration priority — 2026-09-08
+
+Changed execution priority from small chronological pages to the largest missing
+provenance sources, using a WAL-aware read-only ranking. Two complete-prefix
+reviews and sequential shadow applications handled 94,354 existing records:
+49,593 retained unchanged Token amounts with verified keys (one write-coverage
+correction), and 44,761 suppressed by the parser's foreign-history guard. All
+original records were archived; no new candidates imported. Private priority
+receipts retain exact seals. These remain shadow results, not a statement of
+official inference totals or completion of historical migration. Formal data and
+installed application remain unchanged. Continue prioritizing remaining largest
+missing sources rather than restarting the small-source inventory.
+
 ### Historical source migration, fourth private page — 2026-09-08
 
 Ten more captured-prefix sources completed review and serial existing-only shadow
