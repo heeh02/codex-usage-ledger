@@ -275,6 +275,11 @@ enum Command {
         #[arg(long, default_value_t = 1000)]
         limit: usize,
     },
+    /// Promote a reviewed, fully prepared ledger. Restart running services afterwards.
+    PromoteUnion {
+        #[arg(long)]
+        db: PathBuf,
+    },
     /// Inspect the staged request-level union; does not switch production policy.
     UnionProjection {
         #[arg(long)]
@@ -743,6 +748,16 @@ async fn main() -> Result<()> {
             let report = store.shadow_source_union(&thread, start, end, limit)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
+        Command::PromoteUnion { db } => {
+            // Refuse accidental creation or implicit schema upgrade.
+            drop(LedgerStore::open_read_only(&db)?);
+            let mut store = LedgerStore::open(&db)?;
+            store.promote_source_union_queries()?;
+            println!(
+                "{}",
+                json!({"policy":"request_union_v2","restartRequired":true})
+            );
+        }
         Command::UnionProjection {
             db,
             advance,
@@ -1135,6 +1150,7 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     let initial_status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
     writer.reproject_usage_from_catalog()?;
     prepare_fast_ledger(&mut writer, "daemon")?;
+    writer.maintain_active_source_union()?;
     if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
         warn!(%error, "quota window index backfill deferred");
     }
@@ -1200,6 +1216,9 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                     }
                 }
                 let status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
+                if let Err(error) = writer.maintain_active_source_union() {
+                    warn!(%error, "request union maintenance deferred");
+                }
                 publish_daemon_status(&mut writer, &status)?;
             }
             _ = official_refresh.tick() => {
@@ -1403,6 +1422,7 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     }
 
     prepare_fast_ledger(&mut writer, "serve")?;
+    writer.maintain_active_source_union()?;
     if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
         warn!(%error, "quota window index backfill deferred");
     }
@@ -1438,6 +1458,9 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
                 }
                 if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
                     warn!(%error, "Codex project and session directory refresh failed");
+                }
+                if let Err(error) = writer.maintain_active_source_union() {
+                    warn!(%error, "request union maintenance deferred");
                 }
                 if catalog_ticks.is_multiple_of(3) {
                     match observe_auth(

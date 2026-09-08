@@ -612,7 +612,7 @@ fn schema40_preserves_source_and_candidate_rows_and_queries_use_range_index() {
         original_rows = fact_rows(&store.connection);
     }
     let store = LedgerStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 40);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     assert_eq!(fact_rows(&store.connection), original_rows);
     assert_eq!(
         store

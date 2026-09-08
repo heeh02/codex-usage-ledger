@@ -123,7 +123,7 @@ impl LedgerStore {
     }
 
     /// Only for source reconstruction diagnostics. Fact columns used by this
-    /// audit are unchanged across schemas 35..40; general readers stay strict.
+    /// audit are unchanged across schemas 35..41; general readers stay strict.
     pub(crate) fn open_reconstruction_audit(path: impl AsRef<Path>) -> StoreResult<Self> {
         let connection =
             Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -131,10 +131,10 @@ impl LedgerStore {
         connection.pragma_update(None, "query_only", "ON")?;
         connection.pragma_update(None, "trusted_schema", "OFF")?;
         let found: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if !(35..=40).contains(&found) {
+        if !(35..=41).contains(&found) {
             return Err(StoreError::UnsupportedAuditSchema {
                 found,
-                supported: 40,
+                supported: 41,
             });
         }
         Ok(Self {
@@ -170,11 +170,13 @@ impl LedgerStore {
         connection.pragma_update(None, "journal_size_limit", 67_108_864_i64)?;
 
         migrations::migrate(&mut connection)?;
-        Ok(Self {
+        let mut store = Self {
             connection,
             exact_series_memo: Default::default(),
             union_main_preview: false,
-        })
+        };
+        store.restore_source_union_policy()?;
+        Ok(store)
     }
 
     pub fn schema_version(&self) -> StoreResult<i64> {

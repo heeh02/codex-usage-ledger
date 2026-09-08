@@ -2,6 +2,40 @@ use codex_usage_ledger::LedgerStore;
 use std::process::Command;
 
 #[test]
+fn promotion_cli_requires_existing_schema_and_persists_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("promote.sqlite3");
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_codex-usage-ledger"))
+            .args(["promote-union", "--db"])
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    assert!(!run().status.success());
+    assert!(!path.exists());
+    drop(LedgerStore::open(&path).unwrap());
+    let result = run();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let body: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(body["policy"], "request_union_v2");
+    assert_eq!(body["restartRequired"], true);
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    let policy: String = connection
+        .query_row(
+            "SELECT policy FROM usage_query_policy WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(policy, "request_union_v2");
+}
+
+#[test]
 fn union_projection_cli_reads_by_default_and_does_not_create_or_migrate() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("candidate.sqlite3");

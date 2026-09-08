@@ -314,7 +314,7 @@ fn verify_with_store(
                         value.policy.as_str(),
                         "reconstruction_uuid7_strict_v1" | CURRENT_RECONSTRUCTION_POLICY
                     )
-                    || !(35..=40).contains(&value.ledger_schema)
+                    || !(35..=41).contains(&value.ledger_schema)
                     || value.machine_id.is_empty()
                     || value.thread.is_empty()
                     || value.source_id != source_id(&value.thread)

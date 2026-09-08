@@ -8,14 +8,51 @@ impl LedgerStore {
     /// Subsequent writes invalidate readiness until incremental staging catches
     /// up; queries must never fall back to the legacy daily maximum.
     pub fn enable_source_union_queries(&mut self) -> StoreResult<()> {
+        self.select_source_union_queries(false)
+    }
+
+    /// Explicit promotion persists only query policy, never rewrites source facts.
+    /// The caller must finish source review before requesting this operation.
+    pub fn promote_source_union_queries(&mut self) -> StoreResult<()> {
+        self.select_source_union_queries(true)
+    }
+
+    /// One bounded maintenance batch; inactive ledgers are not implicitly promoted.
+    pub fn maintain_active_source_union(&mut self) -> StoreResult<()> {
         if self.union_main_preview {
+            self.stage_source_union_batch(200, 200, 10000)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn restore_source_union_policy(&mut self) -> StoreResult<()> {
+        let selected: bool = self.connection.query_row(
+            "SELECT policy='request_union_v2' FROM usage_query_policy WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?;
+        if selected {
+            self.connection.execute_batch(PREVIEW_VIEWS)?;
+            self.union_main_preview = true;
+        }
+        Ok(())
+    }
+
+    fn select_source_union_queries(&mut self, persist: bool) -> StoreResult<()> {
+        if self.union_main_preview && !persist {
             return self.refresh_effective_source_selection();
         }
         let transaction = self.connection.unchecked_transaction()?;
         if !self.union_main_projection_ready()? {
             return Err(StoreError::SnapshotUnavailable);
         }
-        transaction.execute_batch(PREVIEW_VIEWS)?;
+        if !self.union_main_preview {
+            transaction.execute_batch(PREVIEW_VIEWS)?;
+        }
+        if persist {
+            transaction.execute("UPDATE usage_query_policy SET policy='request_union_v2',
+                activated_at=COALESCE(activated_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=1", [])?;
+        }
         transaction.commit()?;
         self.union_main_preview = true;
         self.exact_series_memo = Default::default();
@@ -371,6 +408,69 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn promoted_union_survives_restart_and_pending_ingest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("promoted.sqlite3");
+        fixture(&path);
+        let mut store = LedgerStore::open(&path).unwrap();
+        store.promote_source_union_queries().unwrap();
+        store.promote_source_union_queries().unwrap();
+        let mut row = event("after-promotion", DataQuality::Confirmed, 9);
+        row.provenance.source_record_key = Some("after-promotion".into());
+        let added = row.usage.total_tokens;
+        store.upsert_event(&row).unwrap();
+        drop(store);
+        let mut reopened = LedgerStore::open(&path).unwrap();
+        assert!(reopened.is_source_union_main_preview());
+        assert!(matches!(
+            reopened.aggregate_usage(&AggregateFilter::default()),
+            Err(StoreError::SnapshotUnavailable)
+        ));
+        reopened.maintain_active_source_union().unwrap();
+        assert_eq!(
+            reopened
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            600 + added
+        );
+    }
+
+    #[test]
+    fn schema_40_upgrade_preserves_facts_without_automatic_promotion() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("upgrade.sqlite3");
+        fixture(&path);
+        let store = LedgerStore::open(&path).unwrap();
+        let before: i64 = store
+            .connection
+            .query_row(
+                "SELECT count(*) FROM retained_request_evidence",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        store
+            .connection
+            .execute_batch("DROP TABLE usage_query_policy; PRAGMA user_version=40;")
+            .unwrap();
+        drop(store);
+        let upgraded = LedgerStore::open(&path).unwrap();
+        assert_eq!(upgraded.schema_version().unwrap(), 41);
+        assert!(!upgraded.is_source_union_main_preview());
+        let after: i64 = upgraded
+            .connection
+            .query_row(
+                "SELECT count(*) FROM retained_request_evidence",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(before, after);
     }
 
     #[test]

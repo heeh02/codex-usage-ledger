@@ -24,6 +24,26 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Durable query routing and collector integration — 2026-09-08
+
+Schema 41 persists explicit union selection without altering source facts or
+automatically promoting old ledgers. `promote-union --db` requires an existing
+current-schema ledger and a fully ready projection, records the first activation,
+and instructs operators to restart services. Normal writable startup restores
+the union views even when new ingestion is pending, never daily-max fallback.
+Both collector and dashboard loops advance bounded active-union batches.
+Compatibility is documented in
+[query policy promotion](docs/contracts/query-policy-promotion.md).
+
+Verified: full Rust all-target/all-feature suite, additional CLI promotion tests,
+Clippy, documentation links and current-tree privacy scan. Schema-40 upgrade
+preserves facts and defaults to legacy selection; promoted restart plus pending
+ingestion recovers the exact union total after staging. Manifest/audit schema
+compatibility now includes 41 because retained fact columns are unchanged.
+No installed/real ledger was upgraded or promoted in this continuation. The next
+step is reviewed real-ledger preparation/promotion and current native packaging,
+not another UI polish pass.
+
 ### Live union integration foundation — 2026-09-08
 
 Added `LedgerStore::enable_source_union_queries` for an already prepared writable

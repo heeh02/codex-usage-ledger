@@ -74,7 +74,8 @@ fn remove_future_union_fixture(connection: &Connection) {
     }
     connection
         .execute_batch(
-            "DROP TABLE measurement_union_selected;
+            "DROP TABLE usage_query_policy;
+        DROP TABLE measurement_union_selected;
         DROP TABLE measurement_union_groups; DROP TABLE measurement_union_dirty;
         DROP TABLE measurement_union_backfill; DROP TABLE measurement_union_counts;",
         )
