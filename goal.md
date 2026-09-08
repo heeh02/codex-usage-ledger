@@ -7,6 +7,17 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Formal-transfer preflight completed read-only on 2026-09-09. Comparing every
+reconstruction column (not merely IDs/counts) against archived pre-correction
+facts found 694,411 exact original matches: 432,946 have reviewed replacements
+and 261,465 were suppressed as replay. The other 50,471 formal reconstruction
+rows must remain intact. Formal retained count differs from the review copy, so
+whole-shadow replacement is explicitly rejected. Private preflight captures
+both SHA-256s and counts. Next step: build a new candidate from the formal ledger,
+apply only exact-matching reviewed changes, preserve unmatched rows and all
+account/quota/catalog state, and retain the original as rollback. No production
+write, login change, data removal or app installation occurred in preflight.
+
 Schema 43 adds explicit available-history promotion
 (`promote-union --allow-incomplete-history`). Strict activation remains default.
 Available mode reads only confirmed selected records; unresolved facts are
