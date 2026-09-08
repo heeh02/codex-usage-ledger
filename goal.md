@@ -24,6 +24,16 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources twenty through twenty-five — 2026-09-08
+
+Pre-batch inventory found 245,304 reconstruction rows without keys across 2,407
+threads, down from the earlier 634,737-row observation. This is evidence-work
+inventory, not overall product completion. Six further complete-prefix shadow
+migrations archived 25,041 originals, retained 7,432 and suppressed 17,609 replay
+rows; no imports or deferred candidates. Sampling association found no anchors
+in these scopes. All six repeat applications verified post-images. Private
+priority-20to25 receipts saved. Formal ledger and installed app unchanged.
+
 ### Priority sources fourteen through nineteen — 2026-09-08
 
 Six additional complete-prefix sources migrated serially on the shadow with
