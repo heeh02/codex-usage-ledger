@@ -24,6 +24,16 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources eleven through thirteen — 2026-09-08
+
+Re-ranked missing provenance after previous migrations and completed three more
+full-prefix reviews. Sequential shadow application archived 44,240 originals,
+retained 3,721 and suppressed 40,519 replay rows. No new imports/deferred rows.
+Sampling association found no retained anchors for these three scopes; no usage
+inference follows from that absence. All three post-images verified by repeat
+application. Private priority-111213 receipts saved. Production data, installed
+application and authentication/reset state unchanged; goal remains active.
+
 ### Priority sources eight through ten — 2026-09-08
 
 Completed full-prefix audits, sequential existing-only migration, sampling
