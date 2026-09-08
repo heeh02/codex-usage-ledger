@@ -49,6 +49,8 @@ enum Command {
         automatic: bool,
         #[arg(long, requires="automatic", default_value_t=1, value_parser=clap::value_parser!(u16).range(1..=1000))]
         automatic_batches: u16,
+        #[arg(long, requires = "automatic")]
+        missing_identities_only: bool,
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
@@ -530,6 +532,7 @@ async fn main() -> Result<()> {
         Command::DraftReconstructionBatch {
             automatic,
             automatic_batches,
+            missing_identities_only,
             db,
             codex_home,
             output_dir,
@@ -548,6 +551,7 @@ async fn main() -> Result<()> {
                     max_bytes_per_source,
                     allow_device_drift,
                     usize::from(automatic_batches),
+                    missing_identities_only,
                 )?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 return Ok(());

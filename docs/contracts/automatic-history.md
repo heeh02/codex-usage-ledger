@@ -26,6 +26,14 @@ the saved cursor automatically, stops when the inventory ends, and returns only
 aggregate source/error counts. The default is one batch; the job cap does not
 change the accounting rules or authorize a production switch.
 
+`--missing-identities-only` schedules only sources still lacking reconstruction
+identity or confirmed sampling identity, and skips already isolated sources.
+Switching between this repair phase and the all-source phase resets only the
+phase cursor, preserving isolated-source history. Repeating the same phase
+resumes its cursor. This covers gaps before an old initial cursor without
+rescanning every already-resolved source. It does not retry isolated sources or
+claim that missing files became recoverable.
+
 The output directory stores a private `automatic-history-progress.json`, bound
 to its ledger and source home. Runs resume the saved cursor when `--after` is
 omitted. A process lock prevents overlapping batches in the same directory. Progress

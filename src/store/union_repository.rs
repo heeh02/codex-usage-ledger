@@ -14,6 +14,21 @@ pub(super) const COUNTERPARTS: &str = "SELECT p.evidence_source,p.event_id FROM 
     LIMIT ?2";
 
 impl LedgerStore {
+    /// Work inventory for identity repair, not another full history scan.
+    pub(crate) fn missing_identity_threads(&self) -> StoreResult<BTreeSet<String>> {
+        let mut query = self.connection.prepare(
+            "SELECT r.thread_id FROM reconstruction_usage_events r
+             LEFT JOIN source_record_evidence p ON p.evidence_source='reconstruction' AND p.event_id=r.event_id
+             WHERE COALESCE(p.record_key,'')='' AND r.thread_id IS NOT NULL AND r.thread_id<>''
+             UNION SELECT k.thread_id FROM retained_request_evidence k
+             LEFT JOIN source_record_evidence p ON p.evidence_source='sampling' AND p.event_id=k.event_id
+             WHERE k.quality='confirmed' AND COALESCE(p.record_key,'')=''
+               AND k.thread_id IS NOT NULL AND k.thread_id<>''")?;
+        Ok(query
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<_, _>>()?)
+    }
+
     /// One snapshot: indexed seeds then direct key closure before scope resolution.
     pub fn shadow_source_union(
         &self,

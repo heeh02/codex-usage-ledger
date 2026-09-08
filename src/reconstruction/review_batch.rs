@@ -34,6 +34,12 @@ struct AutomaticProgress {
     isolated_threads: BTreeSet<String>,
     #[serde(default)]
     isolated_errors: BTreeMap<String, String>,
+    #[serde(default = "all_scope")]
+    scope: String,
+}
+
+fn all_scope() -> String {
+    "all".into()
 }
 
 #[derive(Debug, Serialize)]
@@ -59,6 +65,7 @@ pub fn run_history_reconciliation(
     max_bytes: usize,
     allow_device_drift: bool,
     batches: usize,
+    missing_identities_only: bool,
 ) -> Result<AutomaticRunReport> {
     if !(1..=1000).contains(&batches) {
         return Err(anyhow!("automatic job requires 1..1000 batches"));
@@ -73,7 +80,7 @@ pub fn run_history_reconciliation(
         production_policy_changed: false,
     };
     for index in 0..batches {
-        let report = reconcile_history_batch(
+        let report = reconcile_history_batch_with_scope(
             db,
             home,
             output,
@@ -81,6 +88,7 @@ pub fn run_history_reconciliation(
             limit,
             max_bytes,
             allow_device_drift,
+            missing_identities_only,
         )?;
         summary.batches_completed += 1;
         summary.sources_processed += report.items.len();
@@ -118,6 +126,29 @@ pub fn reconcile_history_batch(
     limit: usize,
     max_bytes_per_source: usize,
     allow_device_drift: bool,
+) -> Result<ReviewBatchReport> {
+    reconcile_history_batch_with_scope(
+        db,
+        home,
+        output,
+        after,
+        limit,
+        max_bytes_per_source,
+        allow_device_drift,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn reconcile_history_batch_with_scope(
+    db: &Path,
+    home: &Path,
+    output: &Path,
+    after: Option<&str>,
+    limit: usize,
+    max_bytes_per_source: usize,
+    allow_device_drift: bool,
+    missing_identities_only: bool,
 ) -> Result<ReviewBatchReport> {
     if !(1..=10).contains(&limit) || !(1..=1_073_741_824).contains(&max_bytes_per_source) {
         return Err(anyhow!(
@@ -161,8 +192,18 @@ pub fn reconcile_history_batch(
             next_after: None,
             isolated_threads: BTreeSet::new(),
             isolated_errors: BTreeMap::new(),
+            scope: all_scope(),
         }
     };
+    let scope = if missing_identities_only {
+        "missing_identities"
+    } else {
+        "all"
+    };
+    if progress.scope != scope {
+        progress.next_after = None;
+        progress.scope = scope.into();
+    }
     let after = after
         .map(str::to_owned)
         .or_else(|| progress.next_after.clone());
@@ -176,10 +217,21 @@ pub fn reconcile_history_batch(
             "automatic historical reconciliation requires an isolated shadow"
         ));
     }
+    let selected = if missing_identities_only {
+        Some(
+            reader
+                .missing_identity_threads()?
+                .difference(&progress.isolated_threads)
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+        )
+    } else {
+        None
+    };
     drop(reader);
     // Upgrade only the explicitly selected shadow, never the production store.
     drop(LedgerStore::open(db)?);
-    let mut report = draft_reconstruction_batch(
+    let mut report = draft_selected_batch(
         db,
         home,
         &output,
@@ -187,6 +239,7 @@ pub fn reconcile_history_batch(
         limit,
         max_bytes_per_source,
         allow_device_drift,
+        selected.as_ref(),
     )?;
     for item in &mut report.items {
         if !matches!(item.status, "created" | "reused" | "applied") {
@@ -264,6 +317,29 @@ pub fn draft_reconstruction_batch(
     max_bytes_per_source: usize,
     allow_device_drift: bool,
 ) -> Result<ReviewBatchReport> {
+    draft_selected_batch(
+        db,
+        home,
+        output,
+        after,
+        limit,
+        max_bytes_per_source,
+        allow_device_drift,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draft_selected_batch(
+    db: &Path,
+    home: &Path,
+    output: &Path,
+    after: Option<&str>,
+    limit: usize,
+    max_bytes_per_source: usize,
+    allow_device_drift: bool,
+    selected: Option<&BTreeSet<String>>,
+) -> Result<ReviewBatchReport> {
     if !(1..=10).contains(&limit) || !(1..=2_147_483_648).contains(&max_bytes_per_source) {
         return Err(anyhow!(
             "review batch requires 1..10 sources and bounded source bytes"
@@ -282,6 +358,7 @@ pub fn draft_reconstruction_batch(
         .reconstruction_sources()?
         .into_iter()
         .map(|s| s.thread_id)
+        .filter(|s| selected.is_none_or(|selected| selected.contains(s)))
         .filter(|s| after.is_none_or(|after| s.as_str() > after))
         .collect();
     drop(store);

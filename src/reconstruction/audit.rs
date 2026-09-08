@@ -46,6 +46,7 @@ mod tests {
                 4096,
                 false,
                 100,
+                false,
             )
             .unwrap(),
         )
@@ -78,6 +79,7 @@ mod tests {
                 4096,
                 false,
                 100,
+                false,
             )
             .unwrap(),
         )
@@ -97,6 +99,62 @@ mod tests {
                 )
                 .unwrap(),
             1100
+        );
+    }
+
+    #[test]
+    fn automatic_missing_identity_pass_covers_earlier_cursor_gaps() {
+        let (temp, mut store, _) = fixture();
+        store
+            .connection()
+            .execute("DELETE FROM source_record_evidence", [])
+            .unwrap();
+        let mut cursor = store
+            .get_cursor("machine", &source_id("root"))
+            .unwrap()
+            .unwrap();
+        cursor.source_id = crate::sampling::POST_SAMPLING_SOURCE_ID.into();
+        store.advance_cursor(&cursor).unwrap();
+        let shadow = temp.path().join("missing-identities.sqlite3");
+        crate::store::create_review_shadow(&temp.path().join("ledger.sqlite3"), &shadow).unwrap();
+        let output = tempfile::tempdir().unwrap();
+        fs::write(output.path().join("automatic-history-progress.json"), serde_json::to_vec(&serde_json::json!({
+            "version":1,"db":shadow.canonicalize().unwrap(),"home":temp.path().canonicalize().unwrap(),
+            "next_after":"zzzz","isolated_threads":["previously-isolated"]
+        })).unwrap()).unwrap();
+        let run = || {
+            serde_json::to_value(
+                run_history_reconciliation(
+                    &shadow,
+                    temp.path(),
+                    output.path(),
+                    None,
+                    1,
+                    4096,
+                    false,
+                    10,
+                    true,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let first = run();
+        assert_eq!(first["sourcesReconciled"], 1);
+        assert_eq!(first["outstandingIsolatedSources"], 1);
+        assert_eq!(run()["sourcesProcessed"], 0);
+        let reader = LedgerStore::open_read_only(&shadow).unwrap();
+        assert!(reader.missing_identity_threads().unwrap().is_empty());
+        assert_eq!(
+            reader
+                .connection()
+                .query_row(
+                    "SELECT SUM(total_tokens) FROM reconstruction_usage_events",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            100
         );
     }
 

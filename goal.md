@@ -7,6 +7,17 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Implemented and started targeted automatic identity repair with
+`--missing-identities-only --automatic-batches 1000 --limit 10`.
+**Active exec session: 76886.** Poll this handle; do not restart the all-source
+pass. Inventory analysis found 27,421 still-indexed reconstruction rows before
+the prior start cursor, explaining part of the remaining gap. The new phase
+selects only missing identities and excludes already isolated sources; changing
+phase resets its cursor without clearing exceptions. Repeating the phase resumes.
+Full tests, Clippy and release build passed, including a regression for an
+unprocessed source before the old cursor. No individual source review or formal
+ledger change. This phase runs only on the existing shadow.
+
 Schema 42 fixes a generic eligibility inconsistency: scoped queries already
 excluded unkeyed unconfirmed sampling from confirmed usage, but global staging
 incorrectly made those observations blockers. A RED regression reproduced it;
