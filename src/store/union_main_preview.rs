@@ -3,6 +3,25 @@
 use super::*;
 
 impl LedgerStore {
+    /// Select the request union on a live collector connection after its initial
+    /// projection is ready. This changes query routing only, not retained facts.
+    /// Subsequent writes invalidate readiness until incremental staging catches
+    /// up; queries must never fall back to the legacy daily maximum.
+    pub fn enable_source_union_queries(&mut self) -> StoreResult<()> {
+        if self.union_main_preview {
+            return self.refresh_effective_source_selection();
+        }
+        let transaction = self.connection.unchecked_transaction()?;
+        if !self.union_main_projection_ready()? {
+            return Err(StoreError::SnapshotUnavailable);
+        }
+        transaction.execute_batch(PREVIEW_VIEWS)?;
+        transaction.commit()?;
+        self.union_main_preview = true;
+        self.exact_series_memo = Default::default();
+        Ok(())
+    }
+
     /// Open a current-schema ledger read-only and exercise the normal query
     /// services using selected request facts, including retained-only requests.
     /// This is an acceptance lane, not authorization to migrate historical facts.
@@ -294,6 +313,64 @@ mod tests {
             }
         }
         store.refresh_effective_source_selection().unwrap();
+    }
+
+    #[test]
+    fn live_union_keeps_ingesting_without_daily_max_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("live.sqlite3");
+        fixture(&path);
+        let mut store = LedgerStore::open(&path).unwrap();
+        store.enable_source_union_queries().unwrap();
+        store.enable_source_union_queries().unwrap();
+        let filter = AggregateFilter::default();
+        assert_eq!(
+            store.aggregate_usage(&filter).unwrap().usage.total_tokens,
+            600
+        );
+        let mut row = event("live-new", DataQuality::Confirmed, 4);
+        row.provenance.source_record_key = Some("live-new".into());
+        let added = row.usage.total_tokens;
+        store.upsert_event(&row).unwrap();
+        assert!(matches!(
+            store.aggregate_usage(&filter),
+            Err(StoreError::SnapshotUnavailable)
+        ));
+        for _ in 0..100 {
+            if store
+                .stage_source_union_batch(10, 10, 100)
+                .unwrap()
+                .projection_ready
+            {
+                break;
+            }
+        }
+        assert_eq!(
+            store.aggregate_usage(&filter).unwrap().usage.total_tokens,
+            600 + added
+        );
+    }
+
+    #[test]
+    fn live_union_activation_rejects_unprepared_projection() {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        store
+            .upsert_event(&event("pending", DataQuality::Confirmed, 1))
+            .unwrap();
+        assert!(matches!(
+            store.enable_source_union_queries(),
+            Err(StoreError::SnapshotUnavailable)
+        ));
+        assert!(!store.is_source_union_main_preview());
+        let count: i64 = store
+            .connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_temp_master WHERE name='effective_usage_events'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

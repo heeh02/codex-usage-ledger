@@ -24,6 +24,23 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Live union integration foundation — 2026-09-08
+
+Added `LedgerStore::enable_source_union_queries` for an already prepared writable
+collector connection. Activation checks readiness and installs the same union
+views transactionally, clears the query memo, and leaves retained facts intact.
+It is idempotent; pending subsequent ingestion blocks stale aggregate reads until
+incremental staging completes, without reverting to daily maximum selection.
+No schema, HTTP response, CLI default or installed runtime policy changed here.
+
+Regression evidence: live sampling A/B plus reconstruction B/C produces 600,
+accepts another event on the same writable connection, refuses pending reads,
+then returns 600 plus the new event after staging. Unprepared activation leaves
+no temporary view or active-policy flag. Full Rust all-target/all-feature tests
+and warning-denying Clippy passed. This is the storage integration foundation;
+durable startup selection, collector scheduling and production promotion remain
+the next required wiring, not completed by these tests.
+
 ### Native delivery checkpoint — 2026-09-08
 
 The latest continuation completed the existing isolated native acceptance rather
