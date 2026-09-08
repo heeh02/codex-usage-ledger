@@ -9,6 +9,15 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Final functional review is recorded in
+[account-first delivery review](docs/architecture/account-first-delivery-review.md).
+Web acceptance rerun: 100 unit tests and 33 E2E tests pass. E01/E02/E03 and core
+E04/E06 have source, automated and native delivery evidence. E05 history paging
+and interval usage exist, but ADR 6.3's aligned quota-remaining step plot and
+interval Token bars are not implemented. This is the bounded remaining feature;
+do not replace it with more per-source audits or claim the whole goal complete.
+Historical gaps remain accepted limitations, not recovery tasks.
+
 Snapshot rollup optimization is installed. Hourly TEMP aggregation runs once per
 frozen union read; daily totals derive from those hours. Snapshot rollback removes
 all overrides on success/error, preserving main-file facts and read-only flags.
