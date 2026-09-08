@@ -30,6 +30,35 @@ fn drain(store: &mut LedgerStore) -> UnionProjectionProgress {
     panic!("synthetic projection never settled");
 }
 
+#[test]
+fn upgrade_requeues_unknown_groups_without_changing_observations() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("legacy.sqlite3");
+    let mut store = LedgerStore::open(&path).unwrap();
+    let observation = event("unconfirmed", DataQuality::Unknown, 1);
+    store.upsert_event(&observation).unwrap();
+    drain(&mut store);
+    // Reproduce the schema-41 materialization bug, not a source fact change.
+    store.connection.execute_batch("INSERT INTO measurement_union_groups VALUES('sampling','unconfirmed',1,'missing_record_key'); PRAGMA user_version=41;").unwrap();
+    drop(store);
+    let mut upgraded = LedgerStore::open(&path).unwrap();
+    assert!(
+        upgraded
+            .source_union_projection_progress()
+            .unwrap()
+            .pending_groups
+            > 0
+    );
+    let report = drain(&mut upgraded);
+    assert_eq!(report.unresolved_groups, 0);
+    assert_eq!(report.selected_groups, 0);
+    let (quality, total): (String, i64) = upgraded.connection.query_row(
+        "SELECT quality,total_tokens FROM retained_request_evidence WHERE event_id='unconfirmed'",
+        [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+    assert_eq!(quality, "unknown");
+    assert_eq!(total as u64, observation.usage.total_tokens);
+}
+
 fn selected_usage(store: &LedgerStore) -> TokenUsage {
     store.connection.query_row(
         "SELECT COALESCE(SUM(input_tokens),0),COALESCE(SUM(cached_input_tokens),0),

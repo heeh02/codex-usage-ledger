@@ -460,7 +460,7 @@ mod tests {
             .unwrap();
         drop(store);
         let upgraded = LedgerStore::open(&path).unwrap();
-        assert_eq!(upgraded.schema_version().unwrap(), 41);
+        assert_eq!(upgraded.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
         assert!(!upgraded.is_source_union_main_preview());
         let after: i64 = upgraded
             .connection

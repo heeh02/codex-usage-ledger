@@ -7,6 +7,17 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Schema 42 fixes a generic eligibility inconsistency: scoped queries already
+excluded unkeyed unconfirmed sampling from confirmed usage, but global staging
+incorrectly made those observations blockers. A RED regression reproduced it;
+the fix requeues only derived groups, preserving the original unknown facts.
+Full Rust tests and Clippy passed, including upgrade preservation. Applied only
+to the shadow through the automatic opener (zero sources rescanned), then drained
+the derived queue: selected remains 407,812; unresolved decreases by 3,352 to
+77,733; pending=0. The 425 isolated source checkpoint entries persist across the
+empty resumed run. No formal ledger or installed application changed.
+Shadow is now schema 42; use current binaries, not schema-40/41 audit binaries.
+
 Automatic session **18356 has completed successfully** (exit 0); do not poll or
 restart it. Final report: 194 batches, 1,937 sources processed, 1,512 reconciled,
 425 isolated, inventory exhausted. Aggregate availability check: 424 isolated

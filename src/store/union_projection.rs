@@ -295,9 +295,16 @@ fn recompute(
         } else {
             (EvidenceSide::Reconstruction, SOURCES[1].1)
         };
+        // Match scoped-query eligibility: unkeyed unknown observations remain
+        // visible as unknown, but are not candidates for confirmed usage.
+        let eligibility = if side == EvidenceSide::Sampling {
+            " AND e.quality='confirmed'"
+        } else {
+            ""
+        };
         let exists: bool = connection.query_row(&format!(
             "SELECT EXISTS(SELECT 1 FROM {table} e LEFT JOIN source_record_evidence p
-             ON p.evidence_source=?1 AND p.event_id=e.event_id WHERE e.event_id=?2 AND (p.record_key IS NULL OR p.record_key=''))"
+             ON p.evidence_source=?1 AND p.event_id=e.event_id WHERE e.event_id=?2 AND (p.record_key IS NULL OR p.record_key=''){eligibility})"
         ),params![kind,identity],|row| row.get(0))?;
         if exists {
             vec![(side, identity.into())]

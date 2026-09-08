@@ -579,6 +579,7 @@ fn unkeyed_unconfirmed_observations_are_reported_not_counted_or_used_as_a_global
     for staged in [false, true] {
         if staged {
             drain(&mut store);
+            assert!(store.union_main_projection_ready().unwrap());
         }
         let result = store.read_source_union_projection(&query()).unwrap();
         assert_eq!(result.status, "available");

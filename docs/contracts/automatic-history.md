@@ -40,3 +40,10 @@ unresolved sources saved by previous runs, including older checkpoints without
 error text. Private checkpoints retain each newly observed isolation reason;
 successful retries remove its saved isolation entry. An empty new batch must
 not reset the historical outstanding count or imply complete evidence coverage.
+
+Schema 42 aligns global materialization with scoped queries: unkeyed sampling
+observations whose quality is not confirmed remain in the observation ledger and
+unknown-observation count, but are not confirmed-union candidates. Existing cached
+groups of that kind are queued for recomputation; no source facts are deleted or
+converted to zero. Confirmed observations missing identities and keyed conflicts
+remain unresolved rather than being discarded by this rule.
