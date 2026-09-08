@@ -13,6 +13,7 @@ export function ScopedEvidenceView() {
   const [catalog,setCatalog]=useState<ScopeCatalog|null>(null);
   const [catalogRevision,setCatalogRevision]=useState(0);
   const [project,setProject]=useState(''); const [thread,setThread]=useState(''); const [account,setAccount]=useState('');
+  const [includeDescendants,setIncludeDescendants]=useState(false);
   const [start,setStart]=useState(()=>dateInput(new Date(new Date().getFullYear(),new Date().getMonth(),1)));
   const [end,setEnd]=useState(()=>{const d=new Date();d.setDate(d.getDate()+1);return dateInput(d);});
   const [grain,setGrain]=useState<ScopeQuery['grain']>('day');
@@ -25,14 +26,14 @@ export function ScopedEvidenceView() {
     setStart(startDate);setEnd(endDate);
     active.current?.abort();const controller=new AbortController();active.current=controller;setPending(true);setFailed(false);
     try {
-      const query:ScopeQuery={start:new Date(`${startDate}T00:00:00`).toISOString(),end:new Date(`${endDate}T00:00:00`).toISOString(),timezone,grain,...(account?{account}:{}),...(project?{project}:{}),...(thread?{thread}:{})};
+      const query:ScopeQuery={start:new Date(`${startDate}T00:00:00`).toISOString(),end:new Date(`${endDate}T00:00:00`).toISOString(),timezone,grain,...(account?{account}:{}),...(project?{project}:{}),...(thread?{thread,includeDescendants}:{})};
       if(Date.parse(query.start)>=Date.parse(query.end))throw new Error('Invalid interval');
       const caption={project:catalog?.projects.find(p=>p.id===project)?.label??null,chat:thread?(catalog?.roots.find(r=>r.id===thread)?.label??thread.slice(0,8)):null,account,dates:`${startDate} → ${endDate} · ${timezone}`};
       await runScopedRequest(controller.signal,()=>getSourceScope(query,controller.signal),{success:value=>setResult({value,caption}),failure:()=>setFailed(true),settled:()=>setPending(false)});
     } catch { if(!controller.signal.aborted){setFailed(true);setPending(false);} }
   };
   const display=result?.value.display;
-  const caption=result?[result.caption.project??t('scope.all_projects'),result.caption.chat??t('scope.all_chats'),result.caption.account?`${t('scope.account')} ${result.caption.account.slice(0,8)}`:t('scope.all_accounts'),result.caption.dates].join(' · '):'';
+  const caption=result?[result.caption.project??t('scope.all_projects'),result.caption.chat??t('scope.all_chats'),...(result.value.query.thread?[t(result.value.query.includeDescendants?'scope.tree':'scope.own')]:[]),result.caption.account?`${t('scope.account')} ${result.caption.account.slice(0,8)}`:t('scope.all_accounts'),result.caption.dates].join(' · '):'';
   return <Panel title={t('scope.title')} eyebrow={t('app.local_attribution')}>
     <p>{t('scope.description')}</p>
     <form className="scoped-evidence-form" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);void submit(String(data.get('start')),String(data.get('end')));}}>
@@ -42,9 +43,10 @@ export function ScopedEvidenceView() {
       <label>{t('scope.start')}<input name="start" required type="date" value={start} onChange={e=>setStart(e.target.value)}/></label>
       <label>{t('scope.end')}<input name="end" required type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label>
       <label>{t('scope.grain')}<select value={grain} onChange={e=>setGrain(e.target.value as ScopeQuery['grain'])}>{(['day','week','month'] as const).map(g=><option key={g} value={g}>{t(`scope.${g}`)}</option>)}</select></label>
+      <label><span>{t('scope.tree')}</span><input type="checkbox" style={{width:'auto',alignSelf:'start'}} checked={includeDescendants} disabled={!thread} onChange={e=>setIncludeDescendants(e.target.checked)}/></label>
       <button type="submit" disabled={!catalog||pending} aria-busy={pending}>{t('scope.query')}</button>
     </form>
-    <p className="usage-breakdown-note">{t('scope.own_note')} {t('scope.catalog_limit')}</p>
+    <p className="usage-breakdown-note">{t(includeDescendants&&thread?'scope.tree_note':'scope.own_note')} {t('scope.catalog_limit')}</p>
     {pending&&<p role="status">{t('scope.loading')}</p>}
     {failed&&<p role="alert">{t('scope.failed')}</p>}
     {failed&&!catalog&&<button type="button" onClick={()=>setCatalogRevision(n=>n+1)}>{t('scope.retry')}</button>}

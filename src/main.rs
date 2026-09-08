@@ -305,6 +305,8 @@ enum Command {
         model: Option<String>,
         #[arg(long)]
         thread: Option<String>,
+        #[arg(long, requires = "thread")]
+        include_descendants: bool,
     },
     /// Read one retained-request candidate audit page. Never migrates or imports.
     AuditOverlap {
@@ -772,6 +774,7 @@ async fn main() -> Result<()> {
             project,
             model,
             thread,
+            include_descendants,
         } => {
             let store = LedgerStore::open_read_only(db)?;
             let report = store.read_source_union_projection(&SourceUnionQuery {
@@ -783,6 +786,7 @@ async fn main() -> Result<()> {
                 project,
                 model,
                 thread,
+                include_descendants,
             })?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }

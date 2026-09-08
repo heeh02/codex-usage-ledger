@@ -2,7 +2,7 @@ import type { TokenUsage } from './types';
 import { validRequestUsage } from './requestEvidence';
 import { ledgerResponseError } from './errors';
 
-export interface ScopeQuery { start: string; end: string; timezone: string; grain: 'day' | 'week' | 'month'; account?: string; project?: string; thread?: string; model?: string }
+export interface ScopeQuery { start: string; end: string; timezone: string; grain: 'day' | 'week' | 'month'; account?: string; project?: string; thread?: string; model?: string; includeDescendants?: boolean }
 export interface ScopeRow { id: string | null; events: number; usage: TokenUsage }
 export interface ScopeResponse { version: 2; status: string; query: ScopeQuery; historyComplete: false; productionPolicyChanged: false; data: { records: number } | null; display: { usage: TokenUsage; byTime: ScopeRow[]; byModel: ScopeRow[]; byAccount: ScopeRow[]; byProject: ScopeRow[]; byThread: ScopeRow[] } | null }
 export interface ScopeCatalog { version: 1; projects: {id:string;label:string}[]; roots: {id:string;project:string|null;label:string|null}[]; accounts:string[]; rootLimit:number }
@@ -11,7 +11,8 @@ export function validateScope(value: ScopeResponse, query: ScopeQuery): ScopeRes
   const fail = () => { throw new Error('Invalid scoped usage response'); };
   if (!value || value.version !== 2 || value.historyComplete !== false || value.productionPolicyChanged !== false
     || !value.query || Date.parse(value.query.start)!==Date.parse(query.start) || Date.parse(value.query.end)!==Date.parse(query.end)
-    || value.query.timezone!==query.timezone || value.query.grain!==query.grain) fail();
+    || value.query.timezone!==query.timezone || value.query.grain!==query.grain
+    || (value.query.includeDescendants??false)!==(query.includeDescendants??false)) fail();
   for (const key of ['account','project','thread','model'] as const) if ((value.query[key]??null)!==(query[key]??null)) fail();
   if (value.status!=='available') {
     if (!['pending','unresolved','no_records','unconfirmed_only'].includes(value.status) || value.display!==null) fail();
@@ -32,7 +33,7 @@ export function validateScope(value: ScopeResponse, query: ScopeQuery): ScopeRes
 const base = () => (import.meta.env.VITE_LEDGER_API_BASE ?? '').replace(/\/$/,'');
 export async function getSourceScope(query: ScopeQuery, signal: AbortSignal): Promise<ScopeResponse> {
   const params=new URLSearchParams();
-  for (const [key,value] of Object.entries(query)) if(value!==undefined)params.set(key,value);
+  for (const [key,value] of Object.entries(query)) if(value!==undefined)params.set(key,String(value));
   const response=await fetch(`${base()}/v1/source-union?${params}`,{signal});
   if(!response.ok)throw await ledgerResponseError(response);
   return validateScope(await response.json(),query);

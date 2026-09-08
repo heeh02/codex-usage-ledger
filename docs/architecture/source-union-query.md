@@ -115,7 +115,8 @@ the existing application offers an independent scope form rather than a dead end
 Other failures retain their error path; a last-good complete bundle remains intact.
 The scope form uses actual submitted dates (device timezone, exclusive end),
 literal project/account and optional root-thread filters. Thread mode is explicitly
-own-only. New results and their applied captions update atomically; failed/aborted
+own-only by default, with explicit descendant selection as described below.
+New results and their applied captions update atomically; failed/aborted
 queries cannot relabel older data. No unavailable amount is rendered as zero.
 
 This supplementary view uses existing model/account/component tables and a ranked
@@ -123,3 +124,24 @@ date table. It is not yet unified sidebar navigation, descendant browsing, full
 root search/pagination, natural-period shortcuts or a replacement trend chart.
 The source endpoints and special availability status are additive contracts; the
 main bundle schema and persisted ledger schema do not change.
+
+## Descendant scope
+
+`includeDescendants=true` (CLI `--include-descendants`, requiring `--thread`)
+expands the selected thread through retained catalog parent links in the same
+read snapshot. Omission is own-only for compatibility. Distinct node identities
+are selected, not cumulative parent/tree amounts. The node set includes the
+requested thread even if its catalog row is missing, but does not invent missing
+parent-child edges. `historyComplete` remains false.
+
+The same recursive predicate is used for raw readiness seeds, stale selected
+rows and cached reads. Direct resolution closes source-key counterparts before
+final account/project/model/tree filtering, so a peer outside the selected tree
+cannot hide a conflict. Cyclic catalog roots and trees exceeding 10,000 identities
+fail without a truncated total. Existing source-record and bucket limits remain.
+
+The supplementary scope view offers an explicit descendant checkbox; its result
+caption uses the applied query, and response validation rejects own/tree mismatch.
+A descendant scope with unresolved records withholds its amount even if the
+parent's own scope is available. This adds scope selection, not full child-name
+search/navigation or recovery of deleted hierarchy metadata.

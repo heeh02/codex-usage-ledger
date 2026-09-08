@@ -1,4 +1,7 @@
 export const zhCNMessages = {
+  "scope.tree": "含子代理",
+  "scope.own": "本聊天",
+  "scope.tree_note": "按保留目录中的父子关联合计每个节点自身记录，不累加父节点的树总量；不保证缺失的历史关系已恢复。",
   "scope.title": "按范围查看已核验记录",
   "scope.description": "完整看板尚未就绪。这里独立查询所选范围，不混入官方总量，也不代表完整历史。",
   "scope.project": "项目",

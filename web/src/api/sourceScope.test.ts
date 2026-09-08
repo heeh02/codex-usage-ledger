@@ -13,6 +13,7 @@ it('accepts conserved scoped facts while preserving unknown write coverage',()=>
 });
 it('rejects scope substitution, inconsistent dimensions and invented pending totals',()=>{
   expect(()=>validateScope(response(),{...query,thread:'other'})).toThrow();
+  expect(()=>validateScope(response(),{...query,includeDescendants:true})).toThrow();
   const changed=response();changed.display!.byModel=[];
   expect(()=>validateScope(changed,query)).toThrow();
   expect(()=>validateScope({...response(),status:'pending'},query)).toThrow();

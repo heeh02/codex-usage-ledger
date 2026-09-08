@@ -1392,6 +1392,7 @@ async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_tota
         project: None,
         model: None,
         thread: Some("ready-thread".into()),
+        include_descendants: false,
     };
     let result = routes::source_union(State(state.clone()), Query(query.clone()))
         .await

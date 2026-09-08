@@ -305,7 +305,10 @@ pub(super) async fn source_union(
     State(state): State<ApiState>,
     Query(query): Query<crate::store::SourceUnionQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if query.start >= query.end || query.timezone.parse::<Tz>().is_err() {
+    if query.start >= query.end
+        || query.timezone.parse::<Tz>().is_err()
+        || (query.include_descendants && query.thread.is_none())
+    {
         return Err(ApiError::InvalidQuery(
             "require ordered timestamps and a valid timezone".into(),
         ));

@@ -36,6 +36,8 @@ pub struct SourceUnionQuery {
     pub project: Option<String>,
     pub model: Option<String>,
     pub thread: Option<String>,
+    #[serde(default)]
+    pub include_descendants: bool,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -89,6 +91,9 @@ impl LedgerStore {
             .parse::<chrono_tz::Tz>()
             .map_err(|_| StoreError::InvalidTimezone(query.timezone.clone()))?;
         let transaction = self.connection.unchecked_transaction()?;
+        if query.include_descendants {
+            union_scope::scope_threads(&transaction, query)?;
+        }
         let projection = union_projection::progress(&transaction, 0, 0)?;
         let scope_readiness = union_scope::readiness(&transaction, query)?;
         let unconfirmed_observations = union_scope::unconfirmed_observations(&transaction, query)?;
@@ -166,7 +171,14 @@ fn query_sql(query: &SourceUnionQuery) -> (String, Vec<SqlValue>) {
         ("thread_id", &query.thread),
     ] {
         if let Some(value) = value {
-            sql.push_str(&format!(" AND {column}=?"));
+            if column == "thread_id" {
+                sql.push_str(&format!(
+                    " AND {}",
+                    union_scope::thread_condition(column, "?", query.include_descendants)
+                ));
+            } else {
+                sql.push_str(&format!(" AND {column}=?"));
+            }
             values.push(SqlValue::Text(value.clone()));
         }
     }

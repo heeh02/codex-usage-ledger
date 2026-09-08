@@ -11,7 +11,153 @@ fn query() -> SourceUnionQuery {
         project: None,
         model: None,
         thread: None,
+        include_descendants: false,
     }
+}
+
+#[test]
+fn descendant_scope_limit_refuses_truncated_totals() {
+    let store = LedgerStore::open_in_memory().unwrap();
+    store
+        .connection
+        .execute_batch(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<10000)
+        INSERT INTO thread_catalog(thread_id,parent_thread_id,created_at,updated_at,source_kind)
+        SELECT 'child-'||i,'root','2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','state_5' FROM n;",
+        )
+        .unwrap();
+    assert!(matches!(
+        store.read_source_union_projection(&SourceUnionQuery {
+            thread: Some("root".into()),
+            include_descendants: true,
+            ..query()
+        }),
+        Err(StoreError::UnionLimit)
+    ));
+}
+
+#[test]
+fn descendant_scope_conserves_own_rows_in_cached_and_direct_reads() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let at = "2026-01-01T12:00:00Z";
+    let nodes = [
+        ("root", None),
+        ("child", Some("root")),
+        ("grandchild", Some("child")),
+        ("other", None),
+    ];
+    store
+        .upsert_thread_catalog_batch(
+            &nodes
+                .iter()
+                .map(|(id, parent)| ThreadCatalogRecord {
+                    thread_id: (*id).into(),
+                    parent_thread_id: parent.map(str::to_owned),
+                    project_id: None,
+                    project_name: None,
+                    title: None,
+                    model: None,
+                    agent_nickname: None,
+                    agent_role: None,
+                    agent_path: None,
+                    depth: None,
+                    created_at: at.parse().unwrap(),
+                    updated_at: at.parse().unwrap(),
+                    archived: false,
+                    has_user_event: parent.is_none(),
+                    source_kind: "state_5".into(),
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+    for (index, (id, _)) in nodes.iter().enumerate() {
+        let mut row = sample(id, id, at, index as u64 + 1);
+        row.thread_id = Some((*id).into());
+        row.model = Some(
+            if *id == "child" {
+                "child-model"
+            } else {
+                "main-model"
+            }
+            .into(),
+        );
+        store.upsert_event(&row).unwrap();
+    }
+    let own = SourceUnionQuery {
+        thread: Some("root".into()),
+        ..query()
+    };
+    let tree = SourceUnionQuery {
+        include_descendants: true,
+        ..own.clone()
+    };
+    for cached in [false, true] {
+        if cached {
+            drain(&mut store);
+        }
+        let own = store
+            .read_source_union_projection(&own)
+            .unwrap()
+            .data
+            .unwrap();
+        let all = store
+            .read_source_union_projection(&tree)
+            .unwrap()
+            .data
+            .unwrap();
+        assert_eq!((own.records, all.records), (1, 3));
+        assert_eq!(
+            all.usage.unwrap().total_tokens,
+            own.usage.unwrap().total_tokens * 3
+        );
+        conserves(&all);
+        let child = store
+            .read_source_union_projection(&SourceUnionQuery {
+                thread: Some("child".into()),
+                ..tree.clone()
+            })
+            .unwrap()
+            .data
+            .unwrap();
+        assert_eq!(child.records, 2);
+        let model = store
+            .read_source_union_projection(&SourceUnionQuery {
+                model: Some("child-model".into()),
+                ..tree.clone()
+            })
+            .unwrap()
+            .data
+            .unwrap();
+        assert_eq!(model.records, 1);
+    }
+    let mut outside = sample("outside", "child", at, 99);
+    outside.thread_id = Some("other".into());
+    outside.model = Some("outside-model".into());
+    reconstructed(&store, outside);
+    let conflict = store
+        .read_source_union_projection(&SourceUnionQuery {
+            model: Some("child-model".into()),
+            ..tree.clone()
+        })
+        .unwrap();
+    assert_eq!(conflict.status, "unresolved");
+    assert!(conflict.data.is_none());
+    store
+        .connection
+        .execute(
+            "UPDATE thread_catalog SET parent_thread_id='grandchild' WHERE thread_id='root'",
+            [],
+        )
+        .unwrap();
+    assert!(store.read_source_union_projection(&tree).is_err());
+    assert!(
+        store
+            .read_source_union_projection(&SourceUnionQuery {
+                include_descendants: true,
+                ..query()
+            })
+            .is_err()
+    );
 }
 fn sample(id: &str, key: &str, at: &str, offset: u64) -> UsageEvent {
     let mut row = event(id, DataQuality::Confirmed, offset);

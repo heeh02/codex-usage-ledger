@@ -16,20 +16,75 @@ pub(super) struct ResolvedScope {
     pub unresolved_groups: usize,
 }
 
+pub(super) fn thread_condition(column: &str, parameter: &str, descendants: bool) -> String {
+    if !descendants {
+        return format!("{column}={parameter}");
+    }
+    format!("{column} IN (WITH RECURSIVE scoped_threads(id) AS (SELECT {parameter}
+        UNION SELECT c.thread_id FROM thread_catalog c JOIN scoped_threads t ON c.parent_thread_id=t.id LIMIT 10001)
+        SELECT id FROM scoped_threads)")
+}
+
+pub(super) fn scope_threads(
+    connection: &Connection,
+    query: &SourceUnionQuery,
+) -> StoreResult<BTreeSet<String>> {
+    let root = query
+        .thread
+        .as_ref()
+        .filter(|id| !id.trim().is_empty())
+        .ok_or(StoreError::InvalidRequestQuery(
+            "descendant scope requires a thread",
+        ))?;
+    let sql = format!(
+        "SELECT thread_id,parent_thread_id FROM thread_catalog WHERE {}",
+        thread_condition("thread_id", "?1", true)
+    );
+    let rows = connection
+        .prepare(&sql)?
+        .query_map([root], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut members = BTreeSet::from([root.clone()]);
+    members.extend(rows.iter().map(|(id, _)| id.clone()));
+    if members.len() > 10000 {
+        return Err(StoreError::UnionLimit);
+    }
+    if rows
+        .iter()
+        .any(|(id, parent)| id == root && parent.as_ref().is_some_and(|p| members.contains(p)))
+    {
+        return Err(StoreError::InvalidRequestQuery("cyclic descendant catalog"));
+    }
+    Ok(members)
+}
+
 fn predicate(query: &SourceUnionQuery, time: &str, columns: [&str; 4]) -> (String, Vec<SqlValue>) {
     let mut sql = format!("{time}>=?1 AND {time}<?2");
     let mut values = vec![
         SqlValue::Text(timestamp(query.start)),
         SqlValue::Text(timestamp(query.end)),
     ];
-    for (column, value) in
-        columns
-            .into_iter()
-            .zip([&query.account, &query.project, &query.model, &query.thread])
+    for (index, (column, value)) in columns
+        .into_iter()
+        .zip([&query.account, &query.project, &query.model, &query.thread])
+        .enumerate()
     {
         if let Some(value) = value {
             values.push(SqlValue::Text(value.clone()));
-            sql.push_str(&format!(" AND {column}=?{}", values.len()));
+            sql.push_str(&format!(
+                " AND {}",
+                if index == 3 {
+                    thread_condition(
+                        column,
+                        &format!("?{}", values.len()),
+                        query.include_descendants,
+                    )
+                } else {
+                    format!("{column}=?{}", values.len())
+                }
+            ));
         }
     }
     (sql, values)
@@ -182,6 +237,11 @@ pub(super) fn resolve(
         }
     }
     let mut result = source_union::plan(rows, query.start, query.end)?;
+    let descendants = if query.include_descendants {
+        Some(scope_threads(connection, query)?)
+    } else {
+        None
+    };
     // Resolve complete key groups before applying metadata filters. This keeps
     // conflicting accounts/models outside the requested filter visible.
     result.selected.retain(|row| {
@@ -197,7 +257,10 @@ pub(super) fn resolve(
                 .model
                 .as_ref()
                 .is_none_or(|v| row.model.as_ref() == Some(v))
-            && query.thread.as_ref().is_none_or(|v| &row.thread == v)
+            && descendants.as_ref().map_or_else(
+                || query.thread.as_ref().is_none_or(|v| &row.thread == v),
+                |members| members.contains(&row.thread),
+            )
     });
     Ok(ResolvedScope {
         selected: result.selected,

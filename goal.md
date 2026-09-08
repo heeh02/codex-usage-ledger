@@ -2183,3 +2183,15 @@ No live data migration, installed-app replacement or release has occurred.
   Web 95 tests and production web build pass. This is a supplementary own-thread
   view with an explicit bounded root list, not completed unified navigation,
   descendant scope, trend charts or installed native acceptance. Full goal ACTIVE.
+- Batch 174 (2026-09-08): added explicit own/descendant scope to the scoped union
+  reader, CLI, HTTP and supplementary UI. Retained parent links are expanded to
+  distinct node IDs in the query snapshot; all amounts remain per-node own facts.
+  Cached and direct reads share membership semantics, counterpart conflicts outside
+  the filtered tree remain visible, and cycles/oversized trees fail without partial
+  totals. Synthetic root/child/grandchild tests conserve components and model filters;
+  frontend rejects an echoed own/tree mismatch. Real browser validation kept the
+  parent's available amount in own mode, then withheld the tree amount when its
+  descendants remained unresolved, with a matching applied-scope label. Missing
+  hierarchy is not reconstructed by assumption. Rust 340 tests, Web 95 tests,
+  Clippy, web build and API/governance checks pass. Unified navigation, charts,
+  complete account reconciliation and native delivery remain open; goal ACTIVE.

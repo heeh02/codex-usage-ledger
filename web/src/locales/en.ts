@@ -1,6 +1,9 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "scope.tree": "Include subagents",
+  "scope.own": "Own conversation",
+  "scope.tree_note": "Adds each node's own records through retained parent-child links, never parent subtree totals. Missing historical links are not assumed restored.",
   "scope.title": "Explore verified records by scope",
   "scope.description": "The complete dashboard is not ready. Query a scope independently; results do not include official totals or prove complete history.",
   "scope.project": "Project",
