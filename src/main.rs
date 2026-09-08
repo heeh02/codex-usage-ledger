@@ -44,6 +44,9 @@ struct Cli {
 enum Command {
     /// Generate bounded per-thread review drafts; reuse valid drafts without rescanning sources.
     DraftReconstructionBatch {
+        /// Apply deterministic reconciliation and sampling linkage automatically on a shadow.
+        #[arg(long)]
+        automatic: bool,
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
@@ -523,6 +526,7 @@ async fn main() -> Result<()> {
             );
         }
         Command::DraftReconstructionBatch {
+            automatic,
             db,
             codex_home,
             output_dir,
@@ -531,7 +535,12 @@ async fn main() -> Result<()> {
             max_bytes_per_source,
             allow_device_drift,
         } => {
-            let report = codex_usage_ledger::cli_support::draft_reconstruction_batch(
+            let run = if automatic {
+                codex_usage_ledger::cli_support::reconcile_history_batch
+            } else {
+                codex_usage_ledger::cli_support::draft_reconstruction_batch
+            };
+            let report = run(
                 &db,
                 &codex_home,
                 &output_dir,

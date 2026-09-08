@@ -5,6 +5,26 @@ Started: 2026-09-05
 Baseline: `93c6aa5dc63290a8c2e94579f81bc51cecd84e25`  
 Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-governance-goal.md).
 
+## Latest execution direction — automate, do not manually audit sessions
+
+The user explicitly stopped per-session independent verification on 2026-09-08.
+Do not resume manual priority ranking, hand-reading each source report, copying
+seals, or reporting individual migration pages. Use the shared parser/identity
+rules and automatic checkpointed processing. Human work should focus on generic
+algorithm defects and exceptional cases that cannot be classified, not routine
+source-by-source inspection. Existing evidence remains preserved.
+
+Implemented `draft-reconstruction-batch --automatic`: rule-driven correction,
+sampling linkage, exception isolation, process locking, atomic progress and
+automatic cursor resume. It presently operates on the isolated shadow; production
+promotion remains separate. See [automatic history rules](docs/contracts/automatic-history.md).
+The full Rust suite and Clippy passed, including automatic correction/resume
+without manual seals and protection of the ordinary ledger. The first real
+automatic batch was launched on the existing shadow (which this path upgrades
+to schema 41); do not use the old schema-40 executable on it afterward.
+The last manual batch scheduler was stopped at the user's request, with no
+remaining manual audit processes. Do not assume its unrecorded tail completed.
+
 ## Latest acceptance adjustment — 2026-09-08
 
 The user explicitly accepts the current zero display and asks to finish once the

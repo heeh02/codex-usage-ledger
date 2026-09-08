@@ -44,8 +44,8 @@ pub mod cli_support {
     pub use crate::reconstruction::{
         audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
         draft_reconstruction_batch, ingest_reconstruction_batch,
-        ingest_reconstruction_batch_for_project, verify_correction_against_ledger,
-        verify_correction_manifest, write_correction_manifest,
+        ingest_reconstruction_batch_for_project, reconcile_history_batch,
+        verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
     };
     pub use crate::runtime::{
         AccountBinding, compact_expired_raw_events, discover_rollouts, ingest_quota_tails,

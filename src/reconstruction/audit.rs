@@ -21,6 +21,58 @@ mod tests {
     }
 
     #[test]
+    fn automatic_history_reconciles_and_resumes_without_manual_seals() {
+        let (temp, mut store, source) = fixture();
+        let output = tempfile::tempdir().unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        assert!(
+            reconcile_history_batch(&db, temp.path(), output.path(), None, 1, 4096, false).is_err()
+        );
+        let mut cursor = store
+            .get_cursor("machine", &source_id("root"))
+            .unwrap()
+            .unwrap();
+        cursor.source_id = crate::sampling::POST_SAMPLING_SOURCE_ID.into();
+        store.advance_cursor(&cursor).unwrap();
+        let shadow = temp.path().join("automatic.sqlite3");
+        crate::store::create_review_shadow(&db, &shadow).unwrap();
+        let report = serde_json::to_value(
+            reconcile_history_batch(&shadow, temp.path(), output.path(), None, 1, 4096, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(report["items"][0]["status"], "reconciled", "{report}");
+        let reader = LedgerStore::open_read_only(&shadow).unwrap();
+        let total: i64 = reader
+            .connection()
+            .query_row(
+                "SELECT SUM(total_tokens) FROM reconstruction_usage_events",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 100);
+        fs::rename(source, temp.path().join("parked-source")).unwrap();
+        let resumed = serde_json::to_value(
+            reconcile_history_batch(&shadow, temp.path(), output.path(), None, 1, 4096, false)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(resumed["items"].as_array().unwrap().is_empty());
+        assert_eq!(
+            store
+                .connection()
+                .query_row(
+                    "SELECT SUM(total_tokens) FROM reconstruction_usage_events",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1100
+        );
+    }
+
+    #[test]
     fn review_batch_reuses_complete_drafts_without_source_rescan_and_preserves_failures() {
         let (temp, _store, source) = fixture();
         let output = tempfile::tempdir().unwrap();

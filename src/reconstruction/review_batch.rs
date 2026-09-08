@@ -23,6 +23,155 @@ pub struct ReviewBatchReport {
     production_policy_changed: bool,
 }
 
+#[derive(Serialize, Deserialize)]
+struct AutomaticProgress {
+    version: u32,
+    db: PathBuf,
+    home: PathBuf,
+    next_after: Option<String>,
+    isolated_threads: BTreeSet<String>,
+}
+
+/// Automatic rule-driven historical reconciliation. Per-source documents are
+/// machine receipts, not a human approval loop. Ordinary ledgers stay protected
+/// until the separately controlled promotion step.
+#[allow(clippy::too_many_arguments)]
+pub fn reconcile_history_batch(
+    db: &Path,
+    home: &Path,
+    output: &Path,
+    after: Option<&str>,
+    limit: usize,
+    max_bytes_per_source: usize,
+    allow_device_drift: bool,
+) -> Result<ReviewBatchReport> {
+    if !(1..=10).contains(&limit) || !(1..=1_073_741_824).contains(&max_bytes_per_source) {
+        return Err(anyhow!(
+            "automatic batch requires 1..10 sources and bounded source bytes"
+        ));
+    }
+    let output = output.canonicalize()?;
+    let home = home.canonicalize()?;
+    let db = db.canonicalize()?;
+    if output.starts_with(&home) || !output.is_dir() {
+        return Err(anyhow!("automatic progress must be outside Codex home"));
+    }
+    let mut lock_options = fs::OpenOptions::new();
+    lock_options
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        lock_options.mode(0o600);
+    }
+    let lock = lock_options.open(output.join("automatic-history.lock"))?;
+    lock.try_lock()
+        .map_err(|error| anyhow!("automatic history job is already running: {error}"))?;
+    let progress_path = output.join("automatic-history-progress.json");
+    let mut progress = if progress_path.try_exists()? {
+        let saved: AutomaticProgress = serde_json::from_slice(&fs::read(&progress_path)?)?;
+        if saved.version != 1 || saved.db != db || saved.home != home {
+            return Err(anyhow!(
+                "automatic progress belongs to another ledger or source home"
+            ));
+        }
+        saved
+    } else {
+        AutomaticProgress {
+            version: 1,
+            db: db.clone(),
+            home: home.clone(),
+            next_after: None,
+            isolated_threads: BTreeSet::new(),
+        }
+    };
+    let after = after
+        .map(str::to_owned)
+        .or_else(|| progress.next_after.clone());
+    let (db, home) = (db.as_path(), home.as_path());
+    let reader = LedgerStore::open_reconstruction_audit(db)?;
+    let marker: i64 = reader
+        .connection()
+        .pragma_query_value(None, "application_id", |r| r.get(0))?;
+    if marker != 0x43554c53 {
+        return Err(anyhow!(
+            "automatic historical reconciliation requires an isolated shadow"
+        ));
+    }
+    drop(reader);
+    // Upgrade only the explicitly selected shadow, never the production store.
+    drop(LedgerStore::open(db)?);
+    let mut report = draft_reconstruction_batch(
+        db,
+        home,
+        &output,
+        after.as_deref(),
+        limit,
+        max_bytes_per_source,
+        allow_device_drift,
+    )?;
+    for item in &mut report.items {
+        if !matches!(item.status, "created" | "reused" | "applied") {
+            continue;
+        }
+        let Some(seal) = item.seal.as_deref() else {
+            continue;
+        };
+        let result = (|| -> Result<()> {
+            crate::store::apply_shadow_correction_with_policy(db, &item.manifest, seal, true)?;
+            crate::store::link_shadow_sampling(
+                db,
+                home,
+                &item.manifest,
+                seal,
+                crate::sampling::LegacySamplingAuditOptions {
+                    start: DateTime::<Utc>::UNIX_EPOCH,
+                    end: Utc::now(),
+                    limit: 100_000,
+                    max_bytes: max_bytes_per_source.min(1_073_741_824) as u64,
+                    include_links: true,
+                },
+            )?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => item.status = "reconciled",
+            Err(error) => {
+                item.status = "isolated_error";
+                item.error = Some(error.to_string());
+            }
+        }
+    }
+    for item in &report.items {
+        if item.status == "reconciled" {
+            progress.isolated_threads.remove(&item.thread);
+        } else {
+            progress.isolated_threads.insert(item.thread.clone());
+        }
+    }
+    if report.next_after.is_some() {
+        progress.next_after.clone_from(&report.next_after);
+    }
+    let temporary = output.join(format!(".automatic-history-{}.tmp", uuid::Uuid::new_v4()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    use std::io::Write;
+    let mut file = options.open(&temporary)?;
+    file.write_all(&serde_json::to_vec(&progress)?)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&temporary, &progress_path)?;
+    Ok(report)
+}
+
 /// Existing complete drafts are verified against the ledger before reuse; no
 /// source rescan or file replacement occurs. Failed/partial drafts stay intact.
 pub fn draft_reconstruction_batch(
