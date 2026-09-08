@@ -24,6 +24,16 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources twenty-six through thirty-one — 2026-09-08
+
+Selected only still-indexed sources for this batch. Six full-prefix reviews and
+serial shadow migrations archived 18,337 originals, retained 14,435 and suppressed
+3,902 replay rows. Restored 1,243 sampling links with no metadata conflicts or
+Token changes; 56 unconfirmed observations stayed unconfirmed. Deferred 1,487
+new candidates, not imported. All six post-images verified; private priority-
+26to31 receipts saved. Missing-source recovery was not attempted. No formal
+ledger, installed application or authentication/reset changes occurred.
+
 ### Distinguish index outage from missing history — 2026-09-08
 
 Fixed a source-state bug found while designing unavailable-history handling:
