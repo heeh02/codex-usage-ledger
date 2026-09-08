@@ -21,6 +21,50 @@ mod tests {
     }
 
     #[test]
+    fn captured_audit_excludes_appends_and_revalidates_the_parsed_prefix() {
+        struct AppendOnBegin(PathBuf);
+        impl correction_manifest::EvidenceSink for AppendOnBegin {
+            fn begin(&mut self, header: correction_manifest::ManifestHeader) -> Result<()> {
+                assert_eq!(header.version, 2);
+                fs::OpenOptions::new()
+                    .append(true)
+                    .open(&self.0)?
+                    .write_all(b"{}\n")?;
+                Ok(())
+            }
+            fn record(&mut self, _: correction_manifest::ManifestRecord) -> Result<()> {
+                Ok(())
+            }
+            fn finish(
+                &mut self,
+                completion: correction_manifest::ManifestCompletion,
+            ) -> Result<()> {
+                assert!(completion.source_changed);
+                assert_eq!(completion.captured_prefix_revalidated, Some(true));
+                Ok(())
+            }
+        }
+        let (temp, _store, path) = fixture();
+        let initial_len = fs::metadata(&path).unwrap().len();
+        let report = file_audit::run_file_audit(
+            &temp.path().join("ledger.sqlite3"),
+            temp.path(),
+            "root",
+            4096,
+            100,
+            false,
+            &mut AppendOnBegin(path),
+        )
+        .unwrap();
+        let report = serde_json::to_value(report).unwrap();
+        assert_eq!(report["bytesRead"], initial_len);
+        assert_eq!(report["allStoredPositionsSeen"], true);
+        assert_eq!(report["sourceChangedDuringRead"], true);
+        assert_eq!(report["capturedPrefixRevalidated"], true);
+        assert_eq!(report["migrationReady"], false);
+    }
+
+    #[test]
     fn incomplete_counter_is_explained_in_audit_and_review_draft() {
         let (temp, _store, path) = fixture();
         let mut records: Vec<Value> = fs::read_to_string(&path)

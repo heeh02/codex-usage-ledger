@@ -38,6 +38,8 @@ pub struct ReconstructionFileAudit {
     reached_file_end: bool,
     canonical_seen: bool,
     source_changed_during_read: bool,
+    captured_prefix_bytes: u64,
+    captured_prefix_revalidated: bool,
     stored_scope_records: u64,
     stored_records_seen: u64,
     stored_records_not_seen: u64,
@@ -92,6 +94,11 @@ pub(super) fn run_file_audit(
     let target = audit::resolve_target(codex_home, thread)?;
     let before = fs::metadata(&target.path)?;
     let identity = physical_file_identity(&target.path, &before)?;
+    let mut captured = captured_prefix::CapturedPrefix::capture(
+        &target.path,
+        &identity,
+        before.len().min(max_bytes as u64),
+    )?;
     store.with_source_audit_snapshot(|store| -> Result<_> {
         let sources = store
             .reconstruction_sources()?
@@ -110,7 +117,7 @@ pub(super) fn run_file_audit(
         }
         let source = &sources[0];
         sink.begin(correction_manifest::ManifestHeader {
-            version: 1,
+            version: 2,
             policy: correction_manifest::CURRENT_RECONSTRUCTION_POLICY.into(),
             ledger_schema: store.schema_version()?,
             machine_id: source.machine_id.clone(),
@@ -120,11 +127,13 @@ pub(super) fn run_file_audit(
             observed_file_identity: identity.clone(),
             file_bytes_at_start: before.len(),
             created_at: Utc::now(),
+            captured_prefix_bytes: Some(captured.len),
+            captured_prefix_sha256: Some(captured.sha256.clone()),
         })?;
         let attribution = target_attribution(store, &target)?;
         let epochs = load_account_epochs(store, &source.machine_id)?;
         let mut report = ReconstructionFileAudit {
-            version: 1,
+            version: 2,
             scope: "streamed_source_comparison_not_a_migration_receipt",
             read_only: true,
             migration_ready: false,
@@ -144,6 +153,8 @@ pub(super) fn run_file_audit(
             reached_file_end: false,
             canonical_seen: false,
             source_changed_during_read: false,
+            captured_prefix_bytes: captured.len,
+            captured_prefix_revalidated: false,
             stored_scope_records: store.reconstruction_audit_count(source)?,
             stored_records_seen: 0,
             stored_records_not_seen: 0,
@@ -169,7 +180,8 @@ pub(super) fn run_file_audit(
                     max_line_bytes: DEFAULT_MAX_LINE_BYTES,
                 },
             )?;
-            let batch = tailer.poll_path(&target.path)?;
+            let cutoff = captured.len;
+            let batch = tailer.poll_reader(&mut captured, cutoff, identity.clone())?;
             if batch.reset.is_some() {
                 return Err(anyhow!("source changed during streamed audit"));
             }
@@ -299,7 +311,8 @@ pub(super) fn run_file_audit(
                 }
             }
             if !batch.has_more {
-                report.reached_file_end = batch.checkpoint.partial_line.is_empty();
+                report.reached_file_end =
+                    batch.checkpoint.partial_line.is_empty() && captured.len == before.len();
                 break;
             }
             checkpoint = batch.checkpoint;
@@ -308,6 +321,7 @@ pub(super) fn run_file_audit(
         report.source_changed_during_read = before.len() != after.len()
             || before.modified()? != after.modified()?
             || identity != physical_file_identity(&target.path, &after)?;
+        report.captured_prefix_revalidated = captured.revalidate(&target.path)?;
         report.canonical_seen = state.phase != ReconstructionPhase::AwaitingCanonical;
         report.stored_records_not_seen = report
             .stored_scope_records
@@ -315,7 +329,7 @@ pub(super) fn run_file_audit(
             .ok_or_else(|| anyhow!("matched records exceed the stored source scope"))?;
         report.all_stored_positions_seen = report.reached_file_end
             && report.canonical_seen
-            && !report.source_changed_during_read
+            && report.captured_prefix_revalidated
             && report.malformed_records == 0
             && report.stored_records_not_seen == 0;
         report.initial_counter_prefix = state.initial_counter_prefix;
@@ -329,6 +343,7 @@ pub(super) fn run_file_audit(
             source_changed: report.source_changed_during_read,
             malformed_records: report.malformed_records,
             processed_records_digest: report.processed_records_digest.clone(),
+            captured_prefix_revalidated: Some(report.captured_prefix_revalidated),
         })?;
         Ok(report)
     })

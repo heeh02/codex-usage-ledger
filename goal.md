@@ -2085,3 +2085,19 @@ No live data migration, installed-app replacement or release has occurred.
   truncation and replacement, followed by batch occurrence-link restoration.
   Global main-query readiness must not be bypassed to hide these unresolved facts.
   Production policy remains unchanged; full goal ACTIVE.
+- Batch 168 (2026-09-08): implemented [captured source-prefix audits](docs/architecture/captured-source-audit.md).
+  The reader freezes a line-complete byte boundary and compares pre-read, actual
+  parsed-stream and final raw-byte hashes with physical-identity checks. Appends
+  are excluded; prefix edits, edit-and-restore during parsing, truncation and path
+  replacement fail. Original byte/record limits and incomplete-tail gates remain.
+  Version-2 sealed drafts carry bounded prefix proof; version-1 semantics remain
+  accepted unchanged, and mixed proof/version or out-of-prefix records are rejected.
+  An actual previously audited high-volume source produced a complete private
+  version-2 draft, covering all stored positions with unchanged Token amounts;
+  later candidate rows stay separate. The source happened not to append during
+  this real run; append tolerance is proven by the controlled audit-sink test,
+  not claimed as observed in that run. Rust 332 tests, Clippy and API/governance
+  checks pass. No draft was applied and no production policy changed. Next:
+  explicitly separate existing-fact corrections from post-snapshot new candidates
+  in shadow application, then restore occurrence links and check common queries.
+  Full-account migration and full native acceptance remain open; goal ACTIVE.

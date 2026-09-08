@@ -23,6 +23,10 @@ pub(super) struct ManifestHeader {
     pub observed_file_identity: String,
     pub file_bytes_at_start: u64,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_prefix_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_prefix_sha256: Option<String>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -45,6 +49,8 @@ pub(super) struct ManifestCompletion {
     pub source_changed: bool,
     pub malformed_records: u64,
     pub processed_records_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_prefix_revalidated: Option<bool>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(
@@ -286,7 +292,23 @@ fn verify_with_store(
         digest.update(&line);
         match entry {
             Entry::Header(value) if header.is_none() && records == 0 => {
-                if value.version != 1
+                let valid_capture = match value.version {
+                    1 => {
+                        value.captured_prefix_bytes.is_none()
+                            && value.captured_prefix_sha256.is_none()
+                    }
+                    2 => {
+                        value
+                            .captured_prefix_bytes
+                            .is_some_and(|n| n <= value.file_bytes_at_start)
+                            && value
+                                .captured_prefix_sha256
+                                .as_deref()
+                                .is_some_and(valid_digest)
+                    }
+                    _ => false,
+                };
+                if !valid_capture
                     || !matches!(
                         value.policy.as_str(),
                         "reconstruction_uuid7_strict_v1" | CURRENT_RECONSTRUCTION_POLICY
@@ -382,6 +404,16 @@ fn verify_with_store(
     let body_sha256 = sealed.ok_or_else(|| anyhow!("manifest has no completion seal"))?;
     let completion = completion.ok_or_else(|| anyhow!("manifest has no completion"))?;
     let header = header.ok_or_else(|| anyhow!("manifest missing header"))?;
+    if header.version == 1 && completion.captured_prefix_revalidated.is_some()
+        || header.version == 2 && completion.captured_prefix_revalidated.is_none()
+    {
+        return Err(anyhow!("manifest capture proof/version mismatch"));
+    }
+    let source_stable = if header.version == 2 {
+        completion.captured_prefix_revalidated == Some(true)
+    } else {
+        !completion.source_changed
+    };
     Ok(ManifestVerification {
         binding: ManifestBinding {
             machine_id: header.machine_id,
@@ -394,7 +426,7 @@ fn verify_with_store(
         body_sha256,
         full_source_scan: completion.reached_file_end
             && completion.canonical_seen
-            && !completion.source_changed
+            && source_stable
             && completion.malformed_records == 0
             && stored_count == completion.stored_scope_records,
         draft_only: true,
@@ -409,6 +441,12 @@ fn valid_digest(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 fn validate_record(header: &ManifestHeader, row: &ManifestRecord) -> Result<()> {
+    if header
+        .captured_prefix_bytes
+        .is_some_and(|end| row.byte_offset >= end)
+    {
+        return Err(anyhow!("manifest record outside captured prefix"));
+    }
     let expected = stable_event_id(
         &header.machine_id,
         &header.stored_file_identity,
@@ -505,6 +543,8 @@ mod tests {
             observed_file_identity: "file".into(),
             file_bytes_at_start: 1000,
             created_at: Utc::now(),
+            captured_prefix_bytes: None,
+            captured_prefix_sha256: None,
         };
         sink.begin(header).unwrap();
         let fact = ReconstructionAuditFact {
@@ -544,6 +584,7 @@ mod tests {
             source_changed: false,
             malformed_records: 0,
             processed_records_digest: "c".repeat(64),
+            captured_prefix_revalidated: None,
         })
         .unwrap();
         drop(sink);
@@ -581,6 +622,37 @@ mod tests {
         );
         bytes.push(b'\n');
         fs::write(path, bytes).unwrap();
+    }
+    #[test]
+    fn captured_manifests_require_versioned_bounded_revalidation() {
+        let (_temp, path) = fixture();
+        let mut entries = rows(&path);
+        if let Entry::Header(header) = &mut entries[0] {
+            header.version = 2;
+            header.captured_prefix_bytes = Some(1000);
+            header.captured_prefix_sha256 = Some("d".repeat(64));
+        }
+        if let Entry::Completion(completion) = &mut entries[2] {
+            completion.source_changed = true;
+            completion.captured_prefix_revalidated = Some(true);
+        }
+        reseal(&path, &entries);
+        assert!(verify_correction_manifest(&path).unwrap().full_source_scan);
+        if let Entry::Completion(completion) = &mut entries[2] {
+            completion.captured_prefix_revalidated = Some(false);
+        }
+        reseal(&path, &entries);
+        assert!(!verify_correction_manifest(&path).unwrap().full_source_scan);
+        if let Entry::Header(header) = &mut entries[0] {
+            header.captured_prefix_bytes = Some(100);
+        }
+        reseal(&path, &entries);
+        assert!(verify_correction_manifest(&path).is_err());
+        if let Entry::Header(header) = &mut entries[0] {
+            header.version = 1;
+        }
+        reseal(&path, &entries);
+        assert!(verify_correction_manifest(&path).is_err());
     }
     #[test]
     fn gap_reasons_require_the_new_parser_policy_without_rewriting_old_drafts() {
