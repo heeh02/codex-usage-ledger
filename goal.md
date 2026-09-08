@@ -24,6 +24,16 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources fourteen through nineteen — 2026-09-08
+
+Six additional complete-prefix sources migrated serially on the shadow with
+post-image verification: 50,679 originals archived, 34,420 retained, 16,259
+replay rows suppressed. Restored 8,292 sampling links without Token changes or
+metadata conflicts. Deferred 4,246 new candidates, not imported; unavailable
+or unconfirmed sampling remained excluded. This includes retained evidence for
+a projectless root conversation. Exact private priority-14to19 receipts saved.
+No production ledger, installed application or account/reset changes occurred.
+
 ### Priority sources eleven through thirteen — 2026-09-08
 
 Re-ranked missing provenance after previous migrations and completed three more
