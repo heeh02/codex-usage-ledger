@@ -27,7 +27,7 @@ export function nextBucket(key: string, grain: TimeGrain): number {
   return date.getTime();
 }
 
-export function timeDomain(keys: string[], grain: TimeGrain, period?: PeriodWindow): [number, number] {
+export function timeDomain(keys: string[], grain: TimeGrain, period?: Pick<PeriodWindow,'start'|'end'|'timezone'>): [number, number] {
   const times = keys.map(civilTime).filter(Number.isFinite);
   const floor = (value: number) => {
     const date = new Date(value);

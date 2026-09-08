@@ -3,7 +3,7 @@ import { getSourceCatalog, getSourceScope, type ScopeCatalog, type ScopeQuery, t
 import { useI18n } from '../../i18n';
 import { Panel } from '../../components/Ui';
 import { UsageBreakdownTable } from '../../components/UsageBreakdownTable';
-import { exactNumber, formatTokenMillions } from '../../lib';
+import { UsageTrendChart } from '../../components/UsageTrendChart';
 import { runScopedRequest } from '../../shared/requestLifecycle';
 import './scoped-evidence.css';
 
@@ -40,20 +40,20 @@ export function ScopedEvidenceView() {
       <label>{t('scope.project')}<select value={project} onChange={e=>{setProject(e.target.value);setThread('');}}><option value="">{t('scope.all_projects')}</option>{catalog?.projects.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
       <label>{t('scope.chat')}<select value={thread} onChange={e=>setThread(e.target.value)}><option value="">{t('scope.all_chats')}</option>{catalog?.roots.filter(r=>!project||r.project===project).map(r=><option key={r.id} value={r.id}>{r.label??t('scope.untitled')}</option>)}</select></label>
       <label>{t('scope.account')}<select value={account} onChange={e=>setAccount(e.target.value)}><option value="">{t('scope.all_accounts')}</option>{catalog?.accounts.map((id,i)=><option key={id} value={id}>{t('scope.account')} {i+1} · {id.slice(0,8)}</option>)}</select></label>
-      <label>{t('scope.start')}<input name="start" required type="date" value={start} onChange={e=>setStart(e.target.value)}/></label>
-      <label>{t('scope.end')}<input name="end" required type="date" value={end} onChange={e=>setEnd(e.target.value)}/></label>
+      <label>{t('scope.start')}<input name="start" required type="date" defaultValue={start}/></label>
+      <label>{t('scope.end')}<input name="end" required type="date" defaultValue={end}/></label>
       <label>{t('scope.grain')}<select value={grain} onChange={e=>setGrain(e.target.value as ScopeQuery['grain'])}>{(['day','week','month'] as const).map(g=><option key={g} value={g}>{t(`scope.${g}`)}</option>)}</select></label>
       <label><span>{t('scope.tree')}</span><input type="checkbox" style={{width:'auto',alignSelf:'start'}} checked={includeDescendants} disabled={!thread} onChange={e=>setIncludeDescendants(e.target.checked)}/></label>
-      <button type="submit" disabled={!catalog||pending} aria-busy={pending}>{t('scope.query')}</button>
+      <button className="refresh-button" type="submit" disabled={!catalog||pending} aria-busy={pending}>{t('scope.query')}</button>
     </form>
     <p className="usage-breakdown-note">{t(includeDescendants&&thread?'scope.tree_note':'scope.own_note')} {t('scope.catalog_limit')}</p>
     {pending&&<p role="status">{t('scope.loading')}</p>}
     {failed&&<p role="alert">{t('scope.failed')}</p>}
     {failed&&!catalog&&<button type="button" onClick={()=>setCatalogRevision(n=>n+1)}>{t('scope.retry')}</button>}
-    {result&&<section aria-label={t('scope.result')}>
+    {result&&<section className="scoped-evidence-result" aria-label={t('scope.result')}>
       <p>{caption}</p>
       {!display?<p role="status">{t(result.value.status==='unresolved'?'scope.unresolved':result.value.status==='pending'?'scope.pending':'scope.no_records')}</p>:<>
-        <h2 title={exactNumber(display.usage.total)}>{formatTokenMillions(display.usage.total)}</h2>
+        <UsageTrendChart key={JSON.stringify(result.value.query)} scope={result.value} metric="total"/>
         <UsageBreakdownTable rows={display.byModel} identityLabel={t('sessions.models_used')} scopeKey={caption}/>
         <details><summary>{t('sessions.accounts_used')}</summary><UsageBreakdownTable rows={display.byAccount} identityLabel={t('sessions.accounts_used')} scopeKey={caption} resolveLabel={r=>r.id?`${t('scope.account')} ${r.id.slice(0,8)}`:t('sessions.unknown_dimension')}/></details>
         <details open><summary>{t('scope.date_table')}</summary><UsageBreakdownTable rows={display.byTime} identityLabel={t('scope.date_table')} scopeKey={caption}/></details>

@@ -119,9 +119,10 @@ own-only by default, with explicit descendant selection as described below.
 New results and their applied captions update atomically; failed/aborted
 queries cannot relabel older data. No unavailable amount is rendered as zero.
 
-This supplementary view uses existing model/account/component tables and a ranked
-date table. It is not yet unified sidebar navigation, descendant browsing, full
-root search/pagination, natural-period shortcuts or a replacement trend chart.
+This supplementary view uses existing model/account/component tables, a ranked
+date table and the shared [scoped trend chart](scoped-trend-chart.md). It is not
+yet unified sidebar navigation, descendant browsing, full root search/pagination
+or natural-period shortcuts.
 The source endpoints and special availability status are additive contracts; the
 main bundle schema and persisted ledger schema do not change.
 

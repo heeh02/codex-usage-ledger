@@ -2195,3 +2195,17 @@ No live data migration, installed-app replacement or release has occurred.
   hierarchy is not reconstructed by assumption. Rust 340 tests, Web 95 tests,
   Clippy, web build and API/governance checks pass. Unified navigation, charts,
   complete account reconciliation and native delivery remain open; goal ACTIVE.
+- Batch 175 (2026-09-08): connected the validated scope response to the existing
+  [trend renderer](docs/architecture/scoped-trend-chart.md), sharing the same
+  data as component tables. Calendar normalization preserves the requested domain;
+  missing buckets break lines without zero filling. Sparse series use discrete
+  marks; month readouts identify the month, not its first day as a daily peak.
+  Unknown write metrics remain unavailable and absent comparisons are not invented.
+  Browser checks showed the corrected historical day series and peak, then the
+  same total under monthly grouping with no interpolated polyline. Changing grain
+  after editing native dates exposed a reset issue; uncontrolled native date values
+  now survive unrelated rerenders and submission reads the actual form. The full
+  operation sequence passed. Actual 1280/560 CSS-pixel checks had no page overflow
+  or clipped chart labels. Web 99 tests/build pass. This improves the scope view,
+  not complete primary navigation, historical reconciliation or native installation;
+  full goal ACTIVE.

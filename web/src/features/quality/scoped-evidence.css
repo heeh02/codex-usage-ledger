@@ -2,3 +2,5 @@
 .scoped-evidence-form label { display:flex;flex-direction:column;gap:5px;min-width:0;font-size:14px; }
 .scoped-evidence-form select,.scoped-evidence-form input { width:100%;min-width:0;box-sizing:border-box;font:inherit;padding:8px;border:1px solid var(--border,#d9d9d9);border-radius:8px;color:inherit;background:var(--surface,#fff); }
 .scoped-evidence-form button { min-height:38px;min-width:100px; }
+.scoped-evidence-result { margin-top:16px; }
+.scoped-evidence-result > p { margin-bottom:12px; }
