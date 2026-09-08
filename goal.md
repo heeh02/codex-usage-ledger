@@ -24,6 +24,22 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Remaining evidence availability boundary — 2026-09-08
+
+Classified the remaining missing-key reconstruction inventory against the current
+native index and file existence. 177,324 records across 1,845 threads still have
+indexed source files. 42,939 records across 556 threads have neither an index
+entry nor a matching filename in current/archived session directories. This is
+not a proof that every conceivable source copy is gone; no backup recovery or
+broad content search was performed. Private availability inventory saved.
+
+The user's earlier instruction accepts lost history and forbids recovery work.
+Do not keep retrying these 556 absent sources or require restoring them to close
+the goal. Product handling must retain an explicit unavailable-evidence boundary
+without manufacturing exact usage or zero; the current global readiness guard
+does not yet offer that closure. Continue verifiable-source migration and address
+this unavailable-history handling in the product rather than infinite staging.
+
 ### Priority sources twenty through twenty-five — 2026-09-08
 
 Pre-batch inventory found 245,304 reconstruction rows without keys across 2,407
