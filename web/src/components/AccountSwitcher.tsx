@@ -8,7 +8,7 @@ export function accountScopeLabel(id: string, options: DimensionOption[], rows: 
   if (id === 'all') return allLabel;
   return rows.find(row => row.id === id)?.label
     ?? options.find(option => option.id === id)?.label.replace(/^(当前账号|已校准账号|历史账号)\s*·\s*/, '')
-    ?? id;
+    ?? (id.length > 12 ? `${id.slice(0,8)}…${id.slice(-4)}` : id);
 }
 
 export function AccountSwitcher({ options, rows, selected, pending, onSelect, onAccounts }: {

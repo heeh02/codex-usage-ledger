@@ -2219,3 +2219,16 @@ No live data migration, installed-app replacement or release has occurred.
   offset 500 that the default list omitted. Rust 341 tests, Web 100 tests, Clippy
   and web build pass. Full paginated hierarchy navigation, common primary query
   adoption, account reconciliation and native delivery remain open; goal ACTIVE.
+- Batch 177 (2026-09-08): unified the supplementary view with the bottom-left
+  account selector, removing its separate account dropdown. Shared requested
+  filters drive scope queries, and applied account labels update with accepted
+  results rather than at click time. Initial unavailable-bundle mode survives
+  account changes without losing the form; explicit refresh can still retry the
+  complete bundle. Same-account retry and pending cleanup are handled. Real browser
+  checks preserved chat/dates across two identities, removed old numbers on a
+  no-record response, and retained the prior applied account during a deliberately
+  stopped read-only test service. Restart and same-account retry restored the
+  expected scoped result. No login switch or production mutation occurred.
+  Web 100 tests, production build and governance checks pass.
+  Full navigation promotion, historical reconciliation and native delivery remain
+  unfinished; goal ACTIVE.

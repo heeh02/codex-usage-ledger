@@ -8,14 +8,16 @@ import { runScopedRequest } from '../../shared/requestLifecycle';
 import './scoped-evidence.css';
 
 function dateInput(date: Date) { return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
-export function ScopedEvidenceView() {
+export function ScopedEvidenceView({accountId,accountRevision,onAccounts,onPending,onAppliedAccount}:{accountId:string;accountRevision:number;onAccounts:(ids:string[])=>void;onPending:(pending:boolean)=>void;onAppliedAccount:(id:string)=>void}) {
   const {t}=useI18n();
   const [catalog,setCatalog]=useState<ScopeCatalog|null>(null);
   const [catalogRevision,setCatalogRevision]=useState(0);
   const [catalogSearch,setCatalogSearch]=useState('');
   const [catalogBusy,setCatalogBusy]=useState(true);
   const [catalogError,setCatalogError]=useState(false);
-  const [project,setProject]=useState(''); const [thread,setThread]=useState(''); const [account,setAccount]=useState('');
+  const [project,setProject]=useState(''); const [thread,setThread]=useState('');
+  const account=accountId==='all'?'':accountId;
+  const scopeForm=useRef<HTMLFormElement>(null);
   const [includeDescendants,setIncludeDescendants]=useState(false);
   const [start,setStart]=useState(()=>dateInput(new Date(new Date().getFullYear(),new Date().getMonth(),1)));
   const [end,setEnd]=useState(()=>{const d=new Date();d.setDate(d.getDate()+1);return dateInput(d);});
@@ -24,8 +26,10 @@ export function ScopedEvidenceView() {
   const [result,setResult]=useState<{value:ScopeResponse;caption:{project:string|null;chat:string|null;account:string;dates:string}}|null>(null);
   const active=useRef<AbortController|null>(null);
   const timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;
-  useEffect(()=>{const controller=new AbortController();setCatalogBusy(true);setCatalogError(false);runScopedRequest(controller.signal,()=>getSourceCatalog(controller.signal,catalogSearch),{success:setCatalog,failure:()=>setCatalogError(true),settled:()=>setCatalogBusy(false)});return()=>controller.abort();},[catalogRevision,catalogSearch]);
-  useEffect(()=>()=>active.current?.abort(),[]);
+  useEffect(()=>{const controller=new AbortController();setCatalogBusy(true);setCatalogError(false);runScopedRequest(controller.signal,()=>getSourceCatalog(controller.signal,catalogSearch),{success:value=>{setCatalog(value);onAccounts(value.accounts);},failure:()=>setCatalogError(true),settled:()=>setCatalogBusy(false)});return()=>controller.abort();},[catalogRevision,catalogSearch,onAccounts]);
+  useEffect(()=>{onPending(pending);},[pending,onPending]);
+  useEffect(()=>{if(catalog&&scopeForm.current){const data=new FormData(scopeForm.current);void submit(String(data.get('start')),String(data.get('end')));}},[accountId,accountRevision]);
+  useEffect(()=>()=>{active.current?.abort();onPending(false);},[onPending]);
   const submit=async(startDate:string,endDate:string)=>{
     setStart(startDate);setEnd(endDate);
     active.current?.abort();const controller=new AbortController();active.current=controller;setPending(true);setFailed(false);
@@ -33,7 +37,7 @@ export function ScopedEvidenceView() {
       const query:ScopeQuery={start:new Date(`${startDate}T00:00:00`).toISOString(),end:new Date(`${endDate}T00:00:00`).toISOString(),timezone,grain,...(account?{account}:{}),...(project?{project}:{}),...(thread?{thread,includeDescendants}:{})};
       if(Date.parse(query.start)>=Date.parse(query.end))throw new Error('Invalid interval');
       const caption={project:catalog?.projects.find(p=>p.id===project)?.label??null,chat:thread?(catalog?.roots.find(r=>r.id===thread)?.label??thread.slice(0,8)):null,account,dates:`${startDate} → ${endDate} · ${timezone}`};
-      await runScopedRequest(controller.signal,()=>getSourceScope(query,controller.signal),{success:value=>setResult({value,caption}),failure:()=>setFailed(true),settled:()=>setPending(false)});
+      await runScopedRequest(controller.signal,()=>getSourceScope(query,controller.signal),{success:value=>{setResult({value,caption});onAppliedAccount(value.query.account??'all');},failure:()=>setFailed(true),settled:()=>setPending(false)});
     } catch { if(!controller.signal.aborted){setFailed(true);setPending(false);} }
   };
   const display=result?.value.display;
@@ -47,10 +51,9 @@ export function ScopedEvidenceView() {
     {catalog&&<p className="usage-breakdown-note">{t('scope.search_applied',{search:catalog.search||t('scope.all_chats')})}</p>}
     {catalogError&&<p role="alert">{t('scope.catalog_failed')}</p>}
     {catalogError&&<button type="button" onClick={()=>setCatalogRevision(n=>n+1)}>{t('scope.retry')}</button>}
-    <form className="scoped-evidence-form" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);void submit(String(data.get('start')),String(data.get('end')));}}>
+    <form ref={scopeForm} className="scoped-evidence-form" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);void submit(String(data.get('start')),String(data.get('end')));}}>
       <label>{t('scope.project')}<select value={project} onChange={e=>{setProject(e.target.value);setThread('');}}><option value="">{t('scope.all_projects')}</option>{catalog?.projects.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
       <label>{t('scope.chat')}<select disabled={catalogBusy} value={thread} onChange={e=>setThread(e.target.value)}><option value="">{t('scope.all_chats')}</option>{catalog?.roots.filter(r=>!project||r.project===project).map(r=><option key={r.id} value={r.id}>{r.label??t('scope.untitled')}</option>)}</select></label>
-      <label>{t('scope.account')}<select value={account} onChange={e=>setAccount(e.target.value)}><option value="">{t('scope.all_accounts')}</option>{catalog?.accounts.map((id,i)=><option key={id} value={id}>{t('scope.account')} {i+1} · {id.slice(0,8)}</option>)}</select></label>
       <label>{t('scope.start')}<input name="start" required type="date" defaultValue={start}/></label>
       <label>{t('scope.end')}<input name="end" required type="date" defaultValue={end}/></label>
       <label>{t('scope.grain')}<select value={grain} onChange={e=>setGrain(e.target.value as ScopeQuery['grain'])}>{(['day','week','month'] as const).map(g=><option key={g} value={g}>{t(`scope.${g}`)}</option>)}</select></label>

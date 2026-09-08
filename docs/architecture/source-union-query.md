@@ -135,6 +135,21 @@ or natural-period shortcuts.
 The source endpoints and special availability status are additive contracts; the
 main bundle schema and persisted ledger schema do not change.
 
+The supplementary view uses the existing bottom-left account switcher rather than
+a second account dropdown. Its catalog fills available identity options without
+inventing plan/login metadata. Requested account state remains in the common
+filters; the applied account label changes only with an accepted scope response.
+Switching accounts submits the current form's project/thread/date/tree selection.
+Failures retain the prior applied label/result, and selecting the failed account
+again retries even when the requested ID has not changed. Unmount clears pending
+state. Long unknown identity IDs are shortened while metadata is unavailable.
+
+While initial global-snapshot failure is latched, ordinary filter changes do not
+repeatedly request that unavailable complete bundle or unmount the scope form.
+An explicit refresh revision can retry the complete bundle; its original readiness
+gate remains. A successful complete bundle exits this supplementary mode. Full
+calendar/project navigation promotion is still separate work.
+
 ## Descendant scope
 
 `includeDescendants=true` (CLI `--include-descendants`, requiring `--thread`)

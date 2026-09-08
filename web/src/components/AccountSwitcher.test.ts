@@ -7,4 +7,5 @@ it('separates observed-login prefixes from the selected reporting label', () => 
   expect(accountScopeLabel('b', options, [], 'All accounts')).toBe('Account B');
   expect(accountScopeLabel('all', options, [], '全部账号')).toBe('全部账号');
   expect(accountScopeLabel('missing', options, [], 'All accounts')).toBe('missing');
+  expect(accountScopeLabel('0123456789abcdef'.repeat(4), [], [], 'All accounts')).toBe('01234567…cdef');
 });

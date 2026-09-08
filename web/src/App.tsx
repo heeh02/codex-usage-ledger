@@ -77,6 +77,11 @@ function App() {
   const lastRevision = useRef<string | null>(null);
   const backgroundRefreshTimer = useRef<number | null>(null);
   const savedScrollTop = useRef(0);
+  const scopedFallback = useRef(false);
+  const lastBundleRefresh = useRef(-1);
+  const [scopeAccounts,setScopeAccounts]=useState<string[]>([]);
+  const [scopePending,setScopePending]=useState(false);
+  const [scopeAccountRevision,setScopeAccountRevision]=useState(0);
 
   useEffect(() => {
     writeSessionObjects({ 'ledger.filters': appliedFilters, 'ledger.overviewTab': { value: detailTab },
@@ -84,14 +89,18 @@ function App() {
   }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView, accountView]);
 
   useEffect(() => {
+    if(scopedFallback.current && lastBundleRefresh.current===refreshKey)return;
+    lastBundleRefresh.current=refreshKey;
     const controller = new AbortController();
     if (pendingSessionReturn.current?.id !== filters.session) pendingSessionReturn.current = null;
-    setRequestFailure(null);
+    if(!scopedFallback.current)setRequestFailure(null);
     setLoading(true);
 
     void runScopedRequest(controller.signal,
       () => loadDashboardBundle(api, filters, controller.signal), {
       success: (nextBundle) => {
+        scopedFallback.current=false;
+        setRequestFailure(null);
         setBundle(nextBundle);
         setAppliedFilters(filters);
         const nextSession = nextBundle.explorer.selectedSession;
@@ -107,6 +116,7 @@ function App() {
         }
       },
       failure: (reason: unknown) => {
+        if(!bundle && reason instanceof LedgerRequestError && reason.code==='snapshot_unavailable')scopedFallback.current=true;
         setRequestFailure(() => reason ?? new Error());
       },
       settled: () => {
@@ -354,9 +364,10 @@ function App() {
     );
   }
 
-  const accountControl = <AccountSwitcher options={bundle?.summary.filters.accounts ?? []}
+  const accountOptions=bundle?.summary.filters.accounts ?? [{id:'all',label:t('components.ui.all_accounts')},...scopeAccounts.map(id=>({id,label:`${t('scope.account')} ${id.slice(0,8)}`}))];
+  const accountControl = <AccountSwitcher options={accountOptions}
     rows={bundle?.breakdowns.officialAccounts ?? []} selected={appliedFilters.account}
-    pending={loading} onSelect={account => setFilters(value => ({ ...value, account, sessionOffset: 0, nodeOffset: 0 }))}
+    pending={loading||scopePending} onSelect={account => {if(scopedFallback.current)setScopeAccountRevision(n=>n+1);setFilters(value => ({ ...value, account, sessionOffset: 0, nodeOffset: 0 }));}}
     onAccounts={openAccounts} />;
 
   return (
@@ -387,7 +398,7 @@ function App() {
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
             </div>
             <h1>{pageTitle}</h1>
-            <div className="viewed-account-label">{t('account-switcher.viewing')} {accountScopeLabel(appliedFilters.account, bundle?.summary.filters.accounts ?? [], bundle?.breakdowns.officialAccounts ?? [], t('components.ui.all_accounts'))}</div>
+            <div className="viewed-account-label">{t('account-switcher.viewing')} {accountScopeLabel(appliedFilters.account, accountOptions, bundle?.breakdowns.officialAccounts ?? [], t('components.ui.all_accounts'))}</div>
             <p>{pageCaption}</p>
           </div>
           <div className="topbar-actions">
@@ -444,8 +455,8 @@ function App() {
           {bundle && bundle.collection.mode !== 'union-preview' && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
-          {!bundle && requestFailure instanceof LedgerRequestError && requestFailure.code === 'snapshot_unavailable' && <ScopedEvidenceView />}
-          {!bundle && error && !(requestFailure instanceof LedgerRequestError && requestFailure.code === 'snapshot_unavailable') && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
+          {!bundle && scopedFallback.current && <ScopedEvidenceView accountId={filters.account} accountRevision={scopeAccountRevision} onAccounts={setScopeAccounts} onPending={setScopePending} onAppliedAccount={account=>setAppliedFilters(value=>({...value,account}))} />}
+          {!bundle && error && !scopedFallback.current && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
             title={timePrecisionFailure ? t('app.time_precision_unavailable_title') : undefined}
             actionLabel={timePrecisionFailure ? t('app.show_today_usage') : undefined} />}
 
