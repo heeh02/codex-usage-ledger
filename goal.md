@@ -24,6 +24,15 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Further large-source migrations — 2026-09-08
+
+Two more full-source audits applied sequentially to the private shadow: 67,664
+original records archived, 32,397 retained with verified provenance and 35,267
+historical replay records suppressed. Another 2,157 new candidates were stored
+only in deferred review, not imported. Reapplication verified both post-images
+and returned already-applied. Exact seals and the source drafts remain in private
+priority receipts. No formal ledger, account state or installed bundle changed.
+
 ### Largest-source migration priority — 2026-09-08
 
 Changed execution priority from small chronological pages to the largest missing
