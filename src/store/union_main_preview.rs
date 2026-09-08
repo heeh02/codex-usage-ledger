@@ -23,10 +23,20 @@ impl LedgerStore {
         self.select_source_union_queries(true, true)
     }
 
-    /// One bounded maintenance batch; inactive ledgers are not implicitly promoted.
+    /// Drain a bounded burst after ingestion; inactive ledgers are not promoted.
+    /// A single ingestion slice can enqueue many more than 200 groups. Leaving
+    /// most of them for the next ingest tick starves globally consistent reads.
     pub fn maintain_active_source_union(&mut self) -> StoreResult<()> {
         if self.union_main_preview {
-            self.stage_source_union_batch(200, 200, 10000)?;
+            let started = std::time::Instant::now();
+            for _ in 0..32 {
+                let progress = self.stage_source_union_batch(1000, 1000, 10000)?;
+                if progress.projection_ready
+                    || started.elapsed() >= std::time::Duration::from_secs(2)
+                {
+                    break;
+                }
+            }
         }
         Ok(())
     }

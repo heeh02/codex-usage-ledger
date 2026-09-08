@@ -7,6 +7,14 @@ audit command. The change specifically separates dashboard access from deleting
 historical raw details. Explicit maintenance retains its normal compaction
 guards and behavior. Starting live collection alone does not authorize deletion.
 
+Active request-union maintenance drains ingestion bursts rather than processing
+only one small batch per collection tick. Each transaction retains the existing
+1,000-group / 10,000-member limits. A maintenance call runs at most 32 batches,
+checking a two-second scheduling budget between batches, and stops immediately
+when the projection is ready. One transaction can exceed the scheduling budget;
+this is not a hard deadline. Pending work remains durable and keeps the normal
+snapshot-readiness guard; maintenance never substitutes legacy totals.
+
 A retained/raw conflict can block deletion even if the top-level rollup has been
 verified. The error is now `RetainedEvidenceMismatch`, rather than the misleading
 `RollupNotVerified`. It means the selected deletion batch rolled back; earlier

@@ -9,6 +9,23 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Live follow-up found projection throughput starvation: ingestion can enqueue
+thousands of groups while active maintenance previously handled only 200 per
+tick. Verified the live queue is decreasing, not a stopped daemon. Implemented
+bounded burst draining (up to 32 transactions, 1,000 groups each, two-second
+between-batch scheduling budget). A synthetic 750-request burst verifies queue
+completion, conserved totals and idempotent repeated maintenance. No evidence
+rules, source facts or global readiness guards are relaxed. Build/full validation
+and installed convergence verification are in progress.
+Validation follow-up: full Rust tests, Clippy, native build/signing and document
+checks passed. Installed manifest
+`127f1da094ec363e0c0cf04fe232284b078947998ab7474b22721056b4e2f351`.
+The live queue reached zero and stayed zero in a subsequent observation while
+selected facts increased, proving incremental convergence. However a full bundle
+request still exceeded a 55-second client timeout with the daemon alive. Next
+focus is aggregate-query latency / shared query serialization, not replay rules
+or another historical scan. Keep goal ACTIVE until the live dashboard is usable.
+
 The exact-match candidate has now replaced the formal ledger through a
 recoverable staged switch. Original app and ledger remain together in the
 private upgrade backup; no Codex source files were deleted. Installed bundle

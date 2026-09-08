@@ -7,6 +7,37 @@ fn keyed(id: &str, key: &str, offset: u64) -> UsageEvent {
     result
 }
 
+#[test]
+fn active_maintenance_catches_up_ingestion_bursts_without_recounting() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store.stage_source_union_batch(1000, 1000, 10000).unwrap();
+    store.promote_source_union_queries().unwrap();
+    let mut total = 0;
+    for n in 0..750 {
+        let row = keyed(&format!("burst-{n}"), &format!("key-{n}"), n);
+        total += row.usage.total_tokens;
+        store.upsert_event(&row).unwrap();
+    }
+    assert!(
+        store
+            .source_union_projection_progress()
+            .unwrap()
+            .pending_groups
+            > 1000
+    );
+    store.maintain_active_source_union().unwrap();
+    assert!(
+        store
+            .source_union_projection_progress()
+            .unwrap()
+            .projection_ready
+    );
+    assert_eq!(selected_usage(&store).total_tokens, total);
+    store.maintain_active_source_union().unwrap();
+    assert_eq!(selected_usage(&store).total_tokens, total);
+    check_counts(&store);
+}
+
 fn reconstruct(store: &LedgerStore, event: UsageEvent) {
     let transaction = store.connection.unchecked_transaction().unwrap();
     upsert_reconstruction_event_in(
