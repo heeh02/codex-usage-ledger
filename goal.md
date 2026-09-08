@@ -7,9 +7,17 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+**Identity-repair session 76886 completed, exit 0.** Do not poll or restart it.
+61 batches processed 610 sources: 478 reconciled, 132 newly isolated, 557 total
+outstanding source entries. After 11 bounded projection calls, pending=0,
+selected=432,946, unresolved=50,312. Private completion receipt saved. No formal
+data or app installation changed. Remaining unresolved groups still need a
+general evidence-boundary solution; they are not automatically identical to the
+isolated-source count. Do not resume manual per-session verification.
+
 Implemented and started targeted automatic identity repair with
 `--missing-identities-only --automatic-batches 1000 --limit 10`.
-**Active exec session: 76886.** Poll this handle; do not restart the all-source
+**Former exec session: 76886 (completed above).** Do not restart the all-source
 pass. Inventory analysis found 27,421 still-indexed reconstruction rows before
 the prior start cursor, explaining part of the remaining gap. The new phase
 selects only missing identities and excludes already isolated sources; changing
