@@ -2146,3 +2146,15 @@ No live data migration, installed-app replacement or release has occurred.
   retry or blanket migration approval. Rust 336 tests, Clippy and API/governance
   checks pass. Production query promotion, full-account
   reconciliation and installed acceptance remain open; goal ACTIVE.
+- Batch 171 (2026-09-08): exercised the next real ten-source review page. Nine
+  complete drafts were independently compared against the shadow and explicitly
+  applied in strict mode; quantities and account/project/model identities were
+  unchanged, original rows were archived and source keys restored. Several child
+  files contained large repeated Token-event histories which were already absent
+  from the old fact ledger; this is not evidence to reduce their retained usage
+  again. One source is absent from the current native index but still has retained
+  historical rows. It remains an unresolved review item, not deleted or treated
+  as zero. The private batch/cursor/receipt manifest preserves both successes and
+  this exception. No source import, production policy change or installed release
+  occurred. Full-account reconciliation and primary-query/native acceptance remain
+  unfinished; goal ACTIVE.
