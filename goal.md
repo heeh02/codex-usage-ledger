@@ -7,7 +7,21 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
-Latest automatic-job observation: session **18356** remains live and reached
+Automatic session **18356 has completed successfully** (exit 0); do not poll or
+restart it. Final report: 194 batches, 1,937 sources processed, 1,512 reconciled,
+425 isolated, inventory exhausted. Aggregate availability check: 424 isolated
+sources are not currently indexed; one still has an indexed file. No per-session
+manual review was performed. Private completion report saved.
+
+Post-run projection draining completed in 49 bounded calls: backfill complete,
+pending=0, selected=407,812, unresolved=81,085. `projectionReady` here means the
+materialization queue is complete, NOT that all groups resolved: main-query
+promotion still requires unresolved=0. Remaining reasons: 71,253 reconstruction
+groups lack keys, 6,480 confirmed sampling groups lack keys, and 3,352 unknown
+sampling groups lack keys. This is the next general algorithm/product boundary
+to address, not a reason to resume manual session audits. Formal data unchanged.
+
+Earlier automatic-job observation (superseded by completion above): session **18356** was live and reached
 90 sources / 9 batches with no isolated sources in that invocation. No competing
 writer was started. Added persistent exception reasons and
 `outstandingIsolatedSources` to distinguish this run's error count from earlier
