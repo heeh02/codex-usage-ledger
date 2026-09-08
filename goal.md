@@ -7,6 +7,18 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Exact-match candidate builder implemented (`prepare-review-transfer`) and tested
+for preserved newly added rows, edited metadata even with unchanged hashes,
+account settings, provenance merging, fingerprint mismatch and existing-output
+refusal. Full Rust tests and Clippy passed. The real candidate was generated at
+the private `formal-union-candidate-20260909.sqlite3` path: 744,882 original rows,
+694,411 matches, 432,946 replacements, 261,465 replay removals, 50,471 untouched
+rows, 40,971 sampling keys added, and 483,417 output reconstruction rows.
+Affected originals/keys and a transfer receipt are retained inside the candidate.
+Both input fingerprints remained unchanged. Candidate is NOT installed/promoted;
+next steps are derived union staging, candidate acceptance and recoverable
+installation. Never replace the formal ledger with the earlier whole shadow.
+
 Formal-transfer preflight completed read-only on 2026-09-09. Comparing every
 reconstruction column (not merely IDs/counts) against archived pre-correction
 facts found 694,411 exact original matches: 432,946 have reviewed replacements

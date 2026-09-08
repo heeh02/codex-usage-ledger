@@ -63,6 +63,6 @@ pub mod cli_support {
         QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain,
         SourceUnionQuery, apply_shadow_correction, apply_shadow_correction_with_policy,
         compare_preview_sampling, create_correction_preview, create_review_shadow,
-        link_shadow_sampling, read_correction_preview,
+        link_shadow_sampling, prepare_review_transfer, read_correction_preview,
     };
 }

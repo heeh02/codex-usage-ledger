@@ -42,6 +42,19 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Build a separate exact-match migration candidate; never overwrites either input.
+    PrepareReviewTransfer {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        review: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        expected_source_sha256: String,
+        #[arg(long)]
+        expected_review_sha256: String,
+    },
     /// Generate bounded per-thread review drafts; reuse valid drafts without rescanning sources.
     DraftReconstructionBatch {
         /// Apply deterministic reconciliation and sampling linkage automatically on a shadow.
@@ -448,6 +461,22 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::PrepareReviewTransfer {
+            source,
+            review,
+            output,
+            expected_source_sha256,
+            expected_review_sha256,
+        } => {
+            let report = codex_usage_ledger::cli_support::prepare_review_transfer(
+                &source,
+                &review,
+                &output,
+                &expected_source_sha256,
+                &expected_review_sha256,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::AuditRetainedHashes {
             db,
             after_rowid,
