@@ -1,4 +1,8 @@
 export const zhCNMessages = {
+  "scope.search_chats": "跨项目搜索主聊天（标题或 ID）",
+  "scope.search": "搜索",
+  "scope.search_applied": "目录匹配：{search}",
+  "scope.catalog_failed": "目录搜索失败，保留上次成功的列表。",
   "scope.tree": "含子代理",
   "scope.own": "本聊天",
   "scope.tree_note": "按保留目录中的父子关联合计每个节点自身记录，不累加父节点的树总量；不保证缺失的历史关系已恢复。",
@@ -20,7 +24,7 @@ export const zhCNMessages = {
   "scope.query": "查询范围",
   "scope.retry": "重试目录加载",
   "scope.own_note": "选择聊天时只统计本聊天，不包含子代理。时间按本设备时区解释。",
-  "scope.catalog_limit": "聊天选择器最多显示最近 500 个主聊天。",
+  "scope.catalog_limit": "选择器显示最近 500 项匹配结果；可搜索完整主聊天目录查找更早会话。",
   "scope.loading": "正在查询；已显示的结果仍属于上一次成功范围。",
   "scope.failed": "查询失败。已显示的结果未变，请重试。",
   "scope.result": "所选范围结果",

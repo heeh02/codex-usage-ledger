@@ -109,6 +109,15 @@ credentials or imply coverage from catalog presence. Root labels reuse the
 existing sensitive/long-title policy; filesystem roots and prompt bodies are not
 returned as separate fields. The selector explicitly states its bounded root list.
 
+The catalog accepts optional `search` (maximum 256 characters), echoed after
+trimming. Literal title/ID matching happens across the root catalog before the
+500-row limit; `%` and `_` are not wildcards. Existing callers without search keep
+their previous behavior. The UI validates the echoed search, preserves last-good
+lists on failure, and separates catalog requests from usage requests. A new global
+root search clears draft project/thread selection without relabeling an already
+displayed usage result. Search enables lookup beyond the initial limit, but is not
+full paginated browsing or semantic search of all subagent names.
+
 Global `SnapshotUnavailable` now returns HTTP 503 with code
 `snapshot_unavailable` instead of generic HTTP 500. On initial-load failure only,
 the existing application offers an independent scope form rather than a dead end.

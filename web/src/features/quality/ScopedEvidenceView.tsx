@@ -12,6 +12,9 @@ export function ScopedEvidenceView() {
   const {t}=useI18n();
   const [catalog,setCatalog]=useState<ScopeCatalog|null>(null);
   const [catalogRevision,setCatalogRevision]=useState(0);
+  const [catalogSearch,setCatalogSearch]=useState('');
+  const [catalogBusy,setCatalogBusy]=useState(true);
+  const [catalogError,setCatalogError]=useState(false);
   const [project,setProject]=useState(''); const [thread,setThread]=useState(''); const [account,setAccount]=useState('');
   const [includeDescendants,setIncludeDescendants]=useState(false);
   const [start,setStart]=useState(()=>dateInput(new Date(new Date().getFullYear(),new Date().getMonth(),1)));
@@ -21,7 +24,8 @@ export function ScopedEvidenceView() {
   const [result,setResult]=useState<{value:ScopeResponse;caption:{project:string|null;chat:string|null;account:string;dates:string}}|null>(null);
   const active=useRef<AbortController|null>(null);
   const timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;
-  useEffect(()=>{const controller=new AbortController();runScopedRequest(controller.signal,()=>getSourceCatalog(controller.signal),{success:value=>{setCatalog(value);setFailed(false);},failure:()=>setFailed(true),settled:()=>{}});return()=>{controller.abort();active.current?.abort();};},[catalogRevision]);
+  useEffect(()=>{const controller=new AbortController();setCatalogBusy(true);setCatalogError(false);runScopedRequest(controller.signal,()=>getSourceCatalog(controller.signal,catalogSearch),{success:setCatalog,failure:()=>setCatalogError(true),settled:()=>setCatalogBusy(false)});return()=>controller.abort();},[catalogRevision,catalogSearch]);
+  useEffect(()=>()=>active.current?.abort(),[]);
   const submit=async(startDate:string,endDate:string)=>{
     setStart(startDate);setEnd(endDate);
     active.current?.abort();const controller=new AbortController();active.current=controller;setPending(true);setFailed(false);
@@ -36,20 +40,26 @@ export function ScopedEvidenceView() {
   const caption=result?[result.caption.project??t('scope.all_projects'),result.caption.chat??t('scope.all_chats'),...(result.value.query.thread?[t(result.value.query.includeDescendants?'scope.tree':'scope.own')]:[]),result.caption.account?`${t('scope.account')} ${result.caption.account.slice(0,8)}`:t('scope.all_accounts'),result.caption.dates].join(' · '):'';
   return <Panel title={t('scope.title')} eyebrow={t('app.local_attribution')}>
     <p>{t('scope.description')}</p>
+    <form className="scoped-evidence-form scoped-catalog-search" onSubmit={event=>{event.preventDefault();if(catalogBusy)return;const data=new FormData(event.currentTarget);setCatalogSearch(String(data.get('catalogSearch')??'').trim());setCatalogRevision(n=>n+1);setProject('');setThread('');}}>
+      <label>{t('scope.search_chats')}<input name="catalogSearch" maxLength={256} type="search"/></label>
+      <button className="refresh-button" type="submit" disabled={catalogBusy} aria-busy={catalogBusy}>{t('scope.search')}</button>
+    </form>
+    {catalog&&<p className="usage-breakdown-note">{t('scope.search_applied',{search:catalog.search||t('scope.all_chats')})}</p>}
+    {catalogError&&<p role="alert">{t('scope.catalog_failed')}</p>}
+    {catalogError&&<button type="button" onClick={()=>setCatalogRevision(n=>n+1)}>{t('scope.retry')}</button>}
     <form className="scoped-evidence-form" onSubmit={event=>{event.preventDefault();const data=new FormData(event.currentTarget);void submit(String(data.get('start')),String(data.get('end')));}}>
       <label>{t('scope.project')}<select value={project} onChange={e=>{setProject(e.target.value);setThread('');}}><option value="">{t('scope.all_projects')}</option>{catalog?.projects.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
-      <label>{t('scope.chat')}<select value={thread} onChange={e=>setThread(e.target.value)}><option value="">{t('scope.all_chats')}</option>{catalog?.roots.filter(r=>!project||r.project===project).map(r=><option key={r.id} value={r.id}>{r.label??t('scope.untitled')}</option>)}</select></label>
+      <label>{t('scope.chat')}<select disabled={catalogBusy} value={thread} onChange={e=>setThread(e.target.value)}><option value="">{t('scope.all_chats')}</option>{catalog?.roots.filter(r=>!project||r.project===project).map(r=><option key={r.id} value={r.id}>{r.label??t('scope.untitled')}</option>)}</select></label>
       <label>{t('scope.account')}<select value={account} onChange={e=>setAccount(e.target.value)}><option value="">{t('scope.all_accounts')}</option>{catalog?.accounts.map((id,i)=><option key={id} value={id}>{t('scope.account')} {i+1} · {id.slice(0,8)}</option>)}</select></label>
       <label>{t('scope.start')}<input name="start" required type="date" defaultValue={start}/></label>
       <label>{t('scope.end')}<input name="end" required type="date" defaultValue={end}/></label>
       <label>{t('scope.grain')}<select value={grain} onChange={e=>setGrain(e.target.value as ScopeQuery['grain'])}>{(['day','week','month'] as const).map(g=><option key={g} value={g}>{t(`scope.${g}`)}</option>)}</select></label>
       <label><span>{t('scope.tree')}</span><input type="checkbox" style={{width:'auto',alignSelf:'start'}} checked={includeDescendants} disabled={!thread} onChange={e=>setIncludeDescendants(e.target.checked)}/></label>
-      <button className="refresh-button" type="submit" disabled={!catalog||pending} aria-busy={pending}>{t('scope.query')}</button>
+      <button className="refresh-button" type="submit" disabled={!catalog||pending||catalogBusy} aria-busy={pending}>{t('scope.query')}</button>
     </form>
     <p className="usage-breakdown-note">{t(includeDescendants&&thread?'scope.tree_note':'scope.own_note')} {t('scope.catalog_limit')}</p>
     {pending&&<p role="status">{t('scope.loading')}</p>}
     {failed&&<p role="alert">{t('scope.failed')}</p>}
-    {failed&&!catalog&&<button type="button" onClick={()=>setCatalogRevision(n=>n+1)}>{t('scope.retry')}</button>}
     {result&&<section className="scoped-evidence-result" aria-label={t('scope.result')}>
       <p>{caption}</p>
       {!display?<p role="status">{t(result.value.status==='unresolved'?'scope.unresolved':result.value.status==='pending'?'scope.pending':'scope.no_records')}</p>:<>

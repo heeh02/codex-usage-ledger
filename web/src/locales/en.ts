@@ -1,6 +1,10 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "scope.search_chats": "Search root conversations across projects (title or ID)",
+  "scope.search": "Search",
+  "scope.search_applied": "Catalog results for: {search}",
+  "scope.catalog_failed": "Catalog search failed; the last successful list is retained.",
   "scope.tree": "Include subagents",
   "scope.own": "Own conversation",
   "scope.tree_note": "Adds each node's own records through retained parent-child links, never parent subtree totals. Missing historical links are not assumed restored.",
@@ -22,7 +26,7 @@ export const enMessages = {
   "scope.query": "Query scope",
   "scope.retry": "Retry catalog",
   "scope.own_note": "A selected conversation includes only its own records, not descendants. Dates use this device's timezone.",
-  "scope.catalog_limit": "The selector lists at most the 500 most recent root conversations.",
+  "scope.catalog_limit": "The selector lists the latest 500 matches; search the full root catalog to find older conversations.",
   "scope.loading": "Querying; any displayed result still belongs to the last successful scope.",
   "scope.failed": "The query failed. Displayed results are unchanged; retry when ready.",
   "scope.result": "Selected scope result",

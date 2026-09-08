@@ -1377,7 +1377,7 @@ async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_tota
     bad.source_timestamp = Some(at);
     store.upsert_event(&bad).unwrap();
     let state = ApiState::with_store(store);
-    let catalog = routes::source_catalog(State(state.clone()))
+    let catalog = routes::source_catalog(State(state.clone()), Query(Default::default()))
         .await
         .unwrap()
         .0;
@@ -1433,10 +1433,13 @@ async fn independent_catalog_uses_existing_title_privacy_policy() {
             "token=synthetic-private-title",
         )])
         .unwrap();
-    let value = routes::source_catalog(State(ApiState::with_store(store)))
-        .await
-        .unwrap()
-        .0;
+    let value = routes::source_catalog(
+        State(ApiState::with_store(store)),
+        Query(Default::default()),
+    )
+    .await
+    .unwrap()
+    .0;
     assert_eq!(value["roots"][0]["id"], "root");
     assert!(
         !value["roots"][0]["label"]
@@ -1485,6 +1488,68 @@ async fn invalid_query_is_rejected_before_query_execution() {
         .validate()
         .is_ok()
     );
+}
+
+#[tokio::test]
+async fn catalog_search_reaches_old_roots_before_limit_without_wildcards() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut rows = (0..501)
+        .map(|i| {
+            native_catalog_thread(&format!("new-{i}"), None, Some("project"), 0, "Recent root")
+        })
+        .collect::<Vec<_>>();
+    let mut old =
+        native_catalog_thread("older-root", None, Some("project"), 0, "Rare root % marker");
+    old.updated_at = "2020-01-01T00:00:00Z".parse().unwrap();
+    rows.push(old);
+    rows.push(native_catalog_thread(
+        "child",
+        Some("older-root"),
+        Some("project"),
+        1,
+        "Rare root % marker",
+    ));
+    store.upsert_thread_catalog_batch(&rows).unwrap();
+    assert!(
+        !store
+            .dashboard_catalog_roots(None, 500)
+            .unwrap()
+            .iter()
+            .any(|r| r.thread_id == "older-root")
+    );
+    let found = store
+        .search_dashboard_catalog_roots(None, 500, "rare root %")
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].thread_id, "older-root");
+    assert!(
+        store
+            .search_dashboard_catalog_roots(None, 500, "rare root _")
+            .unwrap()
+            .is_empty()
+    );
+    let state = ApiState::with_store(store);
+    let result = routes::source_catalog(
+        State(state.clone()),
+        Query(routes::SourceCatalogQuery {
+            search: " older-root ".into(),
+        }),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(result["search"], "older-root");
+    assert_eq!(result["roots"][0]["id"], "older-root");
+    assert!(matches!(
+        routes::source_catalog(
+            State(state),
+            Query(routes::SourceCatalogQuery {
+                search: "x".repeat(257)
+            })
+        )
+        .await,
+        Err(ApiError::InvalidQuery(_))
+    ));
 }
 
 #[test]

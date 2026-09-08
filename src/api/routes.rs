@@ -320,15 +320,28 @@ pub(super) async fn source_union(
     ))
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct SourceCatalogQuery {
+    pub search: String,
+}
+
 pub(super) async fn source_catalog(
     State(state): State<ApiState>,
+    Query(query): Query<SourceCatalogQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(state.query_read_only(|store| store.with_source_audit_snapshot(|store| {
+    if query.search.chars().count() > 256 {
+        return Err(ApiError::InvalidQuery(
+            "catalog search exceeds 256 characters".into(),
+        ));
+    }
+    let search = query.search.trim().to_owned();
+    Ok(Json(state.query_read_only(move |store| store.with_source_audit_snapshot(|store| {
         let projects = store.list_projects()?.into_iter().map(|p|serde_json::json!({"id":p.project_id,"label":p.project_name})).collect::<Vec<_>>();
-        let roots = store.dashboard_catalog_roots(None,500)?.into_iter().map(|r|{let label=explorer::thread_label(&r);serde_json::json!({"id":r.thread_id,"project":r.project_id,"label":label})}).collect::<Vec<_>>();
+        let roots = store.search_dashboard_catalog_roots(None,500,&search)?.into_iter().map(|r|{let label=explorer::thread_label(&r);serde_json::json!({"id":r.thread_id,"project":r.project_id,"label":label})}).collect::<Vec<_>>();
         let mut accounts = store.verified_auth_accounts()?;
         accounts.extend(store.list_official_accounts()?); accounts.sort(); accounts.dedup();
-        Ok(serde_json::json!({"version":1,"projects":projects,"roots":roots,"accounts":accounts,"rootLimit":500}))
+        Ok(serde_json::json!({"version":1,"projects":projects,"roots":roots,"accounts":accounts,"rootLimit":500,"search":search}))
     })).await?))
 }
 

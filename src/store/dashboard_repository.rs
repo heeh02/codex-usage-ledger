@@ -356,6 +356,15 @@ impl LedgerStore {
         project_id: Option<&str>,
         limit: usize,
     ) -> StoreResult<Vec<DashboardCatalogThread>> {
+        self.search_dashboard_catalog_roots(project_id, limit, "")
+    }
+
+    pub fn search_dashboard_catalog_roots(
+        &self,
+        project_id: Option<&str>,
+        limit: usize,
+        search: &str,
+    ) -> StoreResult<Vec<DashboardCatalogThread>> {
         let mut predicates = vec!["catalog.parent_thread_id IS NULL".to_owned()];
         let mut values = Vec::new();
         if let Some(project_id) = project_id.filter(|value| *value != "all") {
@@ -369,6 +378,11 @@ impl LedgerStore {
                 predicates.push("catalog.project_id = ?".to_owned());
                 values.push(SqlValue::Text(project_id.to_owned()));
             }
+        }
+        if !search.trim().is_empty() {
+            predicates.push("(instr(lower(COALESCE(catalog.title,'')),lower(?))>0 OR instr(lower(catalog.thread_id),lower(?))>0)".into());
+            values.push(SqlValue::Text(search.trim().into()));
+            values.push(SqlValue::Text(search.trim().into()));
         }
         values.push(SqlValue::Integer(limit.clamp(1, 500) as i64));
         let sql = format!(

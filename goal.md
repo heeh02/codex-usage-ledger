@@ -2209,3 +2209,13 @@ No live data migration, installed-app replacement or release has occurred.
   or clipped chart labels. Web 99 tests/build pass. This improves the scope view,
   not complete primary navigation, historical reconciliation or native installation;
   full goal ACTIVE.
+- Batch 176 (2026-09-08): added literal title/ID search across the complete root
+  catalog before limiting results. The supplementary selector can now find older
+  roots omitted from its initial 500 rows. Echoed-search validation and independent
+  catalog request state keep stale results from being relabeled; failures retain
+  the last successful list and do not change Token facts. Synthetic tests locate
+  an old root behind 501 newer roots, exclude child-only matches and verify literal
+  wildcard characters and bounded input. A real browser search found the root at
+  offset 500 that the default list omitted. Rust 341 tests, Web 100 tests, Clippy
+  and web build pass. Full paginated hierarchy navigation, common primary query
+  adoption, account reconciliation and native delivery remain open; goal ACTIVE.

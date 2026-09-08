@@ -5,7 +5,7 @@ import { ledgerResponseError } from './errors';
 export interface ScopeQuery { start: string; end: string; timezone: string; grain: 'day' | 'week' | 'month'; account?: string; project?: string; thread?: string; model?: string; includeDescendants?: boolean }
 export interface ScopeRow { id: string | null; events: number; usage: TokenUsage }
 export interface ScopeResponse { version: 2; status: string; query: ScopeQuery; historyComplete: false; productionPolicyChanged: false; data: { records: number } | null; display: { usage: TokenUsage; byTime: ScopeRow[]; byModel: ScopeRow[]; byAccount: ScopeRow[]; byProject: ScopeRow[]; byThread: ScopeRow[] } | null }
-export interface ScopeCatalog { version: 1; projects: {id:string;label:string}[]; roots: {id:string;project:string|null;label:string|null}[]; accounts:string[]; rootLimit:number }
+export interface ScopeCatalog { version: 1; projects: {id:string;label:string}[]; roots: {id:string;project:string|null;label:string|null}[]; accounts:string[]; rootLimit:number; search?:string }
 
 export function validateScope(value: ScopeResponse, query: ScopeQuery): ScopeResponse {
   const fail = () => { throw new Error('Invalid scoped usage response'); };
@@ -38,13 +38,14 @@ export async function getSourceScope(query: ScopeQuery, signal: AbortSignal): Pr
   if(!response.ok)throw await ledgerResponseError(response);
   return validateScope(await response.json(),query);
 }
-export async function getSourceCatalog(signal: AbortSignal): Promise<ScopeCatalog> {
-  const response=await fetch(`${base()}/v1/source-catalog`,{signal});
+export async function getSourceCatalog(signal: AbortSignal, search=''): Promise<ScopeCatalog> {
+  const expected=search.trim();
+  const response=await fetch(`${base()}/v1/source-catalog?${new URLSearchParams({search:expected})}`,{signal});
   if(!response.ok)throw await ledgerResponseError(response);
   const value=await response.json() as ScopeCatalog;
   if(!value || value.version!==1 || !Array.isArray(value.projects) || !Array.isArray(value.roots) || !Array.isArray(value.accounts)
     || value.projects.some(p=>!p||typeof p.id!=='string'||typeof p.label!=='string')
     || value.roots.some(r=>!r||typeof r.id!=='string'||(r.label!==null&&typeof r.label!=='string')||(r.project!==null&&typeof r.project!=='string'))
-    || value.accounts.some(id=>typeof id!=='string') || value.rootLimit!==500)throw new Error('Invalid source catalog');
+    || value.accounts.some(id=>typeof id!=='string') || value.rootLimit!==500 || (value.search??'')!==expected)throw new Error('Invalid source catalog');
   return value;
 }

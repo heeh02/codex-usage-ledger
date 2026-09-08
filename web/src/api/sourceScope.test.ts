@@ -1,8 +1,17 @@
-import { expect,it } from 'vitest';
-import { validateScope,type ScopeQuery,type ScopeResponse } from './sourceScope';
+import { expect,it,vi,afterEach } from 'vitest';
+import { getSourceCatalog,validateScope,type ScopeQuery,type ScopeResponse } from './sourceScope';
 import { ledgerResponseError } from './errors';
 
 const query:ScopeQuery={start:'2026-01-01T00:00:00Z',end:'2026-02-01T00:00:00Z',timezone:'UTC',grain:'day',thread:'root'};
+afterEach(()=>vi.unstubAllGlobals());
+it('rejects catalog search substitution and encodes literal search text',async()=>{
+  const catalog={version:1,projects:[],roots:[],accounts:[],rootLimit:500,search:'wrong'};
+  const fetcher=vi.fn(async(_url:string,_options?:unknown)=>({ok:true,json:async()=>catalog}));vi.stubGlobal('fetch',fetcher);
+  await expect(getSourceCatalog(new AbortController().signal,' older root% ')).rejects.toThrow();
+  expect(fetcher.mock.calls[0]?.[0]).toContain('search=older+root%25');
+  catalog.search='older root%';
+  expect((await getSourceCatalog(new AbortController().signal,'older root%')).search).toBe('older root%');
+});
 function response():ScopeResponse {
   const usage={input:100,cached:80,cacheWrite:0,cacheWriteObservedInput:0,cacheWriteCoverage:0,uncached:20,output:20,reasoning:5,total:120};
   const rows=[{id:'value',events:1,usage}];
