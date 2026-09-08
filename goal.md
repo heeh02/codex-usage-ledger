@@ -24,6 +24,17 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources eight through ten — 2026-09-08
+
+Completed full-prefix audits, sequential existing-only migration, sampling
+association and idempotent post-image verification for three further large
+sources. Archived 50,371 original rows; retained 38,857 and suppressed 11,514
+replay rows. Restored 1,147 sampling links with no fact changes or metadata
+conflicts; skipped 13 unavailable candidates and 61 unconfirmed observations.
+No new candidates imported or deferred. Exact private priority-8910 receipts
+retain all command results. Schema-40 audit binary used, not the rebuilt app.
+Formal ledger, installation and login/reset state remain untouched.
+
 ### Projection queue and current native build — 2026-09-08
 
 Completed 20 serial runs of 100 bounded projection batches on the schema-40
