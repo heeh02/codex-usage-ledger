@@ -37,11 +37,21 @@ mod tests {
         let shadow = temp.path().join("automatic.sqlite3");
         crate::store::create_review_shadow(&db, &shadow).unwrap();
         let report = serde_json::to_value(
-            reconcile_history_batch(&shadow, temp.path(), output.path(), None, 1, 4096, false)
-                .unwrap(),
+            run_history_reconciliation(
+                &shadow,
+                temp.path(),
+                output.path(),
+                None,
+                1,
+                4096,
+                false,
+                100,
+            )
+            .unwrap(),
         )
         .unwrap();
-        assert_eq!(report["items"][0]["status"], "reconciled", "{report}");
+        assert_eq!(report["sourcesReconciled"], 1, "{report}");
+        assert_eq!(report["sourcesIsolated"], 0);
         let reader = LedgerStore::open_read_only(&shadow).unwrap();
         let total: i64 = reader
             .connection()
@@ -54,11 +64,22 @@ mod tests {
         assert_eq!(total, 100);
         fs::rename(source, temp.path().join("parked-source")).unwrap();
         let resumed = serde_json::to_value(
-            reconcile_history_batch(&shadow, temp.path(), output.path(), None, 1, 4096, false)
-                .unwrap(),
+            run_history_reconciliation(
+                &shadow,
+                temp.path(),
+                output.path(),
+                None,
+                1,
+                4096,
+                false,
+                100,
+            )
+            .unwrap(),
         )
         .unwrap();
-        assert!(resumed["items"].as_array().unwrap().is_empty());
+        assert_eq!(resumed["sourcesProcessed"], 0);
+        assert_eq!(resumed["batchesCompleted"], 1);
+        assert_eq!(resumed["hasMore"], false);
         assert_eq!(
             store
                 .connection()

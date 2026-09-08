@@ -32,6 +32,72 @@ struct AutomaticProgress {
     isolated_threads: BTreeSet<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticRunReport {
+    batches_completed: usize,
+    sources_processed: usize,
+    sources_reconciled: usize,
+    sources_isolated: usize,
+    has_more: bool,
+    production_policy_changed: bool,
+}
+
+/// Run a bounded job without asking an operator to dispatch each source/page.
+#[allow(clippy::too_many_arguments)]
+pub fn run_history_reconciliation(
+    db: &Path,
+    home: &Path,
+    output: &Path,
+    after: Option<&str>,
+    limit: usize,
+    max_bytes: usize,
+    allow_device_drift: bool,
+    batches: usize,
+) -> Result<AutomaticRunReport> {
+    if !(1..=1000).contains(&batches) {
+        return Err(anyhow!("automatic job requires 1..1000 batches"));
+    }
+    let mut summary = AutomaticRunReport {
+        batches_completed: 0,
+        sources_processed: 0,
+        sources_reconciled: 0,
+        sources_isolated: 0,
+        has_more: true,
+        production_policy_changed: false,
+    };
+    for index in 0..batches {
+        let report = reconcile_history_batch(
+            db,
+            home,
+            output,
+            if index == 0 { after } else { None },
+            limit,
+            max_bytes,
+            allow_device_drift,
+        )?;
+        summary.batches_completed += 1;
+        summary.sources_processed += report.items.len();
+        summary.sources_reconciled += report
+            .items
+            .iter()
+            .filter(|i| i.status == "reconciled")
+            .count();
+        summary.sources_isolated = summary.sources_processed - summary.sources_reconciled;
+        summary.has_more = report.has_more;
+        tracing::info!(
+            batches = summary.batches_completed,
+            sources = summary.sources_processed,
+            isolated = summary.sources_isolated,
+            "automatic history progress"
+        );
+        if !summary.has_more {
+            break;
+        }
+    }
+    Ok(summary)
+}
+
 /// Automatic rule-driven historical reconciliation. Per-source documents are
 /// machine receipts, not a human approval loop. Ordinary ledgers stay protected
 /// until the separately controlled promotion step.

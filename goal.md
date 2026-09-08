@@ -7,6 +7,17 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Continuous runner is now implemented: `--automatic-batches 1000 --limit 10`
+resumes its persisted cursor, processes successive batches and returns aggregate
+counts only. It stops on inventory exhaustion rather than requiring manual
+dispatch. The real continuous shadow job was launched with the release binary;
+exec session **18356** was verified live and reported its first ten sources
+reconciled with no isolated errors. Poll that existing handle before launching
+anything else. Do not run a competing history writer. The cap is 1,000 batches,
+not a claim of complete history or permission to promote production.
+Full Rust regression and Clippy checks accompany the runner; tests cover
+automatic correction, restart resume and stopping at inventory exhaustion.
+
 The user explicitly stopped per-session independent verification on 2026-09-08.
 Do not resume manual priority ranking, hand-reading each source report, copying
 seals, or reporting individual migration pages. Use the shared parser/identity

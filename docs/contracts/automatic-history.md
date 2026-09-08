@@ -21,9 +21,14 @@ per-session approval or copying seals. It currently targets an isolated shadow;
 production promotion remains a separate operation. It never imports newly found
 candidates as part of correcting existing records.
 
+Use `--automatic-batches 1000 --limit 10` for a bounded continuous job. It advances
+the saved cursor automatically, stops when the inventory ends, and returns only
+aggregate source/error counts. The default is one batch; the job cap does not
+change the accounting rules or authorize a production switch.
+
 The output directory stores a private `automatic-history-progress.json`, bound
 to its ledger and source home. Runs resume the saved cursor when `--after` is
-omitted. A process lock prevents overlapping jobs in the same directory. Progress
+omitted. A process lock prevents overlapping batches in the same directory. Progress
 is atomically replaced after the batch; crashes can safely replay receipts.
 Failed/ambiguous sources are isolated and retained in the checkpoint, not guessed
 or silently converted to zero. Machine receipts remain diagnostic artifacts, not

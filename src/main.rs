@@ -47,6 +47,8 @@ enum Command {
         /// Apply deterministic reconciliation and sampling linkage automatically on a shadow.
         #[arg(long)]
         automatic: bool,
+        #[arg(long, requires="automatic", default_value_t=1, value_parser=clap::value_parser!(u16).range(1..=1000))]
+        automatic_batches: u16,
         #[arg(long)]
         db: PathBuf,
         #[arg(long)]
@@ -527,6 +529,7 @@ async fn main() -> Result<()> {
         }
         Command::DraftReconstructionBatch {
             automatic,
+            automatic_batches,
             db,
             codex_home,
             output_dir,
@@ -535,12 +538,21 @@ async fn main() -> Result<()> {
             max_bytes_per_source,
             allow_device_drift,
         } => {
-            let run = if automatic {
-                codex_usage_ledger::cli_support::reconcile_history_batch
-            } else {
-                codex_usage_ledger::cli_support::draft_reconstruction_batch
-            };
-            let report = run(
+            if automatic {
+                let report = codex_usage_ledger::cli_support::run_history_reconciliation(
+                    &db,
+                    &codex_home,
+                    &output_dir,
+                    after.as_deref(),
+                    limit,
+                    max_bytes_per_source,
+                    allow_device_drift,
+                    usize::from(automatic_batches),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+            let report = codex_usage_ledger::cli_support::draft_reconstruction_batch(
                 &db,
                 &codex_home,
                 &output_dir,
