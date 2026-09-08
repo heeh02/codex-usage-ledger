@@ -7,6 +7,7 @@
 
 export interface QuotaIntervalUsageResponse {
   accountId: string;
+  chart?: QuotaIntervalChart | null;
   coverageComplete: boolean;
   end: string | null;
   events: number | null;
@@ -21,10 +22,15 @@ export interface QuotaIntervalUsageResponse {
   status: string;
   usage: TokenUsage | null;
 }
-export interface QuotaIntervalUsageGroup {
+export interface QuotaIntervalChart {
+  buckets: QuotaChartBucket[];
+  observations: QuotaChartObservation[];
+  observationsTruncated: boolean;
+}
+export interface QuotaChartBucket {
+  end: string;
   events: number;
-  id: string | null;
-  label: string | null;
+  start: string;
   usage: TokenUsage;
 }
 export interface TokenUsage {
@@ -37,6 +43,16 @@ export interface TokenUsage {
   reasoning: number;
   total: number;
   uncached: number;
+}
+export interface QuotaChartObservation {
+  at: string;
+  usedPercent: number | null;
+}
+export interface QuotaIntervalUsageGroup {
+  events: number;
+  id: string | null;
+  label: string | null;
+  usage: TokenUsage;
 }
 export interface QuotaHistoryView {
   account: string;

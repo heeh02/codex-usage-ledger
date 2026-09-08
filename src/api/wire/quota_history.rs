@@ -84,4 +84,29 @@ pub struct QuotaIntervalUsageResponse {
     pub usage: Nullable<TokenUsage>,
     pub models: Vec<QuotaIntervalUsageGroup>,
     pub projects: Vec<QuotaIntervalUsageGroup>,
+    pub chart: Option<QuotaIntervalChart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaChartObservation {
+    pub at: String,
+    pub used_percent: Nullable<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaChartBucket {
+    pub start: String,
+    pub end: String,
+    pub events: u64,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaIntervalChart {
+    pub observations: Vec<QuotaChartObservation>,
+    pub observations_truncated: bool,
+    pub buckets: Vec<QuotaChartBucket>,
 }

@@ -6,6 +6,16 @@
     "accountId": {
       "type": "string"
     },
+    "chart": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QuotaIntervalChart"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "coverageComplete": {
       "type": "boolean"
     },
@@ -87,6 +97,50 @@
     "projects"
   ],
   "$defs": {
+    "QuotaChartBucket": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "string"
+        },
+        "events": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "events",
+        "usage"
+      ]
+    },
+    "QuotaChartObservation": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "usedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "at",
+        "usedPercent"
+      ]
+    },
     "QuotaHistoryView": {
       "type": "object",
       "properties": {
@@ -109,6 +163,31 @@
         "revision",
         "account",
         "asOf"
+      ]
+    },
+    "QuotaIntervalChart": {
+      "type": "object",
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaChartBucket"
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaChartObservation"
+          }
+        },
+        "observationsTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "observations",
+        "observationsTruncated",
+        "buckets"
       ]
     },
     "QuotaIntervalUsageGroup": {

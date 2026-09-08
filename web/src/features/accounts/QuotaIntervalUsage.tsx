@@ -6,6 +6,7 @@ import { UsageBreakdownTable } from '../../components/UsageBreakdownTable';
 import { dimensionLabel, formatPercent } from '../../lib';
 import { useI18n } from '../../i18n';
 import { runScopedRequest } from '../../shared/requestLifecycle';
+import { QuotaIntervalChart } from './QuotaIntervalChart';
 
 export function QuotaIntervalUsage({ row, selection, demo, formatTimestamp, accountLabel }: { row: QuotaHistoryInterval; selection?: QuotaHistoryCursor; demo: boolean; formatTimestamp: (value: string | null) => string; accountLabel: string }) {
   const { t } = useI18n();
@@ -35,6 +36,7 @@ export function QuotaIntervalUsage({ row, selection, demo, formatTimestamp, acco
       {busy && <p role="status">{t('interval.loading')}</p>}{failed && <p role="alert">{t('interval.failed')}</p>}
       {pending && data?.status === 'available' && <p role="status">{t('interval.pending')} {t('history.retaining_view')}</p>}
       {data && data.status !== 'available' && <p role="status">{message}</p>}
+      {data && <QuotaIntervalChart data={data} formatTimestamp={formatTimestamp}/>}
       {data?.status === 'available' && data.usage && data.events !== null && <>
         <p>{t('quota.observation_interval')}: {formatTimestamp(data.start)} — {formatTimestamp(data.end)}</p>
         <p>{t('interval.observed')}: {formatTimestamp(data.observedAt)} · {t('interval.cache_hit')}: {formatPercent(data.usage.input ? data.usage.cached / data.usage.input : null)}</p>

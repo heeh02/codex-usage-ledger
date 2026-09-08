@@ -12,6 +12,29 @@ export function validateQuotaIntervalUsage(value: QuotaIntervalUsageResponse, ro
     || value.quotaView.account !== selection.view.account || value.quotaView.asOf !== selection.view.asOf
     || value.start !== row.tokenSampleStart || value.end !== row.tokenSampleEnd || !Number.isFinite(Date.parse(value.observedAt))
     || value.coverageComplete !== false || value.poolAttribution !== false || !Array.isArray(value.models) || !Array.isArray(value.projects)) fail();
+  if (value.chart) {
+    const chart = value.chart;
+    if (!Array.isArray(chart.observations) || chart.observations.length > 1000 || !Array.isArray(chart.buckets) || typeof chart.observationsTruncated !== 'boolean') fail();
+    let previous = -Infinity;
+    for (const point of chart.observations) {
+      const at = Date.parse(point.at);
+      if (!Number.isFinite(at) || at < previous || at < Date.parse(row.firstObservedAt) || at > Date.parse(row.lastObservedAt)
+        || (point.usedPercent !== null && (!Number.isFinite(point.usedPercent) || point.usedPercent < 0 || point.usedPercent > 100))) fail();
+      previous = at;
+    }
+    previous = -Infinity;
+    for (const bucket of chart.buckets) {
+      const start = Date.parse(bucket.start), end = Date.parse(bucket.end);
+      if (value.status !== 'available' || !value.start || !value.end || !Number.isFinite(start) || !Number.isFinite(end)
+        || start < previous || start >= end || start < Date.parse(value.start) || end > Date.parse(value.end)
+        || !validRequestUsage(bucket.usage) || !Number.isSafeInteger(bucket.events) || bucket.events < 1) fail();
+      previous = end;
+    }
+    if (value.status === 'available') {
+      if (chart.buckets.reduce((sum, b) => sum + b.events, 0) !== value.events) fail();
+      for (const field of fields) if (chart.buckets.reduce((sum, b) => sum + b.usage[field], 0) !== value.usage?.[field]) fail();
+    }
+  }
   if (value.status !== 'available') {
     if (!['no_safe_interval', 'no_evidence', 'source_overlap_review', 'pending'].includes(value.status)
       || value.usage !== null || value.events !== null || value.models.length || value.projects.length) fail();

@@ -9,6 +9,11 @@ test('interval usage is loaded on demand and unsafe source overlap hides totals'
   await page.route('**/v1/quota-interval-usage?**', route => {
     reads++;
     const result = mockQuotaIntervalUsage(history.intervals[0], history.selections![0]);
+    result.chart = {
+      observations: [{ at: history.intervals[0].firstObservedAt, usedPercent: 20 }, { at: history.intervals[0].lastObservedAt, usedPercent: 40 }],
+      observationsTruncated: false,
+      buckets: review ? [] : [{ start: result.start!, end: result.end!, events: result.events!, usage: result.usage! }],
+    };
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(review ? { ...result, status: 'source_overlap_review', usage: null, events: null, models: [], projects: [] } : result) });
   });
   await page.goto('/e2e/quota-history-http.html');
@@ -17,10 +22,14 @@ test('interval usage is loaded on demand and unsafe source overlap hides totals'
   await row.getByRole('button', { name: '查看区间 Token 明细', exact: true }).click();
   const detail = row.getByRole('region', { name: '查看区间 Token 明细', exact: true });
   await expect(detail.locator('.local-composition')).toContainText('12 M');
-  await expect(detail.locator('table')).toHaveCount(2); expect(reads).toBe(1);
+  await expect(detail.locator('.quota-interval-chart svg')).toBeVisible();
+  await expect(detail.locator('.quota-chart-bar')).toHaveCount(1);
+  await expect(detail.locator('.usage-breakdown table')).toHaveCount(2); expect(reads).toBe(1);
   review = true; await detail.getByRole('button', { name: '重新查询区间用量', exact: true }).click();
   await expect(detail).toContainText('等待来源合并修复');
   await expect(detail.locator('.local-composition')).toHaveCount(0);
+  await expect(detail.locator('.quota-chart-bar')).toHaveCount(0);
+  await expect(detail.locator('.quota-chart-point')).toHaveCount(2);
 });
 
 test('HTTP failure and index waiting retain the accepted history without a mock fallback', async ({ page }) => {

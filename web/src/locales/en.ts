@@ -1,6 +1,16 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "quota_chart.title": "Quota and interval Token activity",
+  "quota_chart.scope": "Top: remaining quota in the selected window. Bottom: account Token activity in that interval, not pool-specific usage.",
+  "quota_chart.remaining": "Observed quota remaining (%)",
+  "quota_chart.tokens": "Account Token activity (M)",
+  "quota_chart.truncated": "Only the first 1,000 quota observations are shown; this is not a complete cycle.",
+  "quota_chart.empty": "No chartable observations in this interval.",
+  "quota_chart.no_tokens": "No available Token detail",
+  "quota_chart.gaps": "Steps connect known observations at most 15 minutes apart; longer gaps remain blank. Resets and unobserved periods are not invented. Empty Token buckets do not mean zero.",
+  "quota_chart.table": "View chart data",
+  "quota_chart.time": "Time",
   "quality.history_gap_title": "Ledger-wide historical evidence gaps",
   "quality.history_gap_detail": "Local figures contain confirmed records only, not complete lifetime totals. Unresolved history is retained separately, never filled with zero or mixed into official totals.",
   "quality.source_groups": "source groups",

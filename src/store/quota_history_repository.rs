@@ -5,6 +5,13 @@ use hmac::{Hmac, Mac};
 
 const POINT_COLUMNS: &str = "observation_id,account_fingerprint,stream_key,observed_at,snapshot_id,window_ordinal,used_percent,window_seconds,resets_at_unix,pool_key,limit_id,limit_name,role";
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct QuotaChartObservation {
+    pub at: String,
+    pub used_percent: Option<f64>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuotaHistoryKey {
@@ -247,6 +254,46 @@ pub(super) fn observe_window_in(connection: &Connection, id: &str) -> StoreResul
 }
 
 impl LedgerStore {
+    pub(crate) fn quota_interval_observations(
+        &self,
+        selection: &QuotaHistoryCursor,
+    ) -> StoreResult<(Vec<QuotaChartObservation>, bool)> {
+        let interval = self.selected_quota_history_interval(selection)?;
+        let mut statement = self.connection.prepare(
+            "SELECT o.observed_at,o.used_percent FROM quota_window_observations o
+             WHERE o.account_fingerprint=?1 AND o.stream_key=?2 AND o.created_revision<=?3
+               AND (o.observed_at,o.snapshot_id,o.window_ordinal)>=(?4,?5,?6)
+               AND o.observed_at<=?7
+               AND NOT EXISTS(SELECT 1 FROM quota_boundary_versions b
+                 WHERE b.account_fingerprint=o.account_fingerprint AND b.stream_key=o.stream_key
+                   AND b.valid_from<=?3 AND (b.valid_to IS NULL OR b.valid_to>?3)
+                   AND (b.observed_at,b.snapshot_id,b.window_ordinal)>(?4,?5,?6)
+                   AND (b.observed_at,b.snapshot_id,b.window_ordinal)<=(o.observed_at,o.snapshot_id,o.window_ordinal))
+             ORDER BY o.observed_at,o.snapshot_id,o.window_ordinal LIMIT 1001")?;
+        let mut rows = statement
+            .query_map(
+                params![
+                    interval.account_id,
+                    interval.stream_key,
+                    selection.view.revision,
+                    interval.key.at,
+                    interval.key.snapshot_id,
+                    interval.key.ordinal,
+                    timestamp(selection.view.as_of)
+                ],
+                |row| {
+                    Ok(QuotaChartObservation {
+                        at: row.get(0)?,
+                        used_percent: row.get(1)?,
+                    })
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        let truncated = rows.len() > 1000;
+        rows.truncate(1000);
+        Ok((rows, truncated))
+    }
+
     /// Completes versioned boundary projection in bounded, restartable batches.
     pub fn backfill_quota_history_chunk(&mut self, limit: usize) -> StoreResult<bool> {
         let ready: bool = self.connection.query_row(

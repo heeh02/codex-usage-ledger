@@ -62,6 +62,31 @@ fn add(store: &mut LedgerStore, millis: i64, reset: i64, used: i64) {
 }
 
 #[test]
+fn chart_observations_keep_frozen_stream_and_boundary_membership() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    add(&mut store, 0, 100, 20);
+    add(&mut store, 1000, 100, 30);
+    add(&mut store, 2000, 200, 10);
+    store
+        .append_quota_snapshot("account-b", "epoch", base(), &snapshot(100, 90))
+        .unwrap();
+    let page = store.quota_history_page("account-a", None, 20).unwrap();
+    let selection = &page.selections[1];
+    add(&mut store, 500, 100, 25);
+    let (rows, truncated) = store.quota_interval_observations(selection).unwrap();
+    assert!(!truncated);
+    assert_eq!(
+        rows.iter().map(|r| r.used_percent).collect::<Vec<_>>(),
+        vec![Some(20.0), Some(30.0)]
+    );
+    let fresh = store.quota_history_page("account-a", None, 20).unwrap();
+    let (rows, _) = store
+        .quota_interval_observations(&fresh.selections[1])
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+}
+
+#[test]
 fn quota_history_pages_stay_frozen_after_late_append_and_reopen() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("history.sqlite3");

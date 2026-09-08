@@ -9,6 +9,20 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Quota interval visualization now implemented in source. Additive optional `chart`
+DTO provides frozen account/stream observations (explicit 1,000-point truncation)
+and exact interval-clipped hourly Token buckets. Server and client enforce bucket
+conservation. The native application's interval detail now has separate percent
+step and M-Token bar panels sharing a time axis, bilingual notes and accessible
+tables. Unknown samples/long gaps are not connected; unavailable Token evidence
+does not generate bars. Store tests cover frozen revision, late append, boundary
+and account isolation; API tests cover bucket totals. Full Rust tests, Clippy,
+generated contracts, Web 100 unit tests and 33 E2E tests pass. The E2E includes
+chart rendering and preservation of quota observations when Token detail is
+withheld. Final visual inspection and installing this chart build remain pending.
+The visualize-data skill informed separate axes, sparse/gap behavior and labels;
+the existing application renderer remains the sole delivery surface.
+
 Final functional review is recorded in
 [account-first delivery review](docs/architecture/account-first-delivery-review.md).
 Web acceptance rerun: 100 unit tests and 33 E2E tests pass. E01/E02/E03 and core

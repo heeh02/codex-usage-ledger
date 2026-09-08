@@ -19,11 +19,13 @@ pub(super) async fn interval_usage(
         .map_err(|_| ApiError::InvalidQuery("invalid quota selection".into()))?;
     let value=state.query_read_only(move |store| store.with_source_audit_snapshot(|store| {
         let interval=store.selected_quota_history_interval(&selection)?;
+        let (observations, observations_truncated)=store.quota_interval_observations(&selection)?;
         let mut response=serde_json::json!({
             "scope":"quota_interval_local_evidence_v1","status":"no_safe_interval",
             "intervalId":interval.id,"accountId":interval.account_id,"quotaView":selection.view,"observedAt":Utc::now(),
             "start":interval.token_sample_start,"end":interval.token_sample_end,"coverageComplete":false,"poolAttribution":false,
             "events":null,"usage":null,"models":[],"projects":[],
+            "chart":{"observations":observations,"observationsTruncated":observations_truncated,"buckets":[]},
         });
         let (Some(start),Some(end))=(interval.token_sample_start,interval.token_sample_end) else {return Ok(response);};
         if store.quota_interval_needs_source_review(&interval.account_id,start,end)? {
@@ -34,6 +36,22 @@ pub(super) async fn interval_usage(
         let total=queries::aggregate_exact_hour_window(store,&filter)?;
         if total.event_count==0 {response["status"]=serde_json::json!("no_evidence");return Ok(response);}
         total.usage.validate().map_err(StoreError::InvalidConfirmedUsage)?;
+        let series=store.aggregate_exact_time_series(crate::store::TimeGrain::Hour,None,&filter,"UTC")?;
+        let mut bucket_total=TokenUsage::default();
+        let mut bucket_events=0_u64;
+        let mut buckets=Vec::new();
+        for bucket in series {
+            let at=chrono::NaiveDateTime::parse_from_str(&bucket.time_key,"%Y-%m-%dT%H:%M")
+                .map_err(|_|StoreError::InvalidRequestQuery("invalid interval hour"))?.and_utc();
+            let bucket_start=at.max(start);
+            let bucket_end=(at+ChronoDuration::hours(1)).min(end);
+            if bucket_start>=bucket_end {return Err(StoreError::QuotaIntervalMismatch);}
+            add_usage_saturating(&mut bucket_total,bucket.usage);
+            bucket_events=bucket_events.saturating_add(bucket.event_count);
+            buckets.push(serde_json::json!({"start":bucket_start,"end":bucket_end,"events":bucket.event_count,"usage":token_value(bucket.usage)}));
+        }
+        if bucket_total!=total.usage || bucket_events!=total.event_count {return Err(StoreError::QuotaIntervalMismatch);}
+        response["chart"]["buckets"]=serde_json::json!(buckets);
         let projects=store.list_projects()?.into_iter().map(|row|(row.project_id,row.project_name)).collect::<BTreeMap<_,_>>();
         let components=|usage:&TokenUsage,events:u64| [usage.input_tokens,usage.cached_input_tokens,usage.cache_write_input_tokens,usage.cache_write_observed_input_tokens,usage.output_tokens,usage.reasoning_output_tokens,usage.total_tokens,events].map(u128::from);
         for (name,dimension) in [("models",AggregateDimension::Model),("projects",AggregateDimension::Project)] {
@@ -238,6 +256,23 @@ mod tests {
         assert_eq!(value["accountId"], "account-a");
         assert_eq!(value["events"], 2);
         assert_eq!(value["usage"]["total"].as_f64(), Some(240.0));
+        let chart = &value["chart"];
+        assert_eq!(chart["observationsTruncated"], false);
+        let buckets = chart["buckets"].as_array().unwrap();
+        assert_eq!(
+            buckets
+                .iter()
+                .map(|b| b["usage"]["total"].as_f64().unwrap())
+                .sum::<f64>(),
+            240.0
+        );
+        assert_eq!(
+            buckets
+                .iter()
+                .map(|b| b["events"].as_u64().unwrap())
+                .sum::<u64>(),
+            2
+        );
         assert_eq!(value["poolAttribution"], false);
         for dimension in ["models", "projects"] {
             let rows = value[dimension].as_array().unwrap();
