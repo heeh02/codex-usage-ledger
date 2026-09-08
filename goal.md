@@ -24,6 +24,22 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Historical source migration, third private page — 2026-09-08
+
+Resumed the saved inventory cursor and completed ten full captured-prefix drafts.
+Nine contained existing reconstruction facts and were applied only to the private
+review shadow using sealed existing-only mode: 2,248 original records archived,
+1,164 corrected/preserved records retained, 1,084 inherited replay records
+suppressed, no new candidates imported or deferred. The remaining draft had no
+stored facts and was left unapplied. Re-running the page verified nine applied
+post-images and reused the remaining valid draft without rescanning sources.
+Private page-three receipts preserve exact manifests, seals and the next cursor.
+
+Initial overlapping writer processes hit lock failures; all failed operations
+were retried serially and verified successful. Future shadow writes must wait
+for each process to terminate before starting the next. No formal ledger, native
+installation, authentication or reset state changed. The goal remains active.
+
 ### Real shadow readiness diagnosis — 2026-09-08
 
 Advanced 100 bounded projection batches on the existing corrected private shadow
