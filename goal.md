@@ -24,6 +24,20 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority source cross-log association — 2026-09-08
+
+Completed sampling-association checks for the six remaining corrected priority
+sources. Restored 4,352 links without Token changes or metadata conflicts; 258
+unavailable candidates and 225 unconfirmed observations were not promoted.
+Four scopes had no retained sampling anchors in the requested history range;
+zero new links is not evidence of zero usage. Private link receipts persist.
+
+Advanced another 100 bounded projection batches: 88,065 selected groups,
+46,123 unresolved and 507,848 pending; historical backfill is still incomplete.
+The pending queue includes invalidations from the large corrections, so compare
+it only with the current source/migration state, not as a progress percentage.
+Formal policy and installed application remain unchanged.
+
 ### Priority sources five through seven — 2026-09-08
 
 Three additional complete-source shadow migrations archived 79,224 original
