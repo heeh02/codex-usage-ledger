@@ -198,6 +198,7 @@ pub fn router(state: ApiState) -> Router {
             get(super::requests::request_evidence),
         )
         .route("/v1/bundle", get(bundle))
+        .route("/v1/source-union", get(source_union))
         .route("/v1/turn-evidence", get(super::requests::turn_evidence))
         .route("/v1/quotas", get(quotas))
         .route("/v1/quota-history", get(super::quota_history::history))
@@ -293,6 +294,26 @@ async fn summary(
     Ok(Json(
         state
             .cached_query_value("summary", query, http_summary)
+            .await?,
+    ))
+}
+
+pub(super) async fn source_union(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::store::SourceUnionQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if query.start >= query.end || query.timezone.parse::<Tz>().is_err() {
+        return Err(ApiError::InvalidQuery(
+            "require ordered timestamps and a valid timezone".into(),
+        ));
+    }
+    Ok(Json(
+        state
+            .query_read_only(move |store| {
+                Ok(serde_json::to_value(
+                    store.read_source_union_projection(&query)?,
+                )?)
+            })
             .await?,
     ))
 }

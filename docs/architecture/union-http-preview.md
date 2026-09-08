@@ -5,8 +5,10 @@ Status: implemented validation path; not production promotion.
 `serve --union-preview --db <review-ledger> --web-root <built-web-root>`
 serves the existing React application and HTTP query stack using the resolved
 occurrence-union projection. Both paths must be explicit. The existing global
-projection-readiness gate still applies; partially resolved real ledgers cannot
-use this entry point merely because one diagnostic scope is ready.
+projection-readiness gate still applies to complete bundles and aggregate views.
+The HTTP service can start for an incomplete projection so that
+`/v1/source-union` can serve independently available scopes; this does not make
+the complete dashboard bundle available or expose incomplete aggregate totals.
 
 The mode opens the selected ledger read-only, bypasses collection and identity
 initialization, and refuses mutation methods with HTTP 403. Loopback Host/Origin
@@ -51,8 +53,9 @@ Launch the built executable explicitly with `--isolated-profile <UUID>
 --isolated-union`. Prepare a resolved synthetic fixture at that profile's existing
 isolated database location before launch. The union flag without a valid profile,
 duplicate flags and misspelled isolation flags fail closed. No arbitrary database
-path is accepted by the native shell. Missing or unresolved data is a startup
-failure, not permission to fall back to the normal ledger.
+path is accepted by the native shell. A missing database is a startup failure.
+An unresolved global projection withholds the complete dashboard bundle while
+allowing scoped diagnostic reads; neither case falls back to the normal ledger.
 
 This additive launch option always runs the bundled Rust `serve --union-preview`
 on the existing fixed loopback port. It ignores saved collection preference,

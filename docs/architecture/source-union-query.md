@@ -70,3 +70,24 @@ version 1; no HTTP dashboard DTO or persisted ledger schema changes in this step
 Summary, chart, ranking,
 chat and quota production consumers still require a reviewed common-policy
 switch, real-account comparison and controlled migration receipts.
+
+## Scoped HTTP access
+
+`GET /v1/source-union` exposes this same version-2 candidate contract over the
+existing loopback service. Required query parameters are `start`, `end`, `timezone`
+and `grain`; optional `account`, `project`, `model` and `thread` are literal stored
+identifiers. This is not `UsageQuery`: natural-period shortcuts and UI catalog
+project reclassification are not accepted here. Unknown query fields, malformed
+timestamps, invalid grains and invalid timezone/order fail rather than guessing.
+
+The handler uses a read-only store connection and the reader's single snapshot,
+with no global bundle precondition, source collection, account refresh or fallback
+to day-max data. An unrelated unfinished group does not suppress an available
+scope; conflicts in the requested scope still withhold `data`. Empty scopes remain
+`no_records`, not measured zero. Existing identifier, counterpart, memory and
+bucket limits remain active.
+
+The main bundle/HTTP DTO is unchanged. This endpoint is the data path for future
+section-wise UI integration, not a completed frontend switch. A preview server may
+serve this endpoint while the globally gated `/v1/bundle` remains unavailable.
+Strict CLI bundle previews retain their eager global readiness check.

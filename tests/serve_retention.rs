@@ -203,6 +203,14 @@ fn union_preview_serves_real_bundle_read_only_without_auth_or_startup_writes() {
         std::thread::sleep(Duration::from_millis(25));
     }
     assert!(ready);
+    let scoped = request("GET", "/v1/source-union?start=2026-01-01T00:00:00Z&end=2026-01-02T00:00:00Z&timezone=UTC&grain=day", "127.0.0.1").unwrap();
+    assert!(scoped.starts_with("HTTP/1.0 200"));
+    assert!(scoped.contains("no_records"));
+    assert!(
+        request("GET", "/v1/source-union?start=invalid", "127.0.0.1")
+            .unwrap()
+            .starts_with("HTTP/1.0 400")
+    );
     for path in ["/v1/account-registry", "/v1/official/refresh"] {
         let response = request("POST", path, "127.0.0.1").unwrap();
         assert!(response.starts_with("HTTP/1.0 403"));

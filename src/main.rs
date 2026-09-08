@@ -839,7 +839,7 @@ async fn main() -> Result<()> {
             ensure_loopback(listen)?;
             if union_preview {
                 let store =
-                    LedgerStore::open_source_union_main_preview(db.expect("explicit preview DB"))?;
+                    LedgerStore::open_source_union_diagnostics(db.expect("explicit preview DB"))?;
                 serve_http_mode(
                     ApiState::with_store(store),
                     listen,

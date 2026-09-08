@@ -7,6 +7,14 @@ impl LedgerStore {
     /// services using selected request facts, including retained-only requests.
     /// This is an acceptance lane, not authorization to migrate historical facts.
     pub fn open_source_union_main_preview(path: impl AsRef<Path>) -> StoreResult<Self> {
+        let store = Self::open_source_union_diagnostics(path)?;
+        store.refresh_effective_source_selection()?;
+        Ok(store)
+    }
+
+    /// Permit scoped diagnostic endpoints while ordinary aggregate queries keep
+    /// their global readiness guard. No partial total is silently exposed.
+    pub fn open_source_union_diagnostics(path: impl AsRef<Path>) -> StoreResult<Self> {
         let mut store = Self::open_read_only(path)?;
         // SQLITE_OPEN_READ_ONLY still protects the main file while TEMP DDL is
         // installed. Restore query_only before exposing the connection.
@@ -14,7 +22,6 @@ impl LedgerStore {
         store.connection.execute_batch(PREVIEW_VIEWS)?;
         store.connection.pragma_update(None, "query_only", "ON")?;
         store.union_main_preview = true;
-        store.refresh_effective_source_selection()?;
         Ok(store)
     }
 

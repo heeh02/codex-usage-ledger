@@ -1358,6 +1358,61 @@ fn rejects_non_local_origin() {
 }
 
 #[tokio::test]
+async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_totals() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut good = explorer_event("ready", "ready-thread", None);
+    good.provenance.source_record_key = Some("ready-key".into());
+    let at = good.source_timestamp.unwrap();
+    store.upsert_event(&good).unwrap();
+    for _ in 0..10 {
+        if store
+            .stage_source_union_batch(100, 100, 1000)
+            .unwrap()
+            .projection_ready
+        {
+            break;
+        }
+    }
+    let mut bad = explorer_event("pending", "other-thread", None);
+    bad.source_timestamp = Some(at);
+    store.upsert_event(&bad).unwrap();
+    let state = ApiState::with_store(store);
+    let query = crate::store::SourceUnionQuery {
+        start: at - ChronoDuration::seconds(1),
+        end: at + ChronoDuration::seconds(1),
+        timezone: "Asia/Shanghai".into(),
+        grain: crate::store::SourceUnionGrain::Day,
+        account: None,
+        project: None,
+        model: None,
+        thread: Some("ready-thread".into()),
+    };
+    let result = routes::source_union(State(state.clone()), Query(query.clone()))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(result["version"], 2);
+    assert_eq!(result["status"], "available");
+    assert_eq!(result["projection"]["projectionReady"], false);
+    assert_eq!(result["data"]["usage"]["total_tokens"], 120);
+    assert_eq!(result["productionPolicyChanged"], false);
+    let mut all = query.clone();
+    all.thread = None;
+    let result = routes::source_union(State(state.clone()), Query(all))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(result["status"], "unresolved");
+    assert!(result["data"].is_null());
+    let mut invalid = query;
+    invalid.timezone = "not-a-zone".into();
+    assert!(matches!(
+        routes::source_union(State(state), Query(invalid)).await,
+        Err(ApiError::InvalidQuery(_))
+    ));
+}
+
+#[tokio::test]
 async fn invalid_query_is_rejected_before_query_execution() {
     let state = ApiState::with_store(LedgerStore::open_in_memory().unwrap());
     for query in [

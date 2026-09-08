@@ -2158,3 +2158,14 @@ No live data migration, installed-app replacement or release has occurred.
   this exception. No source import, production policy change or installed release
   occurred. Full-account reconciliation and primary-query/native acceptance remain
   unfinished; goal ACTIVE.
+- Batch 172 (2026-09-08): exposed the existing scoped union reader through a
+  read-only HTTP endpoint, without the complete bundle's global readiness gate.
+  Preview services can now start for diagnostics on incomplete projections;
+  complete aggregate/bundle queries remain guarded and cannot leak partial totals.
+  Exact query validation and explicit available/unresolved/no-record states are
+  preserved. A real corrected historical scope returned over HTTP while global
+  readiness remained false; component conservation matched CLI evidence across
+  all five dimensions. The complete bundle still refused data and mutation routes
+  returned forbidden. Rust 337 tests and Clippy pass. This connects the backend
+  data path, not frontend section-wise rendering or production promotion; those
+  and real-account/native acceptance remain open. Goal ACTIVE.

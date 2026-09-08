@@ -1,7 +1,7 @@
 //! Scope-aware local measurements. No source import or active-policy mutation.
 use super::*;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceUnionGrain {
     Hour,
@@ -25,8 +25,8 @@ impl std::str::FromStr for SourceUnionGrain {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceUnionQuery {
     pub start: DateTime<Utc>,
     pub end: DateTime<Utc>,
