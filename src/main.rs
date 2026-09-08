@@ -72,6 +72,9 @@ enum Command {
         manifest: PathBuf,
         #[arg(long)]
         expected_sha256: String,
+        /// Correct existing facts only; archive new candidates separately without importing them.
+        #[arg(long)]
+        existing_only: bool,
     },
     /// Requalify persisted sampling anchors against a complete rollout prefix; never writes.
     AuditLegacySampling {
@@ -499,11 +502,13 @@ async fn main() -> Result<()> {
             db,
             manifest,
             expected_sha256,
+            existing_only,
         } => {
-            let receipt = codex_usage_ledger::cli_support::apply_shadow_correction(
+            let receipt = codex_usage_ledger::cli_support::apply_shadow_correction_with_policy(
                 &db,
                 &manifest,
                 &expected_sha256,
+                existing_only,
             )?;
             println!("{}", serde_json::to_string_pretty(&receipt)?);
         }

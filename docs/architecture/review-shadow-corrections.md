@@ -27,8 +27,9 @@ manifest. The writable handle is opened without creation or migration, then its
 marker/schema are checked again under an immediate transaction.
 
 The manifest verifier checks every old fact or expected absence against that
-transaction's snapshot before application. Plans containing new historical facts
-or changes to account/project/thread identity are rejected for separate review.
+transaction's snapshot before application. By default, plans containing new
+historical facts are rejected. Account/project/thread identity changes always
+remain rejected for separate review.
 The existing path supports reviewed quantity/model/time/coverage corrections and
 suppression of inherited replay records; it does not authorize insertion or
 cross-account reassignment by convenience.
@@ -57,6 +58,30 @@ Synthetic tests cover normal-ledger refusal, existing-output refusal, wrong seal
 rollback after an injected delete failure, post-image changes, rowid preservation,
 component/dimension conservation, source-key restoration, union-preview reads and
 repeat-application idempotence.
+
+## Existing-fact-only application
+
+`apply-shadow-correction --existing-only` explicitly permits a mixed draft while
+applying only its existing-fact corrections. New candidates are retained in
+`review_deferred_reconstruction` as sealed-plan-associated proposed facts, not
+inserted into reconstruction, sampling, source keys or usage rollups. They do not
+enter reported usage. This includes any absent candidates, not an assumption that
+every absent fact must be chronologically after the old snapshot.
+
+`review_correction_modes` retains the chosen policy. The additive CLI receipt
+field `deferredNewRecords` reports the withheld count. Mode and deferred contents
+join the post-image hash; reapplication rejects policy changes or modified/deleted
+deferred facts. Old receipts without these extension rows preserve their original
+digest and strict mode. Extensions are review-artifact tables only, created in
+the same transaction; the normal ledger schema does not change. Older code may
+reject the extended receipt's hash rather than accepting it without verification.
+
+Both modes still verify every expected old fact and every expected absence from
+the complete draft. Deferred candidates remain available for separate insertion
+review; this mode is not permission to discard, confirm, relabel or import them.
+Injected correction failure rolls back extensions, deferred candidates, archives,
+rollups and receipts together. Tests cover exact retained totals, rejection in
+default mode, repeated application, mode mismatch and deferred-content tampering.
 
 The expected digest is a binding, not a signature or code-owner approval. Manifest
 stability describes the captured source snapshot; application revalidates ledger

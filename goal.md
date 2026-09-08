@@ -235,6 +235,22 @@ Implementation contract: [durable request evidence](docs/architecture/durable-re
 
 ## Current checkpoint
 
+Authoritative checkpoint (2026-09-08): the account-first UI and resolved union
+queries have been exercised together in browser and isolated native windows with
+synthetic data. This is not installed production acceptance. Source schema is 40;
+ordinary main-query policy remains day-max, while occurrence-union reads are
+opt-in. Captured-prefix drafts now revalidate bytes without consuming later
+appends. Real correction/link restoration has succeeded for one source; a second
+source's existing-only shadow application has passed quantity/identity checks and
+repeat execution; its new candidates remain outside usage. Matching sampling links
+for the second source are restored without changing Token facts or assignments.
+Full-account/project reconciliation, common primary
+query promotion, controlled installation and complete native/real quota-cycle
+acceptance remain open. E01–E06 stay unchecked until their full acceptance scope
+is proven. Batch evidence below distinguishes implementation from acceptance.
+
+### Historical checkpoints (not current completion claims)
+
 Resolved for receipt-tracked ingestion in batch 93:
 `copied_log_sources_must_not_duplicate_sampling` now returns 100 after copying
 the source and is no longer ignored. Schema 33 assigns a counting owner per
@@ -2101,3 +2117,21 @@ No live data migration, installed-app replacement or release has occurred.
   explicitly separate existing-fact corrections from post-snapshot new candidates
   in shadow application, then restore occurrence links and check common queries.
   Full-account migration and full native acceptance remain open; goal ACTIVE.
+- Batch 169 (2026-09-08): added explicit existing-fact-only shadow application.
+  Mixed drafts may now preserve new candidates in a separate review table while
+  correcting only existing facts; the default still rejects them. Mode and deferred
+  contents are receipt-hashed, repeat execution refuses policy changes/tampering,
+  and injected failures roll back the complete extension and corrections. Normal
+  ledger schema and production policy are unchanged. Rust 333 tests, strengthened
+  rollback regression, Clippy and API/governance checks pass. Applied the previously
+  sealed second-source draft to the private shadow: old Token quantities and all
+  identity labels stayed equal, all existing keys were restored, no existing rows
+  were suppressed and none of the deferred candidates entered usage. Reapplication
+  returned already-applied. Matching confirmed sampling links were then restored
+  without fact/quality/assignment changes; unknown/unavailable candidates remain
+  separate. The current checkpoint now distinguishes current state from obsolete
+  historical entries. After bounded staging, the second source's historical scope
+  reads from the materialized union despite unrelated global work; all seven
+  components and record counts agree across time/account/project/model/thread.
+  Complete real-account reconciliation and native installed
+  delivery remain unfinished; goal ACTIVE.

@@ -18,6 +18,7 @@ pub struct ShadowReceipt {
     pub archived_records: u64,
     pub corrected_records: u64,
     pub suppressed_records: u64,
+    pub deferred_new_records: u64,
     production_policy_changed: bool,
 }
 
@@ -76,6 +77,15 @@ pub fn apply_shadow_correction(
     manifest: &Path,
     expected_sha: &str,
 ) -> Result<ShadowReceipt> {
+    apply_shadow_correction_with_policy(shadow, manifest, expected_sha, false)
+}
+
+pub fn apply_shadow_correction_with_policy(
+    shadow: &Path,
+    manifest: &Path,
+    expected_sha: &str,
+    existing_only: bool,
+) -> Result<ShadowReceipt> {
     // Inspect before any writable/migrating opener is used.
     let reader = LedgerStore::open_read_only(shadow)?;
     let marker: i64 = reader
@@ -117,18 +127,29 @@ pub fn apply_shadow_correction(
     {
         return Err(anyhow!("shadow identity/schema changed before application"));
     }
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS review_correction_modes(manifest_sha256 TEXT PRIMARY KEY,existing_only INTEGER NOT NULL CHECK(existing_only IN (0,1)));
+        CREATE TABLE IF NOT EXISTS review_deferred_reconstruction(manifest_sha256 TEXT NOT NULL,event_id TEXT NOT NULL,proposed_json TEXT NOT NULL,PRIMARY KEY(manifest_sha256,event_id));")?;
     if let Some((archived,corrected,suppressed,after_hash))=tx.query_row("SELECT archived_records,corrected_records,suppressed_records,after_sha256 FROM review_correction_receipts WHERE manifest_sha256=?1",[expected_sha],|r|Ok((u64_from_sql(r.get(0)?,0)?,u64_from_sql(r.get(1)?,1)?,u64_from_sql(r.get(2)?,2)?,r.get::<_,String>(3)?))).optional()? {
+        let previous_mode: bool = tx.query_row("SELECT existing_only FROM review_correction_modes WHERE manifest_sha256=?1",[expected_sha],|r|r.get(0)).optional()?.unwrap_or(false);
+        if previous_mode != existing_only {return Err(anyhow!("correction receipt was applied with a different candidate policy"));}
+        let deferred = tx.query_row("SELECT COUNT(*) FROM review_deferred_reconstruction WHERE manifest_sha256=?1",[expected_sha],|r|u64_from_sql(r.get(0)?,0))?;
         if scope_digest(&tx,expected_sha)?!=after_hash {return Err(anyhow!("previously corrected rows changed; receipt needs review"));}
-        return Ok(ShadowReceipt{manifest_sha256:expected_sha.into(),status:"already_applied",archived_records:archived,corrected_records:corrected,suppressed_records:suppressed,production_policy_changed:false});
+        return Ok(ShadowReceipt{manifest_sha256:expected_sha.into(),status:"already_applied",archived_records:archived,corrected_records:corrected,suppressed_records:suppressed,deferred_new_records:deferred,production_policy_changed:false});
     }
     tx.execute_batch(
         "CREATE TEMP TABLE correction_plan(event_id TEXT PRIMARY KEY,proposed_json TEXT);",
     )?;
     let checked = crate::reconstruction::visit_correction_records(manifest, &store, |row| {
-        if row.stored.is_none() && row.proposed.is_some() {
-            return Err(anyhow!(
-                "new historical facts require a separate insertion review"
-            ));
+        if let Some(new) = row.proposed.as_ref().filter(|_| row.stored.is_none()) {
+            if !existing_only {
+                return Err(anyhow!(
+                    "new historical facts require a separate insertion review"
+                ));
+            }
+            tx.execute(
+                "INSERT INTO review_deferred_reconstruction VALUES(?1,?2,?3)",
+                params![expected_sha, new.event_id, serde_json::to_string(new)?],
+            )?;
         }
         if let Some(old) = &row.stored {
             if let Some(new) = &row.proposed
@@ -206,6 +227,15 @@ pub fn apply_shadow_correction(
     // rollups inside the same transaction; raw original rows remain archived.
     rebuild_reconstruction_rollups_in(&tx)?;
     tx.execute(
+        "INSERT INTO review_correction_modes VALUES(?1,?2)",
+        params![expected_sha, existing_only],
+    )?;
+    let deferred_new_records = tx.query_row(
+        "SELECT COUNT(*) FROM review_deferred_reconstruction WHERE manifest_sha256=?1",
+        [expected_sha],
+        |r| u64_from_sql(r.get(0)?, 0),
+    )?;
+    tx.execute(
         "INSERT INTO review_correction_receipts VALUES(?1,?2,?3,?4,?5,?6)",
         params![
             expected_sha,
@@ -224,6 +254,7 @@ pub fn apply_shadow_correction(
         archived_records: rows.len() as u64,
         corrected_records: corrected,
         suppressed_records: suppressed,
+        deferred_new_records,
         production_policy_changed: false,
     })
 }
@@ -231,7 +262,7 @@ pub fn apply_shadow_correction(
 fn scope_digest(connection: &Connection, receipt: &str) -> Result<String> {
     let mut digest = Sha256::new();
     digest.update(b"shadow-correction-scope-v1");
-    for (tag, sql) in [
+    let mut queries = vec![
         (
             0u8,
             "SELECT r.* FROM reconstruction_usage_events r JOIN review_old_reconstruction old USING(event_id) WHERE old.manifest_sha256=?1 ORDER BY r.event_id",
@@ -240,7 +271,22 @@ fn scope_digest(connection: &Connection, receipt: &str) -> Result<String> {
             1u8,
             "SELECT k.* FROM source_record_evidence k JOIN review_old_reconstruction old USING(event_id) WHERE old.manifest_sha256=?1 AND k.evidence_source='reconstruction' ORDER BY k.event_id",
         ),
-    ] {
+    ];
+    let has_modes: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='review_correction_modes' AND type='table')",[],|r|r.get(0))?;
+    if has_modes
+        && connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM review_correction_modes WHERE manifest_sha256=?1)",
+            [receipt],
+            |r| r.get::<_, bool>(0),
+        )?
+    {
+        queries.push((
+            2,
+            "SELECT existing_only FROM review_correction_modes WHERE manifest_sha256=?1",
+        ));
+        queries.push((3,"SELECT event_id,proposed_json FROM review_deferred_reconstruction WHERE manifest_sha256=?1 ORDER BY event_id"));
+    }
+    for (tag, sql) in queries {
         digest.update([tag]);
         let mut statement = connection.prepare(sql)?;
         let columns = statement.column_count();

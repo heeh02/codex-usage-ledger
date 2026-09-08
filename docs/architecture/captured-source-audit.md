@@ -50,7 +50,9 @@ independent permission to migrate data.
 Shadow apply still rejects new historical insertions and identity reassignment.
 Later rows absent from a ledger snapshot may appear as new candidates in a
 captured draft; resolving how to retain them separately from a correction remains
-an explicit migration step, not an automatic import in this change.
+an explicit migration step, not an automatic import. The subsequent
+[existing-fact-only mode](review-shadow-corrections.md#existing-fact-only-application)
+can retain new candidates separately while correcting existing facts.
 
 Tests cover append exclusion through the actual audit sink, prefix modification,
 truncation, replacement, byte and record limits, unfinished tails, legacy drafts,

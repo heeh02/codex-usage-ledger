@@ -97,6 +97,86 @@ fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf, String) {
 }
 
 #[test]
+fn existing_only_defers_new_candidates_without_importing_or_losing_receipts() {
+    let (dir, db, _, _) = fixture();
+    let connection = Connection::open(&db).unwrap();
+    connection.execute("DELETE FROM reconstruction_usage_events WHERE source_timestamp='2026-01-01T00:00:20.000000000Z'",[]).unwrap();
+    assert_eq!(connection.changes(), 1);
+    drop(connection);
+    let manifest = dir.path().join("existing-only.jsonl");
+    let seal = crate::reconstruction::write_correction_manifest(
+        &db,
+        &dir.path().join("home"),
+        "root",
+        10000,
+        100,
+        false,
+        &manifest,
+    )
+    .unwrap()
+    .body_sha256;
+    let shadow = dir.path().join("shadow.sqlite3");
+    create_review_shadow(&db, &shadow).unwrap();
+    assert!(apply_shadow_correction(&shadow, &manifest, &seal).is_err());
+    let fault = Connection::open(&shadow).unwrap();
+    fault.execute_batch("CREATE TRIGGER refuse_existing_correction BEFORE DELETE ON reconstruction_usage_events BEGIN SELECT RAISE(ABORT,'synthetic failure'); END;").unwrap();
+    assert!(apply_shadow_correction_with_policy(&shadow, &manifest, &seal, true).is_err());
+    let extension_tables: i64 = fault.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('review_correction_modes','review_deferred_reconstruction')",[],|r|r.get(0)).unwrap();
+    assert_eq!(extension_tables, 0);
+    fault
+        .execute_batch("DROP TRIGGER refuse_existing_correction;")
+        .unwrap();
+    drop(fault);
+    let receipt = apply_shadow_correction_with_policy(&shadow, &manifest, &seal, true).unwrap();
+    assert_eq!(receipt.deferred_new_records, 1);
+    assert_eq!(
+        (
+            receipt.archived_records,
+            receipt.corrected_records,
+            receipt.suppressed_records
+        ),
+        (2, 1, 1)
+    );
+    let store = Connection::open(&shadow).unwrap();
+    let totals: (i64, i64) = store
+        .query_row(
+            "SELECT COUNT(*),SUM(total_tokens) FROM reconstruction_usage_events",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(totals, (1, 100));
+    let deferred: String = store
+        .query_row(
+            "SELECT proposed_json FROM review_deferred_reconstruction",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<ReconstructionAuditFact>(&deferred)
+            .unwrap()
+            .usage
+            .total_tokens,
+        50
+    );
+    drop(store);
+    assert_eq!(
+        apply_shadow_correction_with_policy(&shadow, &manifest, &seal, true)
+            .unwrap()
+            .deferred_new_records,
+        1
+    );
+    assert!(apply_shadow_correction(&shadow, &manifest, &seal).is_err());
+    let store = Connection::open(&shadow).unwrap();
+    store
+        .execute("DELETE FROM review_deferred_reconstruction", [])
+        .unwrap();
+    drop(store);
+    assert!(apply_shadow_correction_with_policy(&shadow, &manifest, &seal, true).is_err());
+}
+
+#[test]
 fn shadow_correction_archives_originals_conserves_and_is_idempotent() {
     let (dir, db, manifest, seal) = fixture();
     let original = std::fs::read(&db).unwrap();
