@@ -20,8 +20,10 @@ automatic cursor resume. It presently operates on the isolated shadow; productio
 promotion remains separate. See [automatic history rules](docs/contracts/automatic-history.md).
 The full Rust suite and Clippy passed, including automatic correction/resume
 without manual seals and protection of the ordinary ledger. The first real
-automatic batch was launched on the existing shadow (which this path upgrades
-to schema 41); do not use the old schema-40 executable on it afterward.
+automatic batch completed on the existing shadow: ten sources reconciled with
+no item errors and a saved next cursor. This path upgraded the shadow to schema
+41; do not use the old schema-40 executable on it afterward. Continue automatic
+runs without `--after` to use the saved cursor; no manual source inspection.
 The last manual batch scheduler was stopped at the user's request, with no
 remaining manual audit processes. Do not assume its unrecorded tail completed.
 
