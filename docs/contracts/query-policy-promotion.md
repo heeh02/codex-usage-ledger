@@ -4,10 +4,21 @@ Schema 41 adds `usage_query_policy`. Existing and new databases default to
 `max_thread_day_v1`; schema upgrade alone never promotes historical evidence.
 Source event tables and existing migration definitions are unchanged.
 
+Schema 43 adds an explicit `--allow-incomplete-history` promotion option. The
+default remains strict. With this option, a fully materialized ledger may expose
+only confirmed selected records while retaining unresolved groups outside totals.
+Pending projection work still blocks reads. The choice persists across restart;
+data quality reports a global gap count with unknown Token quantity, and local
+pages display an incomplete-history note in both languages. Official account
+totals are unchanged. Quota interval review uses the requested account/time scope,
+so permitting available history does not falsely certify a gap-containing cycle.
+This option does not reconstruct, delete, estimate or relabel missing records.
+
 After source review and incremental projection preparation, an operator may run
 `codex-usage-ledger promote-union --db /path/to/reviewed-ledger.sqlite3`.
-The command requires an existing current-schema database. Pending, unresolved or
-incomplete projections reject activation. It stores `request_union_v2` and the
+The command requires an existing current-schema database. Pending or incomplete
+materialization rejects activation; strict mode also rejects unresolved groups.
+It stores `request_union_v2` and the
 first activation timestamp atomically with connection-local query routing.
 It does not repair, delete, reattribute or import events. Readiness is not a
 substitute for reviewing source correctness.

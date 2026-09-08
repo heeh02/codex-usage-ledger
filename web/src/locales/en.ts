@@ -1,6 +1,10 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "quality.history_gap_title": "Ledger-wide historical evidence gaps",
+  "quality.history_gap_detail": "Local figures contain confirmed records only, not complete lifetime totals. Unresolved history is retained separately, never filled with zero or mixed into official totals.",
+  "quality.source_groups": "source groups",
+  "quality.history_gap_note": "This ledger has historical gaps. This page shows confirmed local records only, without filling gaps with zero. See Data Quality for details.",
   "scope.search_chats": "Search root conversations across projects (title or ID)",
   "scope.search": "Search",
   "scope.search_applied": "Catalog results for: {search}",

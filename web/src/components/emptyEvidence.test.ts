@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import { LocalUsagePulse } from './Explorer';
 import { LocalComposition } from './LocalComposition';
+import { QualityPanel } from './QualityPanel';
 import { DataStatusStrip } from './Ui';
 import { I18nContext } from '../i18n';
 import { enMessages } from '../locales/en';
@@ -18,6 +19,10 @@ it('distinguishes absent evidence from recorded zero tokens in both locales', as
     period: 'lifetime' as const, metric: 'total' as const, grain: 'auto' as const };
   const summary = await api.getSummary(filters);
   const explorer = await api.getExplorer(filters);
+  const quality = await api.getQuality(filters);
+  quality.issues = [{ id: 'source-union-unresolved', title: 'raw title', detail: 'raw detail',
+    state: 'unknown', severity: 'warning', eventCount: 1, tokenCount: null,
+    firstSeen: quality.generatedAt, lastSeen: quality.generatedAt }];
   expect(summary.confirmedEvents).toBe(0);
   expect(summary.matchRate).toBeNull();
   expect(summary.cacheRate).toBeNull();
@@ -30,6 +35,11 @@ it('distinguishes absent evidence from recorded zero tokens in both locales', as
     ));
     const amounts = (html: string) => Array.from(html.matchAll(/<strong>(.*?)<\/strong>/g), match => match[1]);
     const empty = render(createElement(LocalUsagePulse, { explorer, summary, metric: 'total' }));
+    const gaps = render(createElement(QualityPanel, { data: quality, metric: 'total', usagePolicy: 'request_union_v2' }));
+    expect(gaps).toContain(messages['quality.history_gap_title']);
+    expect(gaps).toContain(messages['quality.history_gap_detail']);
+    expect(gaps).toContain(messages['quality.source_groups']);
+    expect(gaps).not.toContain('raw detail');
     expect(amounts(empty)).toEqual(['—', '—', '—', '0', '—']);
     expect(empty).toContain(messages['usage.no_confirmed_records']);
     const strip = render(createElement(DataStatusStrip, { summary, page: 'overview' }));

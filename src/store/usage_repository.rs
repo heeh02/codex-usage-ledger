@@ -26,7 +26,21 @@ impl LedgerStore {
             ));
         }
         if self.union_main_preview {
-            return Ok(!self.union_main_projection_ready()?);
+            let readiness = union_scope::readiness(
+                &self.connection,
+                &SourceUnionQuery {
+                    start,
+                    end,
+                    timezone: "UTC".into(),
+                    grain: SourceUnionGrain::Day,
+                    account: Some(account.into()),
+                    project: None,
+                    model: None,
+                    thread: None,
+                    include_descendants: false,
+                },
+            )?;
+            return Ok(readiness.pending_groups > 0 || readiness.unresolved_groups > 0);
         }
         let first = start
             .with_timezone(&chrono_tz::Asia::Shanghai)

@@ -8,13 +8,19 @@ impl LedgerStore {
     /// Subsequent writes invalidate readiness until incremental staging catches
     /// up; queries must never fall back to the legacy daily maximum.
     pub fn enable_source_union_queries(&mut self) -> StoreResult<()> {
-        self.select_source_union_queries(false)
+        self.select_source_union_queries(false, false)
     }
 
     /// Explicit promotion persists only query policy, never rewrites source facts.
     /// The caller must finish source review before requesting this operation.
     pub fn promote_source_union_queries(&mut self) -> StoreResult<()> {
-        self.select_source_union_queries(true)
+        self.select_source_union_queries(true, false)
+    }
+
+    /// Explicitly expose confirmed selected records while preserving unresolved
+    /// evidence outside totals. This does not assert complete history.
+    pub fn promote_available_source_union_queries(&mut self) -> StoreResult<()> {
+        self.select_source_union_queries(true, true)
     }
 
     /// One bounded maintenance batch; inactive ledgers are not implicitly promoted.
@@ -38,12 +44,21 @@ impl LedgerStore {
         Ok(())
     }
 
-    fn select_source_union_queries(&mut self, persist: bool) -> StoreResult<()> {
+    fn select_source_union_queries(
+        &mut self,
+        persist: bool,
+        allow_unresolved: bool,
+    ) -> StoreResult<()> {
         if self.union_main_preview && !persist {
             return self.refresh_effective_source_selection();
         }
         let transaction = self.connection.unchecked_transaction()?;
-        if !self.union_main_projection_ready()? {
+        let progress = union_projection::progress(&transaction, 0, 0)?;
+        if progress.policy_version != 2
+            || !progress.backfill_complete
+            || progress.pending_groups != 0
+            || (!allow_unresolved && progress.unresolved_groups != 0)
+        {
             return Err(StoreError::SnapshotUnavailable);
         }
         if !self.union_main_preview {
@@ -51,7 +66,7 @@ impl LedgerStore {
         }
         if persist {
             transaction.execute("UPDATE usage_query_policy SET policy='request_union_v2',
-                activated_at=COALESCE(activated_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')) WHERE id=1", [])?;
+                activated_at=COALESCE(activated_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')),allow_unresolved=?1 WHERE id=1", [allow_unresolved])?;
         }
         transaction.commit()?;
         self.union_main_preview = true;
@@ -83,7 +98,8 @@ impl LedgerStore {
 
     pub(super) fn union_main_projection_ready(&self) -> StoreResult<bool> {
         Ok(self.connection.query_row(
-            "SELECT policy_version=2 AND pending=0 AND unresolved=0
+            "SELECT policy_version=2 AND pending=0 AND (unresolved=0 OR
+                (SELECT allow_unresolved FROM usage_query_policy WHERE id=1)=1)
              AND NOT EXISTS(SELECT 1 FROM measurement_union_backfill WHERE complete=0)
              FROM measurement_union_counts WHERE id=1",
             [],
@@ -93,6 +109,14 @@ impl LedgerStore {
 
     pub(crate) fn is_source_union_main_preview(&self) -> bool {
         self.union_main_preview
+    }
+
+    pub(crate) fn unresolved_union_groups(&self) -> StoreResult<u64> {
+        Ok(self.connection.query_row(
+            "SELECT unresolved FROM measurement_union_counts WHERE id=1",
+            [],
+            |row| u64_from_sql(row.get(0)?, 0),
+        )?)
     }
 }
 
@@ -548,6 +572,75 @@ mod tests {
                 .total_tokens,
             500
         );
+    }
+
+    #[tokio::test]
+    async fn available_history_mode_preserves_gaps_and_exposes_warning() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("available.sqlite3");
+        fixture(&path);
+        let mut store = LedgerStore::open(&path).unwrap();
+        let mut missing = event("missing-identity", DataQuality::Confirmed, 20);
+        missing.account_fingerprint = Some("gap-account".into());
+        store.upsert_event(&missing).unwrap();
+        for _ in 0..10 {
+            if store
+                .stage_source_union_batch(100, 100, 1000)
+                .unwrap()
+                .projection_ready
+            {
+                break;
+            }
+        }
+        assert!(store.promote_source_union_queries().is_err());
+        store.promote_available_source_union_queries().unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            600
+        );
+        assert_eq!(store.unresolved_union_groups().unwrap(), 1);
+        let start = "1970-01-01T00:00:00Z".parse().unwrap();
+        let end = "2030-01-01T00:00:00Z".parse().unwrap();
+        assert!(
+            store
+                .quota_interval_needs_source_review("gap-account", start, end)
+                .unwrap()
+        );
+        assert!(
+            !store
+                .quota_interval_needs_source_review("another-account", start, end)
+                .unwrap()
+        );
+        drop(store);
+        let reopened = LedgerStore::open(&path).unwrap();
+        assert_eq!(
+            reopened
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            600
+        );
+        let bundle = crate::api::ApiState::with_store(reopened)
+            .bundle_json(crate::api::UsageQuery {
+                period: Some("lifetime".into()),
+                timezone: Some("UTC".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let issue = bundle["quality"]["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == "source-union-unresolved")
+            .unwrap();
+        assert_eq!(issue["eventCount"], 1);
+        assert!(issue["tokenCount"].is_null());
     }
 
     #[test]

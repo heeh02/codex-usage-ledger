@@ -32,17 +32,18 @@ function QualityStateCard({ item, metric, usagePolicy }: { item: QualityStateSum
 
 function IssueRow({ issue }: { issue: QualityIssue }) {
   const { t } = useI18n();
+  const historyGap = issue.id === 'source-union-unresolved';
   return (
     <article className={`issue-row severity-${issue.severity}`}>
       <div className="issue-marker" aria-hidden="true">!</div>
       <div>
         <div className="issue-title-row">
-          <strong>{issue.title}</strong>
+          <strong>{historyGap ? t('quality.history_gap_title') : issue.title}</strong>
           <span>{qualityLabel(issue.state)}</span>
         </div>
-        <p>{issue.detail}</p>
+        <p>{historyGap ? t('quality.history_gap_detail') : issue.detail}</p>
         <small>
-          {exactNumber(issue.eventCount)} {t('components.quality-panel.requests')} · {issue.tokenCount === null ? t('components.quality-panel.token_count_unknown') : `${formatTokenMillions(issue.tokenCount)} tokens`} · {t('components.quality-panel.latest')} {formatDateTime(issue.lastSeen)}
+          {exactNumber(issue.eventCount)} {t(historyGap ? 'quality.source_groups' : 'components.quality-panel.requests')} · {issue.tokenCount === null ? t('components.quality-panel.token_count_unknown') : `${formatTokenMillions(issue.tokenCount)} tokens`} · {t('components.quality-panel.latest')} {formatDateTime(issue.lastSeen)}
         </small>
       </div>
     </article>

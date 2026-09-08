@@ -39,7 +39,7 @@ fn upgrade_requeues_unknown_groups_without_changing_observations() {
     store.upsert_event(&observation).unwrap();
     drain(&mut store);
     // Reproduce the schema-41 materialization bug, not a source fact change.
-    store.connection.execute_batch("INSERT INTO measurement_union_groups VALUES('sampling','unconfirmed',1,'missing_record_key'); PRAGMA user_version=41;").unwrap();
+    store.connection.execute_batch("INSERT INTO measurement_union_groups VALUES('sampling','unconfirmed',1,'missing_record_key'); ALTER TABLE usage_query_policy DROP COLUMN allow_unresolved; PRAGMA user_version=41;").unwrap();
     drop(store);
     let mut upgraded = LedgerStore::open(&path).unwrap();
     assert!(

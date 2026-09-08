@@ -649,6 +649,18 @@ pub(super) fn http_quality(
         .unwrap_or_else(Utc::now);
     let issue_end = period.end.unwrap_or_else(Utc::now);
     let mut issues = Vec::new();
+    if store.is_source_union_main_preview() {
+        let pending = store.unresolved_union_groups()?;
+        if pending > 0 {
+            issues.push(serde_json::json!({
+                "id":"source-union-unresolved", "state":"unknown", "severity":"warning",
+                "title":"Ledger-wide history gaps",
+                "detail":"Totals contain confirmed selected records only. Unresolved history is retained outside totals; these are not complete lifetime totals.",
+                "eventCount":pending, "tokenCount":serde_json::Value::Null,
+                "firstSeen":issue_start,"lastSeen":issue_end,
+            }));
+        }
+    }
     if quarantined.event_count > 0 {
         issues.push(serde_json::json!({
             "id": "quarantined-events",
@@ -743,7 +755,7 @@ pub(super) fn http_quality(
     }
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
-        "trustedPolicy": "Codex account/usage/read is authoritative for account totals. Local attribution chooses Sampling or replay-safe Reconstruction per thread/day and never adds both sources.",
+        "trustedPolicy": if store.is_source_union_main_preview() { "Official account totals remain separate. Local totals contain confirmed request-union records; unresolved history is not guessed or added." } else { "Codex account/usage/read is authoritative for account totals. Local attribution chooses Sampling or replay-safe Reconstruction per thread/day and never adds both sources." },
         "states": [
             quality_state_value("confirmed", confirmed, "Effective local attribution after thread/day source selection; not a substitute for the official account total.", true),
             quality_state_value("quarantined", quarantined, "Excluded because replay or counter provenance is ambiguous.", true),

@@ -284,6 +284,9 @@ enum Command {
     },
     /// Promote a reviewed, fully prepared ledger. Restart running services afterwards.
     PromoteUnion {
+        /// Show confirmed records with explicit history gaps instead of blocking all queries.
+        #[arg(long)]
+        allow_incomplete_history: bool,
         #[arg(long)]
         db: PathBuf,
     },
@@ -773,14 +776,21 @@ async fn main() -> Result<()> {
             let report = store.shadow_source_union(&thread, start, end, limit)?;
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        Command::PromoteUnion { db } => {
+        Command::PromoteUnion {
+            db,
+            allow_incomplete_history,
+        } => {
             // Refuse accidental creation or implicit schema upgrade.
             drop(LedgerStore::open_read_only(&db)?);
             let mut store = LedgerStore::open(&db)?;
-            store.promote_source_union_queries()?;
+            if allow_incomplete_history {
+                store.promote_available_source_union_queries()?;
+            } else {
+                store.promote_source_union_queries()?;
+            }
             println!(
                 "{}",
-                json!({"policy":"request_union_v2","restartRequired":true})
+                json!({"policy":"request_union_v2","restartRequired":true,"historyMayBeIncomplete":allow_incomplete_history})
             );
         }
         Command::UnionProjection {

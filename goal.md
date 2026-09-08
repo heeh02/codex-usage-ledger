@@ -7,6 +7,24 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Schema 43 adds explicit available-history promotion
+(`promote-union --allow-incomplete-history`). Strict activation remains default.
+Available mode reads only confirmed selected records; unresolved facts are
+retained outside totals with a global data-quality warning and bilingual local
+page note. Pending projection work still blocks reads. Quota review remains
+account/time scoped and does not certify a gap-containing interval.
+
+Full Rust tests, Clippy, API contracts and 100 Web tests/build passed. A synthetic
+gap case verifies strict rejection, explicit available selection, restart,
+unchanged unresolved evidence, correct 600-token selected total and API warning.
+Enabled this mode only on the corrected shadow (now schema 43), and used a
+read-only loopback preview for actual UI verification: overview/trend/ranking,
+cache/output figures and gap note render; Today shows the empty-record state
+without a white screen; the note renders in English after language switching.
+Temporary tab and preview server were closed. Formal ledger and installed app
+remain unchanged. Final native/responsive delivery acceptance is still pending;
+this is not a claim that complete historical totals were recovered.
+
 **Identity-repair session 76886 completed, exit 0.** Do not poll or restart it.
 61 batches processed 610 sources: 478 reconciled, 132 newly isolated, 557 total
 outstanding source entries. After 11 bounded projection calls, pending=0,

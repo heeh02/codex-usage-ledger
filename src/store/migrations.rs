@@ -3,7 +3,9 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 42;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 43;
+
+const MIGRATION_43: &str = "ALTER TABLE usage_query_policy ADD COLUMN allow_unresolved INTEGER NOT NULL DEFAULT 0 CHECK(allow_unresolved IN (0,1));";
 
 const MIGRATION_42: &str = "INSERT OR IGNORE INTO measurement_union_dirty(kind,identity)
     SELECT g.kind,g.identity FROM measurement_union_groups g
@@ -348,6 +350,7 @@ fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreRes
             40 => transaction.execute_batch(MIGRATION_40)?,
             41 => transaction.execute_batch(MIGRATION_41)?,
             42 => transaction.execute_batch(MIGRATION_42)?,
+            43 => transaction.execute_batch(MIGRATION_43)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

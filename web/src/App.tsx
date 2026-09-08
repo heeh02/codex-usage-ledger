@@ -439,6 +439,9 @@ function App() {
           {bundle && loading && <div className="view-updating" role="status">{JSON.stringify(filters) === JSON.stringify(appliedFilters) ? t('app.updating_the_current_snapshot_the_previous_trusted') : t('app.applying_the_new_page_scope_and_time')}</div>}
 
           {bundle && !quotaHistoryActive && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
+          {bundle?.quality.issues.some(issue => issue.id === 'source-union-unresolved') && currentPage !== 'accounts' && currentPage !== 'quality' && !quotaHistoryActive && (
+            <aside className="refresh-feedback" role="note">{t('quality.history_gap_note')}</aside>
+          )}
 
           {refreshFeedback && currentPage === 'accounts' && !quotaHistoryActive && <div className={officialSyncFailed ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
 

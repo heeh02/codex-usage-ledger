@@ -1,4 +1,8 @@
 export const zhCNMessages = {
+  "quality.history_gap_title": "账本存在历史证据缺口（全局）",
+  "quality.history_gap_detail": "本机数字仅包含已确认记录，不代表完整历史总量。无法确认的历史单独保留，不补成零，也不混入官方总量。",
+  "quality.source_groups": "来源组",
+  "quality.history_gap_note": "账本存在部分历史缺口。本页仅展示已确认的本机记录，不将缺口补成零；详情见数据质量。",
   "scope.search_chats": "跨项目搜索主聊天（标题或 ID）",
   "scope.search": "搜索",
   "scope.search_applied": "目录匹配：{search}",
