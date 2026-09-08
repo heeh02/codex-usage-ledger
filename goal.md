@@ -9,6 +9,19 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Query-latency follow-up: private read-only candidate profiling completed, with
+summary ~12.6s, series ~3.4s, breakdown ~3.1s, quality ~0.7s and explorer ~17.4s.
+Added debug-only stage timing (stage labels/durations only, no identifiers).
+Fixed identical queued connection-backed queries recomputing after a preceding
+request already filled the cache: recheck and publish under the reader lock.
+Concurrent synthetic regression verifies one computation for three requests;
+full Rust tests and Clippy pass. This source change is not yet installed.
+A separate read-only SQL measurement confirmed the dynamic daily union view
+takes ~4s to produce ~2,500 aggregated rows. Next optimization should reuse
+daily/hourly aggregates within the same read snapshot rather than repeatedly
+grouping every selected event. Preserve frozen-snapshot consistency, exact-time
+queries, read-only preview protection and all existing token semantics.
+
 Live follow-up found projection throughput starvation: ingestion can enqueue
 thousands of groups while active maintenance previously handled only 200 per
 tick. Verified the live queue is decreasing, not a stopped daemon. Implemented

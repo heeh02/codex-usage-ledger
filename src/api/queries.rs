@@ -269,12 +269,23 @@ fn http_bundle_in_snapshot(
     let query = &anchored_query;
     let collector = store.collector_status()?;
     let rollup = store.rollup_progress()?;
+    let measure =
+        |stage: &'static str, operation: &dyn Fn() -> Result<serde_json::Value, StoreError>| {
+            let started = std::time::Instant::now();
+            let result = operation();
+            tracing::debug!(
+                stage,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "dashboard query stage"
+            );
+            result
+        };
     let bundle = serde_json::json!({
-        "summary": http_summary(store, query)?,
-        "timeseries": http_timeseries(store, query)?,
-        "breakdowns": http_breakdowns(store, query)?,
-        "quality": http_quality(store, query)?,
-        "explorer": http_explorer(store, query)?,
+        "summary": measure("summary", &|| http_summary(store, query))?,
+        "timeseries": measure("timeseries", &|| http_timeseries(store, query))?,
+        "breakdowns": measure("breakdowns", &|| http_breakdowns(store, query))?,
+        "quality": measure("quality", &|| http_quality(store, query))?,
+        "explorer": measure("explorer", &|| http_explorer(store, query))?,
         "collection": {
             "usagePolicy": if store.is_source_union_main_preview() {"request_union_v2"} else {"max_thread_day_v1"},
             "mode": if store.is_source_union_diagnostic_preview() {"union-preview"} else {&collector.mode},

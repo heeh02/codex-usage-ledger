@@ -1,5 +1,24 @@
 use super::*;
 
+#[tokio::test]
+async fn queued_identical_queries_reuse_the_completed_cache_entry() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let state = ApiState::with_store(LedgerStore::open_in_memory().unwrap());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let run = || {
+        let calls = calls.clone();
+        state.cached_query_value("burst-test", UsageQuery::default(), move |_, _| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            Ok(serde_json::json!({"total": 120}))
+        })
+    };
+    let (a, b, c) = tokio::join!(run(), run(), run());
+    assert_eq!(a.unwrap(), b.unwrap());
+    assert_eq!(c.unwrap()["total"], 120);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn promoted_union_reports_collector_mode_not_diagnostic_preview() {
     let mut store = LedgerStore::open_in_memory().unwrap();

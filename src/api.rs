@@ -242,18 +242,30 @@ impl ApiState {
         {
             return Ok(entry.value.clone());
         }
-        let value = self.query_value(query, operation).await?;
-        if let Ok(mut cache) = self.query_cache.lock() {
-            cache.retain(|_, entry| entry.created_at.elapsed() <= QUERY_CACHE_TTL);
-            cache.insert(
-                key,
-                CachedValue {
-                    created_at: Instant::now(),
-                    value: value.clone(),
-                },
-            );
-        }
-        Ok(value)
+        let cache = self.query_cache.clone();
+        self.query_value(query, move |store, query| {
+            // Union readers share one connection. Recheck after acquiring it:
+            // another identical request may have filled the cache while we waited.
+            if let Ok(cache) = cache.lock()
+                && let Some(entry) = cache.get(&key)
+                && entry.created_at.elapsed() <= QUERY_CACHE_TTL
+            {
+                return Ok(entry.value.clone());
+            }
+            let value = operation(store, query)?;
+            if let Ok(mut cache) = cache.lock() {
+                cache.retain(|_, entry| entry.created_at.elapsed() <= QUERY_CACHE_TTL);
+                cache.insert(
+                    key,
+                    CachedValue {
+                        created_at: Instant::now(),
+                        value: value.clone(),
+                    },
+                );
+            }
+            Ok(value)
+        })
+        .await
     }
 
     fn invalidate_query_cache(&self) {
