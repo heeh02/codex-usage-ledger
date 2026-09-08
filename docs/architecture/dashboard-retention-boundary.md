@@ -15,6 +15,14 @@ when the projection is ready. One transaction can exceed the scheduling budget;
 this is not a hard deadline. Pending work remains durable and keeps the normal
 snapshot-readiness guard; maintenance never substitutes legacy totals.
 
+Union dashboard reads materialize hourly aggregates once inside the frozen read
+transaction and derive daily aggregates from those hours. Only TEMP tables and
+view overrides are created; transaction rollback removes them on success or
+failure. The original `query_only` setting is restored before product queries
+run, and diagnostic main-file read-only flags are never removed. Exact timestamp
+queries still use selected events rather than rounded hour/day buckets. This
+cache is scoped to one snapshot, not a persisted replacement of source evidence.
+
 A retained/raw conflict can block deletion even if the top-level rollup has been
 verified. The error is now `RetainedEvidenceMismatch`, rather than the misleading
 `RollupNotVerified`. It means the selected deletion batch rolled back; earlier

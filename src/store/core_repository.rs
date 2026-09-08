@@ -93,6 +93,15 @@ impl LedgerStore {
                 transaction.rollback()?;
                 continue;
             }
+            if self.union_main_preview {
+                self.materialize_union_snapshot_rollups()?;
+                let _memo = snapshot_memo::MemoScope::begin(&self.exact_series_memo);
+                let result = read(self);
+                // TEMP tables and view overrides belong only to this snapshot.
+                // Rollback restores the original views even on a query error.
+                transaction.rollback()?;
+                return result;
+            }
             let _memo = snapshot_memo::MemoScope::begin(&self.exact_series_memo);
             let result = read(self)?;
             transaction.commit()?;

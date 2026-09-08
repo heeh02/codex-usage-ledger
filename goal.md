@@ -9,6 +9,19 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Snapshot rollup optimization is installed. Hourly TEMP aggregation runs once per
+frozen union read; daily totals derive from those hours. Snapshot rollback removes
+all overrides on success/error, preserving main-file facts and read-only flags.
+Full Rust tests and Clippy pass, including cleanup/repeatability/read-only tests.
+Private same-candidate profiling: series ~3.4s -> 58ms, breakdown ~3.1s -> 33ms,
+explorer ~17.4s -> 3.2s. Compared usage values unchanged; differing response fields
+were generated/reference times. Verified installed manifest
+`7ec24059efdbe795cf6e043f38a27ab2e3cb117fd214d2c93f0470d1c4184c0e`.
+Formal live Today bundle now returns HTTP 200 in 8.34s (previously >55s timeout),
+queue remains zero, and native overview shows live updates with ~16s source lag.
+No evidence rewrite or recovery in this performance change. Overall goal remains
+ACTIVE pending final objective-level delivery review; do not restart old audits.
+
 Query-latency follow-up: private read-only candidate profiling completed, with
 summary ~12.6s, series ~3.4s, breakdown ~3.1s, quality ~0.7s and explorer ~17.4s.
 Added debug-only stage timing (stage labels/durations only, no identifiers).

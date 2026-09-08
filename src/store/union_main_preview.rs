@@ -3,6 +3,19 @@
 use super::*;
 
 impl LedgerStore {
+    /// Materialize only derived TEMP data inside the caller's frozen snapshot.
+    /// Main-file read-only flags remain intact for diagnostic connections.
+    pub(super) fn materialize_union_snapshot_rollups(&self) -> StoreResult<()> {
+        let query_only: bool = self
+            .connection
+            .pragma_query_value(None, "query_only", |r| r.get(0))?;
+        self.connection.pragma_update(None, "query_only", false)?;
+        let result = self.connection.execute_batch(SNAPSHOT_ROLLUPS);
+        self.connection
+            .pragma_update(None, "query_only", query_only)?;
+        result.map_err(StoreError::from)
+    }
+
     /// Select the request union on a live collector connection after its initial
     /// projection is ready. This changes query routing only, not retained facts.
     /// Subsequent writes invalidate readiness until incremental staging catches
@@ -179,10 +192,69 @@ FROM temp.effective_usage_events
 GROUP BY local_hour,thread_key,account_key,project_key,model_key,quality;
 "#;
 
+const SNAPSHOT_ROLLUPS: &str = r#"
+CREATE TEMP TABLE union_snapshot_hourly AS SELECT * FROM effective_hourly_usage_rollups;
+CREATE INDEX union_snapshot_hourly_thread ON union_snapshot_hourly(thread_key,local_hour);
+CREATE TEMP TABLE union_snapshot_daily AS
+SELECT substr(local_hour,1,10) AS local_day, thread_key, account_key, project_key,
+       model_key, quality, SUM(event_count) AS event_count,
+       SUM(input_tokens) AS input_tokens, SUM(cached_input_tokens) AS cached_input_tokens,
+       SUM(cache_write_input_tokens) AS cache_write_input_tokens,
+       SUM(cache_write_observed_input_tokens) AS cache_write_observed_input_tokens,
+       SUM(output_tokens) AS output_tokens, SUM(reasoning_output_tokens) AS reasoning_output_tokens,
+       SUM(total_tokens) AS total_tokens, 'request_union' AS evidence_source
+FROM union_snapshot_hourly
+GROUP BY local_day,thread_key,account_key,project_key,model_key,quality;
+CREATE INDEX union_snapshot_daily_thread ON union_snapshot_daily(thread_key,local_day);
+DROP VIEW effective_hourly_usage_rollups;
+DROP VIEW effective_daily_usage_rollups;
+CREATE TEMP VIEW effective_hourly_usage_rollups AS SELECT * FROM union_snapshot_hourly;
+CREATE TEMP VIEW effective_daily_usage_rollups AS SELECT * FROM union_snapshot_daily;
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::tests::event;
+
+    #[test]
+    fn snapshot_rollups_are_temporary_and_error_cleanup_preserves_read_only_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("snapshot.sqlite3");
+        fixture(&path);
+        let before = std::fs::read(&path).unwrap();
+        let reader = LedgerStore::open_source_union_main_preview(&path).unwrap();
+        let result: StoreResult<()> = reader.with_usage_snapshot(|store| {
+            let tables: i64 = store.connection.query_row(
+                "SELECT count(*) FROM sqlite_temp_master WHERE name IN ('union_snapshot_daily','union_snapshot_hourly')", [], |r| r.get(0))?;
+            assert_eq!(tables, 2);
+            assert!(store.connection.pragma_query_value(None, "query_only", |r| r.get::<_, bool>(0))?);
+            Err(StoreError::SnapshotUnavailable)
+        });
+        assert!(matches!(result, Err(StoreError::SnapshotUnavailable)));
+        let tables: i64 = reader
+            .connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_temp_master WHERE name LIKE 'union_snapshot_%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0);
+        for _ in 0..2 {
+            assert_eq!(
+                reader
+                    .with_usage_snapshot(|store| Ok(store
+                        .aggregate_rollup_usage(&AggregateFilter::default())?
+                        .usage
+                        .total_tokens))
+                    .unwrap(),
+                600
+            );
+        }
+        drop(reader);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
 
     /// Optional private GUI fixture export; never reads a real Codex home.
     #[test]
