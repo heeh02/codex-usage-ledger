@@ -1221,11 +1221,12 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     if let Err(error) = writer.backfill_quota_history_chunk(200) {
         warn!(%error, "quota boundary backfill deferred");
     }
-    let compacted = compact_expired_raw_events(&mut writer, "daemon")?;
+    // Starting live collection is not authorization to delete retained details.
+    // Storage compaction remains an explicit maintenance operation.
     writer.set_collector_status(&initial_status)?;
     info!(
         phase = initial_status.phase,
-        compacted, "initial source collection finished"
+        "initial source collection finished"
     );
     let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds.max(5)));
     reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -1494,7 +1495,7 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         warn!(%error, "quota boundary backfill deferred");
     }
     // Opening the dashboard is not a request to delete historical raw details.
-    // Keep retention in explicit optimize/collection workflows with its guards.
+    // Keep retention in explicit maintenance workflows with its guards.
     writer.set_collector_status(&CollectorStatus {
         mode: "serve".to_owned(),
         phase: "idle".to_owned(),

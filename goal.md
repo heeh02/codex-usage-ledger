@@ -7,6 +7,38 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+### Current delivery state (2026-09-09; supersedes older preflight notes below)
+
+The exact-match candidate has now replaced the formal ledger through a
+recoverable staged switch. Original app and ledger remain together in the
+private upgrade backup; no Codex source files were deleted. Installed bundle
+manifest SHA is `5aee0b1fdce512513bd221e342c36d88a09e7d7c1df900c1d8b4a8f36f54f93c`.
+The installed app and its owned `serve` child are running against the formal
+ledger, and its HTTP dashboard responds successfully. Live collection is NOT
+yet enabled in this acceptance launch; the saved collection preference was not
+changed. Real native inspection renders the overview, project ranking, model
+filters, trend and M-unit component cards.
+
+Found a delivery defect: the API conflated union query activation with explicit
+diagnostic preview mode, incorrectly labeling the promoted formal ledger as a
+test ledger. Added a separate connection-local diagnostic flag and a synthetic
+serve/daemon regression. Also removed daemon startup raw compaction: starting
+collection must not implicitly delete historical details. Source validation,
+rebuild and installed live-collection verification remain pending for this fix.
+
+Older paragraphs below are chronological evidence, not current installation state.
+
+Delivery follow-up: full Rust all-target/all-feature tests, Clippy, native build,
+strict signing, documentation links, generated-file/version/privacy/history
+checks passed. Installed the mode/retention fix with verified bundle manifest
+`7a74e445be69f152fdf409cef8c35c6f4689208b0af561956ce9e267d7164e81`;
+the preceding app is recoverably retained alongside the original upgrade backup.
+No ledger replacement in this second program-only update. Normal launch now
+starts the owned daemon, and the actual native UI no longer claims a test ledger.
+Live acceptance remains OPEN: new ingestion has queued union projection work;
+the bundle returned SnapshotUnavailable/503 and correctly retained its prior
+snapshot. Need verify incremental backlog convergence, not merely process startup.
+
 Candidate staging completed after 72 bounded calls: pending=0, selected=440,941,
 unresolved=54,915. Enabled available-history mode only on the candidate. Fourteen
 account/quota/official/project/catalog tables compare exactly with the original

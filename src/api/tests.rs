@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn promoted_union_reports_collector_mode_not_diagnostic_preview() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for _ in 0..10 {
+        if store
+            .stage_source_union_batch(100, 100, 1000)
+            .unwrap()
+            .projection_ready
+        {
+            break;
+        }
+    }
+    store.promote_source_union_queries().unwrap();
+    for mode in ["serve", "daemon"] {
+        store
+            .set_collector_status(&crate::store::CollectorStatus {
+                mode: mode.into(),
+                phase: "idle".into(),
+                items_total: 0,
+                items_completed: 0,
+                bytes_read: 0,
+                events_inserted: 0,
+                message: None,
+                updated_at: Utc::now(),
+            })
+            .unwrap();
+        let bundle = http_bundle(&store, &UsageQuery::default()).unwrap();
+        assert_eq!(bundle["collection"]["mode"], mode);
+        assert_eq!(bundle["collection"]["usagePolicy"], "request_union_v2");
+    }
+}
+
 #[tokio::test]
 async fn official_refresh_requires_bound_scope_and_preserves_last_good_rows() {
     let mut store = LedgerStore::open_in_memory().unwrap();

@@ -277,7 +277,7 @@ fn http_bundle_in_snapshot(
         "explorer": http_explorer(store, query)?,
         "collection": {
             "usagePolicy": if store.is_source_union_main_preview() {"request_union_v2"} else {"max_thread_day_v1"},
-            "mode": if store.is_source_union_main_preview() {"union-preview"} else {&collector.mode},
+            "mode": if store.is_source_union_diagnostic_preview() {"union-preview"} else {&collector.mode},
             "phase": collector.phase,
             "itemsTotal": collector.items_total,
             "itemsCompleted": collector.items_completed,

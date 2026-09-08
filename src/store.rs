@@ -684,6 +684,7 @@ pub struct LedgerStore {
     connection: Connection,
     exact_series_memo: std::cell::RefCell<Option<snapshot_memo::SnapshotMemo>>,
     union_main_preview: bool,
+    union_diagnostic_preview: bool,
 }
 
 const EVENT_SELECT_COLUMNS: &str = "event_id, observed_at, source_timestamp, thread_id, \

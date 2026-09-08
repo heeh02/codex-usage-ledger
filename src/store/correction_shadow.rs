@@ -142,6 +142,7 @@ pub fn apply_shadow_correction_with_policy(
     let store = LedgerStore {
         connection,
         exact_series_memo: Default::default(),
+        union_diagnostic_preview: false,
         union_main_preview: false,
     };
     let tx =

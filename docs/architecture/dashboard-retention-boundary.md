@@ -1,11 +1,11 @@
 # Dashboard startup and retention
 
-Opening `serve` no longer calls automatic raw-event compaction. It may still
+Opening `serve` or starting `daemon` does not call raw-event compaction. They may still
 prepare missing derived rollups/request detail, synchronize the local directory
 and refresh account metadata through existing paths; it is not a byte-read-only
 audit command. The change specifically separates dashboard access from deleting
-historical raw details. Explicit maintenance and collection retain their normal
-compaction guards and behavior.
+historical raw details. Explicit maintenance retains its normal compaction
+guards and behavior. Starting live collection alone does not authorize deletion.
 
 A retained/raw conflict can block deletion even if the top-level rollup has been
 verified. The error is now `RetainedEvidenceMismatch`, rather than the misleading

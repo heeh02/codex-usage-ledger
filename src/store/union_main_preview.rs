@@ -93,6 +93,7 @@ impl LedgerStore {
         store.connection.execute_batch(PREVIEW_VIEWS)?;
         store.connection.pragma_update(None, "query_only", "ON")?;
         store.union_main_preview = true;
+        store.union_diagnostic_preview = true;
         Ok(store)
     }
 
@@ -109,6 +110,10 @@ impl LedgerStore {
 
     pub(crate) fn is_source_union_main_preview(&self) -> bool {
         self.union_main_preview
+    }
+
+    pub(crate) fn is_source_union_diagnostic_preview(&self) -> bool {
+        self.union_diagnostic_preview
     }
 
     pub(crate) fn unresolved_union_groups(&self) -> StoreResult<u64> {

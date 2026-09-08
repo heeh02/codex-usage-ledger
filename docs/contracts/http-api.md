@@ -352,3 +352,9 @@ This replaces the previous raw bundle dump. Consumers must not expect embedded
 catalogs, account registries, diagnostic payloads or unrelated conversation
 titles. Exports still contain the explicitly selected scope identifiers and
 are not anonymous sharing artifacts. Official and local rows remain independent.
+# Collector mode versus query policy
+
+`collection.usagePolicy` describes the accounting selector independently from
+`collection.mode`. Promoted `request_union_v2` ledgers report their actual
+`serve` or `daemon` mode; only an explicitly opened diagnostic preview reports
+`union-preview`. No response fields or enum values change.

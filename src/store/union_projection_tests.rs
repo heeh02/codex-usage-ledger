@@ -334,6 +334,7 @@ fn bounded_upgrade_resume_late_insert_and_failure_are_atomic() {
         let mut old = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         };
         for (i, id) in ["b", "d", "f"].iter().enumerate() {
@@ -513,6 +514,7 @@ fn schema_39_requeues_old_policy_without_rewriting_source_facts() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         };
         let mut sample = keyed("sample", "shared", 1);

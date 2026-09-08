@@ -604,6 +604,7 @@ fn schema40_preserves_source_and_candidate_rows_and_queries_use_range_index() {
         let mut store = LedgerStore {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         };
         store

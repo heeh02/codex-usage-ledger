@@ -41,8 +41,8 @@ There are three non-interchangeable Token views:
   prefix emits no usage. Only later positive deltas enter Reconstruction.
 - Pending Reconstruction and Unrecoverable are durable source states. Neither
   is a zero and neither may be replaced with `threads.tokens_used`.
-- Dashboard-only startup does not compact raw events. Explicit maintenance and
-  collection must retain the strict retained/raw consistency checks before
+- Dashboard and daemon startup do not compact raw events. Explicit maintenance
+  must retain the strict retained/raw consistency checks before
   deletion; a mismatch is not permission to overwrite evidence. See
   [dashboard retention boundaries](../architecture/dashboard-retention-boundary.md).
 - Physical identity changes are not permission to delete reconstruction facts

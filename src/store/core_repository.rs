@@ -118,6 +118,7 @@ impl LedgerStore {
         Ok(Self {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         })
     }
@@ -140,6 +141,7 @@ impl LedgerStore {
         Ok(Self {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         })
     }
@@ -173,6 +175,7 @@ impl LedgerStore {
         let mut store = Self {
             connection,
             exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
             union_main_preview: false,
         };
         store.restore_source_union_policy()?;
