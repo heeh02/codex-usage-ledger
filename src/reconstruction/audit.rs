@@ -21,6 +21,108 @@ mod tests {
     }
 
     #[test]
+    fn review_batch_reuses_complete_drafts_without_source_rescan_and_preserves_failures() {
+        let (temp, _store, source) = fixture();
+        let output = tempfile::tempdir().unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        let run = |after| {
+            serde_json::to_value(
+                draft_reconstruction_batch(&db, temp.path(), output.path(), after, 1, 4096, false)
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        let first = run(None);
+        assert_eq!(first["items"][0]["status"], "created");
+        let manifest = PathBuf::from(first["items"][0]["manifest"].as_str().unwrap());
+        let original = fs::read(&manifest).unwrap();
+        fs::rename(&source, temp.path().join("parked-source")).unwrap();
+        assert_eq!(run(None)["items"][0]["status"], "reused");
+        assert_eq!(fs::read(&manifest).unwrap(), original);
+        assert_eq!(run(Some("root"))["items"].as_array().unwrap().len(), 0);
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&manifest)
+            .unwrap()
+            .write_all(b"broken draft\n")
+            .unwrap();
+        let broken = fs::read(&manifest).unwrap();
+        assert_eq!(run(None)["items"][0]["status"], "review_required");
+        assert_eq!(fs::read(&manifest).unwrap(), broken);
+        assert!(
+            draft_reconstruction_batch(&db, temp.path(), temp.path(), None, 1, 4096, false)
+                .is_err()
+        );
+        assert!(
+            draft_reconstruction_batch(&db, temp.path(), output.path(), None, 0, 4096, false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn review_batch_refuses_stale_ledger_drafts_instead_of_overwriting() {
+        let (temp, store, _) = fixture();
+        let output = tempfile::tempdir().unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        let run = || {
+            serde_json::to_value(
+                draft_reconstruction_batch(&db, temp.path(), output.path(), None, 1, 4096, false)
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(run()["items"][0]["status"], "created");
+        store
+            .connection()
+            .execute(
+                "UPDATE reconstruction_usage_events SET event_hash='changed'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(run()["items"][0]["status"], "review_required");
+    }
+
+    #[test]
+    fn review_batch_recognizes_applied_receipts_and_rejects_changed_postimages() {
+        let (temp, _store, _) = fixture();
+        let output = tempfile::tempdir().unwrap();
+        let db = temp.path().join("ledger.sqlite3");
+        let shadow = temp.path().join("review.sqlite3");
+        crate::store::create_review_shadow(&db, &shadow).unwrap();
+        let run = || {
+            serde_json::to_value(
+                draft_reconstruction_batch(
+                    &shadow,
+                    temp.path(),
+                    output.path(),
+                    None,
+                    1,
+                    4096,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        let first = run();
+        crate::store::apply_shadow_correction(
+            &shadow,
+            Path::new(first["items"][0]["manifest"].as_str().unwrap()),
+            first["items"][0]["seal"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(run()["items"][0]["status"], "applied");
+        Connection::open(&shadow)
+            .unwrap()
+            .execute(
+                "UPDATE reconstruction_usage_events SET event_hash='changed'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(run()["items"][0]["status"], "review_required");
+    }
+
+    #[test]
     fn captured_audit_excludes_appends_and_revalidates_the_parsed_prefix() {
         struct AppendOnBegin(PathBuf);
         impl correction_manifest::EvidenceSink for AppendOnBegin {

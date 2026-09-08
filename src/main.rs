@@ -42,6 +42,23 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Generate bounded per-thread review drafts; reuse valid drafts without rescanning sources.
+    DraftReconstructionBatch {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes_per_source: usize,
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
     /// Restore associations in a corrected review shadow; never changes Token facts.
     LinkShadowSampling {
         #[arg(long)]
@@ -497,6 +514,26 @@ async fn main() -> Result<()> {
                 "{}",
                 json!({"status":"review_shadow_created","productionPolicyChanged":false})
             );
+        }
+        Command::DraftReconstructionBatch {
+            db,
+            codex_home,
+            output_dir,
+            after,
+            limit,
+            max_bytes_per_source,
+            allow_device_drift,
+        } => {
+            let report = codex_usage_ledger::cli_support::draft_reconstruction_batch(
+                &db,
+                &codex_home,
+                &output_dir,
+                after.as_deref(),
+                limit,
+                max_bytes_per_source,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::ApplyShadowCorrection {
             db,

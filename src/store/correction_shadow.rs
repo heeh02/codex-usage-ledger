@@ -10,6 +10,30 @@ mod sampling_links;
 mod tests;
 pub use sampling_links::link_shadow_sampling;
 
+impl LedgerStore {
+    pub(crate) fn applied_review_is_current(&self, seal: &str) -> Result<bool> {
+        let tx = self.connection.unchecked_transaction()?;
+        if tx.pragma_query_value(None, "application_id", |r| r.get::<_, i64>(0))? != APP_ID {
+            return Ok(false);
+        }
+        let saved: Option<String> = tx
+            .query_row(
+                "SELECT after_sha256 FROM review_correction_receipts WHERE manifest_sha256=?1",
+                [seal],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(saved) = saved else {
+            return Ok(false);
+        };
+        if scope_digest(&tx, seal)? != saved {
+            return Err(anyhow!("applied review post-image changed"));
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShadowReceipt {

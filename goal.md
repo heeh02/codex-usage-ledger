@@ -2135,3 +2135,14 @@ No live data migration, installed-app replacement or release has occurred.
   components and record counts agree across time/account/project/model/thread.
   Complete real-account reconciliation and native installed
   delivery remain unfinished; goal ACTIVE.
+- Batch 170 (2026-09-08): added bounded, seek-paged [review draft batches](docs/architecture/reconstruction-review-batches.md).
+  Valid complete drafts are checked against their ledger baseline and reused
+  without source rereads. Applied plans are recognized only after receipt/post-image
+  verification; stale, damaged, incomplete and policy-mismatched artifacts remain
+  explicit review items and are never overwritten. Two real source drafts were
+  generated and reused, then explicitly applied to the private shadow with original
+  rows archived and unchanged Token quantities; no new candidates were imported.
+  This supplies repeatable generation and continuation, not unattended failed-item
+  retry or blanket migration approval. Rust 336 tests, Clippy and API/governance
+  checks pass. Production query promotion, full-account
+  reconciliation and installed acceptance remain open; goal ACTIVE.

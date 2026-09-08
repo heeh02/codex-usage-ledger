@@ -39,6 +39,8 @@ mod policy_upgrade;
 mod schedule;
 pub use audit::audit_reconstruction_prefix;
 mod captured_prefix;
+mod review_batch;
+pub use review_batch::draft_reconstruction_batch;
 mod file_audit;
 pub use file_audit::audit_reconstruction_file;
 mod inheritance_audit;

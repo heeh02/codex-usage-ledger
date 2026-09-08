@@ -109,6 +109,7 @@ pub struct ManifestVerification {
 
 #[derive(Debug)]
 pub(crate) struct ManifestBinding {
+    pub policy: String,
     pub machine_id: String,
     pub thread: String,
     pub stored_file_identity: String,
@@ -416,6 +417,7 @@ fn verify_with_store(
     };
     Ok(ManifestVerification {
         binding: ManifestBinding {
+            policy: header.policy,
             machine_id: header.machine_id,
             thread: header.thread,
             stored_file_identity: header.stored_file_identity,
