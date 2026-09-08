@@ -24,6 +24,28 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Real shadow readiness diagnosis — 2026-09-08
+
+Advanced 100 bounded projection batches on the existing corrected private shadow
+using its matching schema-40 bundled executable. No production ledger was opened
+for writes. Result: selected groups 68,792; unresolved groups 46,123; pending
+groups 172,406; backfill incomplete. All currently unresolved groups have
+`missing_record_key`, not arithmetic or dimensional conflicts.
+
+A complete indexed missing-key inventory found 634,737 reconstruction records
+across 2,445 threads, plus 48,795 retained sampling records, without source-record
+keys. These are record counts, not usage totals. Therefore repeatedly staging
+the same history cannot establish full readiness: historical identity migration
+is the remaining mechanism, not another refresh or bigger batch limit. Stop
+treating batch completion alone as a route to promotion. Remaining work must
+address historical key recovery where evidence exists and explicitly unavailable
+history where it does not, without manufacturing identities or reported totals.
+
+Native SQLite read-only access failed after the WAL checkpoint removed sidecars;
+the bundled read-only reader remained successful. The inventory used an immutable
+read only after confirming no database writer and no WAL sidecar; no source or
+ledger repair was inferred from that platform-specific opening failure.
+
 ### Durable query routing and collector integration — 2026-09-08
 
 Schema 41 persists explicit union selection without altering source facts or
