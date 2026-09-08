@@ -150,6 +150,14 @@ An explicit refresh revision can retry the complete bundle; its original readine
 gate remains. A successful complete bundle exits this supplementary mode. Full
 calendar/project navigation promotion is still separate work.
 
+Scope-view state is owned by an application-level hook so the privacy shield can
+remove its DOM without destroying the in-memory selection, applied result or
+date/search draft. No usage payload is written to browser storage. Scope requests
+are disabled/cancelled while the view is inactive; leaving privacy mode does not
+automatically apply an unsubmitted draft. Explicit account changes and query
+submission remain the triggers. The privacy shield remains UI concealment, not
+ledger deletion or a promise to erase application memory.
+
 ## Descendant scope
 
 `includeDescendants=true` (CLI `--include-descendants`, requiring `--thread`)

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLedgerApi, loadDashboardBundle } from './api/client';
-import { ScopedEvidenceView } from './features/quality/ScopedEvidenceView';
+import { useScopedEvidenceView } from './features/quality/ScopedEvidenceView';
 import type { DashboardBundle, DashboardFilters } from './api/types';
 import {
   LedgerSidebar,
@@ -351,6 +351,8 @@ function App() {
     else openProject(value);
   };
 
+  const scopedEvidenceView=useScopedEvidenceView({enabled:!bundle&&scopedFallback.current&&!privacyMode,accountId:filters.account,accountRevision:scopeAccountRevision,onAccounts:setScopeAccounts,onPending:setScopePending,onAppliedAccount:account=>setAppliedFilters(value=>({...value,account}))});
+
   if (privacyMode) {
     return (
       <main className="privacy-shield" role="dialog" aria-modal="true" aria-label={t('app.privacy_mode_is_on')}>
@@ -455,7 +457,7 @@ function App() {
           {bundle && bundle.collection.mode !== 'union-preview' && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
-          {!bundle && scopedFallback.current && <ScopedEvidenceView accountId={filters.account} accountRevision={scopeAccountRevision} onAccounts={setScopeAccounts} onPending={setScopePending} onAppliedAccount={account=>setAppliedFilters(value=>({...value,account}))} />}
+          {!bundle && scopedFallback.current && scopedEvidenceView}
           {!bundle && error && !scopedFallback.current && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
             title={timePrecisionFailure ? t('app.time_precision_unavailable_title') : undefined}
             actionLabel={timePrecisionFailure ? t('app.show_today_usage') : undefined} />}

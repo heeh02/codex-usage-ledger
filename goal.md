@@ -2232,3 +2232,13 @@ No live data migration, installed-app replacement or release has occurred.
   Web 100 tests, production build and governance checks pass.
   Full navigation promotion, historical reconciliation and native delivery remain
   unfinished; goal ACTIVE.
+- Batch 178 (2026-09-08): fixed supplementary scope state loss when privacy mode
+  unmounted its view. State now remains in application memory while private DOM
+  and accessibility content are removed; no new browser-storage persistence is
+  introduced. Inactive scope requests are cancelled, and privacy exit does not
+  submit an unconfirmed date/search draft. Real browser verification found no
+  private amount, thread identifier or form in shielded DOM, restored the prior
+  applied result on return, and preserved an edited date separately from that
+  result without automatically querying it. Web 100 tests/build pass. This is
+  presentation-state/privacy work, not accounting promotion or native acceptance;
+  complete navigation/reconciliation/delivery remain open. Goal ACTIVE.
