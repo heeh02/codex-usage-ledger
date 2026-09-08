@@ -2070,3 +2070,18 @@ No live data migration, installed-app replacement or release has occurred.
   Explicit isolated launch was then independently checked by process arguments.
   No installation, publication or intentional production migration was performed.
   Full interactive native matrix and real-account migration remain open; ACTIVE.
+- Batch 167 (2026-09-08): profiled actual corrected-shadow source/key coverage and
+  advanced a bounded candidate batch. Remaining failures are missing occurrence
+  identity, not merely pending computation; processing more rows alone does not
+  repair them. A second high-volume source was streamed read-only: every stored
+  position matched, Token amounts were preserved, no inherited-prefix suppression
+  applied, and one cache-write coverage annotation differed without changing
+  quantities. This disproves treating the earlier source-specific reduction as a
+  universal correction. The active source appended during scanning, so the audit
+  correctly withheld migration readiness; no new candidate records or corrections
+  were applied. Inspectable SQL and private evidence are retained outside the
+  public repository. Next critical mechanism is a revalidated, line-complete
+  captured-prefix audit that tolerates later appends but rejects in-prefix edits,
+  truncation and replacement, followed by batch occurrence-link restoration.
+  Global main-query readiness must not be bypassed to hide these unresolved facts.
+  Production policy remains unchanged; full goal ACTIVE.
