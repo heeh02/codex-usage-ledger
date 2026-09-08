@@ -429,16 +429,6 @@
   flex: 0 0 auto;
 }
 
-.view-session > .filter-bar {
-  justify-content: flex-end;
-  padding: 5px;
-  margin-bottom: 8px;
-}
-
-.view-session > .filter-bar .filter-selects {
-  display: none;
-}
-
 .view-project > .explorer-page,
 .view-conversation > .explorer-page,
 .view-unmatched > .explorer-page,

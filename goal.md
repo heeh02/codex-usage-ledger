@@ -7,6 +7,23 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Candidate staging completed after 72 bounded calls: pending=0, selected=440,941,
+unresolved=54,915. Enabled available-history mode only on the candidate. Fourteen
+account/quota/official/project/catalog tables compare exactly with the original
+(bidirectional SQL set differences all zero). Native bundle built and signed;
+manifest SHA `a41c964960ce5648eb46306b7c73229143bf51ab744593223b4345c22d8a8f02`.
+An APFS-cloned candidate was opened in an isolated read-only native profile:
+narrow/wide layout, Cmd-plus 110% / Cmd-0 100%, project navigation, model/bucket
+details, session list and own/subagent drilldown rendered. App/owned service quit
+cleanly. This was NOT the formal installed application.
+
+Native inspection revealed an obsolete session-only `justify-content:flex-end`
+rule shrinking the shared grid filter to the right. Removed that rule and its
+obsolete hidden-select override; Web tests/build pass. The bundle above predates
+this CSS removal, so rebuild and verify final scrolling/layout before installation.
+Original formal data remains untouched; candidate is ready for remaining delivery
+checks, not yet switched. Preserve original rollback during installation.
+
 Exact-match candidate builder implemented (`prepare-review-transfer`) and tested
 for preserved newly added rows, edited metadata even with unchanged hashes,
 account settings, provenance merging, fingerprint mismatch and existing-output
