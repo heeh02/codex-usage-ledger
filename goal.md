@@ -24,6 +24,18 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Priority sources five through seven — 2026-09-08
+
+Three additional complete-source shadow migrations archived 79,224 original
+records, retained 29,711 with verified keys and suppressed 49,513 replay records.
+645 newly observed candidates were deferred, not imported. Reapplication verified
+all three post-images. On priority source five, legacy sampling association
+restored 720 exact links with no metadata conflicts or Token fact changes;
+30 unconfirmed observations remained unconfirmed. Exact receipts are private.
+Sampling association for other corrected priority sources remains necessary;
+reconstruction-key migration alone does not establish cross-source completeness.
+No production data or application installation changed.
+
 ### Further large-source migrations — 2026-09-08
 
 Two more full-source audits applied sequentially to the private shadow: 67,664
