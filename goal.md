@@ -24,6 +24,24 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Projection queue and current native build — 2026-09-08
+
+Completed 20 serial runs of 100 bounded projection batches on the schema-40
+shadow. Final state: 182,310 selected, 136,566 unresolved, 498,245 pending,
+backfill incomplete. This demonstrates remaining missing-evidence work, not
+readiness for promotion. Exact per-pass reports are retained privately.
+
+Built the latest Rust/React/Swift native bundle including durable schema-41 query
+policy support. Metadata, architectures, TypeScript build and deep ad-hoc signing
+passed; file-manifest SHA-256:
+`8a5a31ffc762cf65ee0ab51f539df5df86d23cc3750122458b11e934000daaf3`.
+Not installed, launched against real data, notarized or published. Preserved the
+matching schema-40 audit executable privately as `ledger-schema40-audit-bin`
+before rebuilding; use that for the existing schema-40 shadow until an explicit
+upgrade. Its SHA-256 is
+`212894f9bad4fefe157099c8b09e63752d54c8c3f6568c163d619b29b42a691d`.
+Do not accidentally use the now-schema-41 dist executable for old-shadow writes.
+
 ### Priority source cross-log association — 2026-09-08
 
 Completed sampling-association checks for the six remaining corrected priority
