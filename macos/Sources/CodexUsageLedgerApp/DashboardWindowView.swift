@@ -81,6 +81,7 @@ struct DashboardWindowView: View {
                         systemImage: service.collectionEnabled ? "stop.fill" : "play.fill"
                     )
                 }
+                .disabled(!service.canCollect)
             }
         }
     }

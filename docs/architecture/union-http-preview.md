@@ -44,3 +44,32 @@ Unit tests cover parent filter restoration, model labels and policy text. HTTP
 tests verify mutation refusal, foreign Host refusal, unchanged database bytes and
 absence of identity initialization. Browser evidence does not replace native
 zoom/scroll acceptance, full real-account reconciliation or code-owner review.
+
+## Native isolated validation
+
+Launch the built executable explicitly with `--isolated-profile <UUID>
+--isolated-union`. Prepare a resolved synthetic fixture at that profile's existing
+isolated database location before launch. The union flag without a valid profile,
+duplicate flags and misspelled isolation flags fail closed. No arbitrary database
+path is accepted by the native shell. Missing or unresolved data is a startup
+failure, not permission to fall back to the normal ledger.
+
+This additive launch option always runs the bundled Rust `serve --union-preview`
+on the existing fixed loopback port. It ignores saved collection preference,
+disables all three native collection controls and omits the Codex-home argument.
+Existing normal and isolated collection modes are unchanged. Preferences remain
+in the UUID-specific domain; no WebKit/bridge/navigation allowlist is broadened.
+
+Native build, architecture/metadata checks, deep ad-hoc signature verification,
+Swift pure-state and owned-process stop tests pass. The real WKWebView displayed
+the populated synthetic union overview with M totals, trends and project ranking;
+the native toolbar displayed the isolation label and disabled collection. The
+isolated fixture's full-file hash was unchanged after startup. This proves the
+native data path, not complete interactive zoom/scroll or installed delivery.
+
+Operational caveat: selecting a non-running app through desktop automation may
+launch it without arguments. During validation an initial unqualified selection
+briefly started the normal saved collection mode; the owned app and child were
+stopped. That launch is not read-only evidence and no claim of unchanged normal
+data is made. Subsequent validation used explicit executable arguments and
+independently checked parent/child command lines before selecting the running app.

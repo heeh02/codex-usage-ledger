@@ -39,7 +39,7 @@ final class LedgerServiceController: ObservableObject {
     private init(defaults: UserDefaults = LedgerLaunchProfile.preferences) {
         self.defaults = defaults
         uiLanguage = defaults.string(forKey: NativeLocalization.defaultsKey) ?? NativeLocalization.language
-        collectionEnabled = defaults.bool(forKey: Self.collectionDefaultsKey)
+        collectionEnabled = !LedgerLaunchProfile.unionRequested && defaults.bool(forKey: Self.collectionDefaultsKey)
         if defaults.object(forKey: Self.pageZoomDefaultsKey) != nil {
             pageZoom = min(
                 max(defaults.double(forKey: Self.pageZoomDefaultsKey), Self.minimumPageZoom),
@@ -58,10 +58,13 @@ final class LedgerServiceController: ObservableObject {
     }
 
     var collectionMenuTitle: String {
-        collectionEnabled
+        if !canCollect { return NativeLocalization.text("只读验证 · 采集已禁用", "Read-only validation · Collection disabled") }
+        return collectionEnabled
             ? NativeLocalization.text("停止采集", "Stop collection")
             : NativeLocalization.text("开始采集…", "Start collection…")
     }
+
+    var canCollect: Bool { !LedgerLaunchProfile.unionRequested }
 
     func updateUILanguage(_ language: String) {
         guard language == "zh-CN" || language == "en", language != uiLanguage else { return }
@@ -120,6 +123,7 @@ final class LedgerServiceController: ObservableObject {
     }
 
     func toggleCollectionWithConfirmation() {
+        guard canCollect else { return }
         if collectionEnabled {
             defaults.set(false, forKey: Self.collectionDefaultsKey)
             collectionEnabled = false

@@ -4,7 +4,9 @@ enum LedgerLaunchProfile {
     static func identifier(arguments: [String]) throws -> String? {
         let flags = arguments.indices.filter { arguments[$0].hasPrefix("--isolated") }
         guard !flags.isEmpty else { return nil }
-        guard flags.count == 1, let index = flags.first,
+        let unionFlags = flags.filter { arguments[$0] == "--isolated-union" }
+        let profileFlags = flags.filter { arguments[$0] != "--isolated-union" }
+        guard unionFlags.count <= 1, profileFlags.count == 1, let index = profileFlags.first,
               arguments[index] == "--isolated-profile", index + 1 < arguments.count,
               let identifier = UUID(uuidString: arguments[index + 1]) else {
             throw ServiceConfigurationError.invalidIsolatedProfile
@@ -14,6 +16,10 @@ enum LedgerLaunchProfile {
 
     static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains { $0.hasPrefix("--isolated") }
+    }
+
+    static var unionRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains("--isolated-union")
     }
 
     static let preferences: UserDefaults = {

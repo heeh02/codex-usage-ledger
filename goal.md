@@ -2056,3 +2056,17 @@ No live data migration, installed-app replacement or release has occurred.
   links, module boundaries, generated-file and version checks pass. The synthetic
   browser tab and its owned preview server were closed after verification.
   Full goal stays ACTIVE.
+- Batch 166 (2026-09-08): added native `--isolated-union` behind the existing
+  UUID-only isolated profile. The bundled service uses read-only union queries;
+  saved collection preference cannot start a collector, and all native collection
+  controls are disabled. Invalid/duplicate/missing-profile cases are covered by
+  Swift tests. Rebuilt the arm64 application through the normal build script;
+  metadata, architecture, deep ad-hoc signature and owned-process tests pass.
+  A populated synthetic overview rendered in the real WKWebView and its isolated
+  database hash stayed unchanged. An earlier unqualified desktop app selection
+  briefly launched normal saved collection mode; its owned app/child were stopped,
+  and it is explicitly excluded from read-only evidence. See the operational
+  caveat in the [preview contract](docs/architecture/union-http-preview.md).
+  Explicit isolated launch was then independently checked by process arguments.
+  No installation, publication or intentional production migration was performed.
+  Full interactive native matrix and real-account migration remain open; ACTIVE.

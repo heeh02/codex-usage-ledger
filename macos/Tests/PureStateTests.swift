@@ -124,6 +124,8 @@ struct PureStateTests {
             ["app", "--isolated-profile=\(identifier)"],
             ["app", "--isolated-profiel", identifier],
             ["app", "--isolated-profile", identifier, "--isolated-profile", identifier],
+            ["app", "--isolated-union"],
+            ["app", "--isolated-profile", identifier, "--isolated-union", "--isolated-union"],
         ] {
             do { _ = try LedgerLaunchProfile.identifier(arguments: arguments); preconditionFailure("invalid profile accepted") }
             catch ServiceConfigurationError.invalidIsolatedProfile { }
@@ -131,6 +133,14 @@ struct PureStateTests {
         }
         let normal = try! LedgerRuntimePaths.resolve(arguments: ["app"])
         let isolated = try! LedgerRuntimePaths.resolve(arguments: ["app", "--isolated-profile", identifier])
+        let union = try! LedgerRuntimePaths.resolve(arguments: ["app", "--isolated-profile", identifier, "--isolated-union"])
+        precondition(union.unionPreview && union.database == isolated.database)
+        precondition(!normal.unionPreview && !isolated.unionPreview)
+        for mode in [LedgerServiceMode.serve, .daemon] {
+            let args = union.serviceArguments(mode: mode)
+            precondition(args.first == "serve" && args.contains("--union-preview"))
+            precondition(!args.contains("--codex-home") && !args.contains(normal.database.path))
+        }
         precondition(normal.codexHome == nil && normal.isolatedProfile == nil)
         precondition(isolated.database != normal.database)
         precondition(isolated.binary == normal.binary && isolated.webRoot == normal.webRoot)

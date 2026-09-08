@@ -7,6 +7,7 @@ struct LedgerRuntimePaths {
     let database: URL
     let codexHome: URL?
     let isolatedProfile: String?
+    let unionPreview: Bool
 
     static func resolve(
         bundle: Bundle = .main,
@@ -38,7 +39,8 @@ struct LedgerRuntimePaths {
             applicationSupportDirectory: supportDirectory,
             database: supportDirectory.appendingPathComponent("ledger.sqlite3", isDirectory: false),
             codexHome: isolatedRoot?.appendingPathComponent("codex", isDirectory: true),
-            isolatedProfile: isolatedProfile
+            isolatedProfile: isolatedProfile,
+            unionPreview: arguments.contains("--isolated-union")
         )
     }
 
@@ -58,9 +60,10 @@ struct LedgerRuntimePaths {
     }
 
     func serviceArguments(mode: LedgerServiceMode) -> [String] {
-        var arguments = [mode.rawValue, "--db", database.path,
+        var arguments = [unionPreview ? "serve" : mode.rawValue, "--db", database.path,
                          "--listen", "127.0.0.1:47127", "--web-root", webRoot.path]
-        if let codexHome { arguments.append(contentsOf: ["--codex-home", codexHome.path]) }
+        if unionPreview { arguments.append("--union-preview") }
+        else if let codexHome { arguments.append(contentsOf: ["--codex-home", codexHome.path]) }
         return arguments
     }
 

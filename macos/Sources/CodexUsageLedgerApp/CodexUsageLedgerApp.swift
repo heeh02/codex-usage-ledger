@@ -56,6 +56,7 @@ struct CodexUsageLedgerApp: App {
                 Button(service.collectionMenuTitle) {
                     service.toggleCollectionWithConfirmation()
                 }
+                .disabled(!service.canCollect)
             }
         }
 
