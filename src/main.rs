@@ -1686,9 +1686,14 @@ mod local_http_tests {
         rusqlite::Connection::open(home.path().join("logs_2.sqlite")).unwrap().execute_batch(
             "CREATE TABLE logs(id INTEGER PRIMARY KEY, ts INTEGER, ts_nanos INTEGER, thread_id TEXT, feedback_log_body TEXT, target TEXT, process_uuid TEXT);"
         ).unwrap();
+        let partial = collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+        assert_eq!(partial.phase, "degraded");
+        rusqlite::Connection::open(home.path().join("state_5.sqlite")).unwrap().execute_batch(
+            "CREATE TABLE threads(id TEXT, rollout_path TEXT, cwd TEXT, model TEXT, source TEXT, updated_at INTEGER);"
+        ).unwrap();
         let recovered =
             collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
-        assert_eq!(recovered.phase, "live");
+        assert_eq!(recovered.phase, "live", "{:?}", recovered.message);
         publish_daemon_status(&mut store, &recovered).unwrap();
         assert_eq!(store.collector_status().unwrap().phase, "live");
         assert!(store.collector_status().unwrap().message.is_none());

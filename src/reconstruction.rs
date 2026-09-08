@@ -202,11 +202,14 @@ pub fn ingest_reconstruction_batch_for_project(
     max_files: usize,
     project_id: Option<&str>,
 ) -> Result<ReconstructionReport> {
+    // An unavailable index is not an authoritative empty directory. Validate it
+    // before cursor cleanup or source-status changes, so a transient outage
+    // cannot turn pending history into an unrecoverable source.
+    let mut targets = load_targets(codex_home)?;
     // Older builds retained multi-megabyte parser checkpoints even after a
     // source became unrecoverable. The derived facts are independent rows, so
     // these unusable cursors can be reclaimed safely.
     store.remove_unrecoverable_reconstruction_cursors(machine_id)?;
-    let mut targets = load_targets(codex_home)?;
     if let Some(project_id) = project_id {
         let mut statement = store
             .connection()
@@ -869,7 +872,9 @@ fn process_line(
 fn load_targets(codex_home: &Path) -> Result<Vec<Target>> {
     let state_path = codex_home.join("state_5.sqlite");
     if !state_path.is_file() {
-        return Ok(Vec::new());
+        return Err(anyhow!(
+            "Codex session index is unavailable; reconstruction deferred"
+        ));
     }
     let connection = Connection::open_with_flags(
         state_path,
@@ -1067,6 +1072,43 @@ pub(crate) fn stable_event_id(
 mod tests {
     use super::*;
     use crate::store::{AggregateFilter, LedgerStore};
+
+    #[test]
+    fn unavailable_index_preserves_pending_source_state() {
+        let home = tempfile::tempdir().unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        let source = ReconstructionSourceStatus {
+            machine_id: "machine".into(),
+            source_id: source_id("missing-index-thread"),
+            thread_id: "missing-index-thread".into(),
+            file_identity: "original-file".into(),
+            status: ReconstructionStatus::Pending,
+            bytes_total: 100,
+            bytes_processed: 0,
+            prefix_events: 0,
+            unchanged_events: 0,
+            counter_resets: 0,
+            last_error: None,
+            updated_at: Utc::now(),
+        };
+        store.upsert_reconstruction_source(&source).unwrap();
+        assert!(ingest_reconstruction_batch(&mut store, home.path(), "machine", 1).is_err());
+        assert_eq!(store.reconstruction_sources().unwrap(), vec![source]);
+        assert!(!home.path().join("state_5.sqlite").exists());
+        // A successfully read, genuinely empty index is a different condition.
+        let index = Connection::open(home.path().join("state_5.sqlite")).unwrap();
+        index
+            .execute_batch(
+                "CREATE TABLE threads(id TEXT,rollout_path TEXT,cwd TEXT,model TEXT,source TEXT);",
+            )
+            .unwrap();
+        drop(index);
+        ingest_reconstruction_batch(&mut store, home.path(), "machine", 1).unwrap();
+        assert_eq!(
+            store.reconstruction_sources().unwrap()[0].status,
+            ReconstructionStatus::Unrecoverable
+        );
+    }
 
     fn line(number: u64, raw: Value) -> JsonlLine {
         JsonlLine {

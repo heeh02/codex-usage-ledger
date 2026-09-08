@@ -24,6 +24,20 @@ or exhaustive historical edge-case reconstruction as completion blockers.
 
 ## Outcome
 
+### Distinguish index outage from missing history — 2026-09-08
+
+Fixed a source-state bug found while designing unavailable-history handling:
+missing `state_5.sqlite` previously became an empty target list and could mark
+pending sources unrecoverable. Index loading now precedes cursor/status changes
+and reports a retryable unavailable-index error. Successfully reading an empty
+index remains a distinct condition. Source states survive an index outage.
+
+Regression tests cover the preserved pending state, genuine empty index, and
+collector recovery only after both logs and index return. Full Rust all-target/
+all-feature tests and Clippy passed. No production data changed. This fixes
+misclassification; explicit unavailable-history exclusion from the global union
+readiness gate remains unfinished and is not claimed as completed here.
+
 ### Remaining evidence availability boundary — 2026-09-08
 
 Classified the remaining missing-key reconstruction inventory against the current
