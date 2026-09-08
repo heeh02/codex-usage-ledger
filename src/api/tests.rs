@@ -1377,6 +1377,12 @@ async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_tota
     bad.source_timestamp = Some(at);
     store.upsert_event(&bad).unwrap();
     let state = ApiState::with_store(store);
+    let catalog = routes::source_catalog(State(state.clone()))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(catalog["version"], 1);
+    assert!(catalog.get("total").is_none());
     let query = crate::store::SourceUnionQuery {
         start: at - ChronoDuration::seconds(1),
         end: at + ChronoDuration::seconds(1),
@@ -1395,6 +1401,8 @@ async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_tota
     assert_eq!(result["status"], "available");
     assert_eq!(result["projection"]["projectionReady"], false);
     assert_eq!(result["data"]["usage"]["total_tokens"], 120);
+    assert_eq!(result["display"]["usage"]["total"], 120);
+    assert_eq!(result["display"]["byModel"][0]["usage"]["cached"], 80);
     assert_eq!(result["productionPolicyChanged"], false);
     let mut all = query.clone();
     all.thread = None;
@@ -1410,6 +1418,31 @@ async fn scoped_union_http_query_survives_unrelated_pending_without_leaking_tota
         routes::source_union(State(state), Query(invalid)).await,
         Err(ApiError::InvalidQuery(_))
     ));
+}
+
+#[tokio::test]
+async fn independent_catalog_uses_existing_title_privacy_policy() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_thread_catalog_batch(&[native_catalog_thread(
+            "root",
+            None,
+            Some("project"),
+            0,
+            "token=synthetic-private-title",
+        )])
+        .unwrap();
+    let value = routes::source_catalog(State(ApiState::with_store(store)))
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(value["roots"][0]["id"], "root");
+    assert!(
+        !value["roots"][0]["label"]
+            .as_str()
+            .unwrap()
+            .contains("token=")
+    );
 }
 
 #[tokio::test]

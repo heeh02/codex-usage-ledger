@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLedgerApi, loadDashboardBundle } from './api/client';
+import { ScopedEvidenceView } from './features/quality/ScopedEvidenceView';
 import type { DashboardBundle, DashboardFilters } from './api/types';
 import {
   LedgerSidebar,
@@ -443,7 +444,8 @@ function App() {
           {bundle && bundle.collection.mode !== 'union-preview' && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
-          {!bundle && error && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
+          {!bundle && requestFailure instanceof LedgerRequestError && requestFailure.code === 'snapshot_unavailable' && <ScopedEvidenceView />}
+          {!bundle && error && !(requestFailure instanceof LedgerRequestError && requestFailure.code === 'snapshot_unavailable') && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
             title={timePrecisionFailure ? t('app.time_precision_unavailable_title') : undefined}
             actionLabel={timePrecisionFailure ? t('app.show_today_usage') : undefined} />}
 

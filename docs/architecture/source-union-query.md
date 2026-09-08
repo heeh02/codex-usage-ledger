@@ -91,3 +91,35 @@ The main bundle/HTTP DTO is unchanged. This endpoint is the data path for future
 section-wise UI integration, not a completed frontend switch. A preview server may
 serve this endpoint while the globally gated `/v1/bundle` remains unavailable.
 Strict CLI bundle previews retain their eager global readiness check.
+
+## Scope-view presentation extension
+
+The HTTP response adds nullable `display`, generated through the existing server
+Token presenter. Available results include normalized `usage` and `byTime`,
+`byModel`, `byAccount`, `byProject`, `byThread` rows (`id`, `events`, `usage`).
+Unavailable results have `display=null`; the raw version-2 evidence DTO remains.
+The frontend checks echoed scope, numeric validity, unique groups and component/
+record conservation before rendering. No client-side source arbitration or
+official-total composition is introduced.
+
+`GET /v1/source-catalog` returns version-1 metadata only: project IDs/names, at
+most 500 recent root conversation IDs/safe labels/project IDs, and previously
+recorded verified/official account IDs. It does not refresh native indexes, read
+credentials or imply coverage from catalog presence. Root labels reuse the
+existing sensitive/long-title policy; filesystem roots and prompt bodies are not
+returned as separate fields. The selector explicitly states its bounded root list.
+
+Global `SnapshotUnavailable` now returns HTTP 503 with code
+`snapshot_unavailable` instead of generic HTTP 500. On initial-load failure only,
+the existing application offers an independent scope form rather than a dead end.
+Other failures retain their error path; a last-good complete bundle remains intact.
+The scope form uses actual submitted dates (device timezone, exclusive end),
+literal project/account and optional root-thread filters. Thread mode is explicitly
+own-only. New results and their applied captions update atomically; failed/aborted
+queries cannot relabel older data. No unavailable amount is rendered as zero.
+
+This supplementary view uses existing model/account/component tables and a ranked
+date table. It is not yet unified sidebar navigation, descendant browsing, full
+root search/pagination, natural-period shortcuts or a replacement trend chart.
+The source endpoints and special availability status are additive contracts; the
+main bundle schema and persisted ledger schema do not change.

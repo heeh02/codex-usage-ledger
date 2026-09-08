@@ -2169,3 +2169,17 @@ No live data migration, installed-app replacement or release has occurred.
   returned forbidden. Rust 337 tests and Clippy pass. This connects the backend
   data path, not frontend section-wise rendering or production promotion; those
   and real-account/native acceptance remain open. Goal ACTIVE.
+- Batch 173 (2026-09-08): wired the independent scope query into an initial-load
+  unavailable-state view in the existing app. A metadata-only catalog supplies
+  named projects/root chats and recorded accounts independently of global totals;
+  root labels reuse the established privacy policy. HTTP 503 snapshot-unavailable
+  is distinguished from other failures. Shared server Token presentation and
+  frontend scope/component-conservation validation feed the existing model/account
+  and ranked date tables. A browser test found date fields could display new values
+  while submitted state remained old; submission now reads actual form dates.
+  The real corrected July scope then rendered the expected amount and models;
+  Chinese switching preserved scope/amount. Actual 560px layout had no page-wide
+  overflow and the workspace scrolled to its final table rows. Rust 338 tests,
+  Web 95 tests and production web build pass. This is a supplementary own-thread
+  view with an explicit bounded root list, not completed unified navigation,
+  descendant scope, trend charts or installed native acceptance. Full goal ACTIVE.

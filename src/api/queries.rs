@@ -1,6 +1,24 @@
 use super::*;
 use chrono::Offset;
 
+pub(super) fn scoped_union_display(
+    store: &LedgerStore,
+    query: &crate::store::SourceUnionQuery,
+) -> Result<serde_json::Value, StoreError> {
+    let snapshot = store.read_source_union_projection(query)?;
+    let mut result = serde_json::to_value(&snapshot)?;
+    let display = snapshot.data.as_ref().filter(|_|snapshot.status=="available").map(|data| {
+        let mut display = serde_json::Map::new();
+        display.insert("usage".into(),data.usage.map(token_value).unwrap_or(serde_json::Value::Null));
+        for (name,rows) in [("byTime",&data.by_time),("byModel",&data.by_model),("byAccount",&data.by_account),("byProject",&data.by_project),("byThread",&data.by_thread)] {
+            display.insert(name.into(),serde_json::Value::Array(rows.iter().map(|r|serde_json::json!({"id":r.key,"events":r.records,"usage":token_value(r.usage)})).collect()));
+        }
+        serde_json::Value::Object(display)
+    });
+    result["display"] = display.unwrap_or(serde_json::Value::Null);
+    Ok(result)
+}
+
 /// Persisted calendar buckets are Shanghai-local. Other timezone calendars
 /// require timestamp-scoped evidence, not relabeled or rounded storage days.
 pub(super) fn requires_exact_window(query: &UsageQuery) -> bool {

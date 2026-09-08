@@ -168,11 +168,13 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
+            Self::Store(StoreError::SnapshotUnavailable) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Store(StoreError::InsufficientTimePrecision) => StatusCode::UNPROCESSABLE_ENTITY,
             Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let code = match &self {
+            Self::Store(StoreError::SnapshotUnavailable) => "snapshot_unavailable",
             Self::Store(StoreError::InsufficientTimePrecision) => "insufficient_time_precision",
             Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => "invalid_query",
             _ => "request_failed",
@@ -199,6 +201,7 @@ pub fn router(state: ApiState) -> Router {
         )
         .route("/v1/bundle", get(bundle))
         .route("/v1/source-union", get(source_union))
+        .route("/v1/source-catalog", get(source_catalog))
         .route("/v1/turn-evidence", get(super::requests::turn_evidence))
         .route("/v1/quotas", get(quotas))
         .route("/v1/quota-history", get(super::quota_history::history))
@@ -309,13 +312,21 @@ pub(super) async fn source_union(
     }
     Ok(Json(
         state
-            .query_read_only(move |store| {
-                Ok(serde_json::to_value(
-                    store.read_source_union_projection(&query)?,
-                )?)
-            })
+            .query_read_only(move |store| queries::scoped_union_display(store, &query))
             .await?,
     ))
+}
+
+pub(super) async fn source_catalog(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Ok(Json(state.query_read_only(|store| store.with_source_audit_snapshot(|store| {
+        let projects = store.list_projects()?.into_iter().map(|p|serde_json::json!({"id":p.project_id,"label":p.project_name})).collect::<Vec<_>>();
+        let roots = store.dashboard_catalog_roots(None,500)?.into_iter().map(|r|{let label=explorer::thread_label(&r);serde_json::json!({"id":r.thread_id,"project":r.project_id,"label":label})}).collect::<Vec<_>>();
+        let mut accounts = store.verified_auth_accounts()?;
+        accounts.extend(store.list_official_accounts()?); accounts.sort(); accounts.dedup();
+        Ok(serde_json::json!({"version":1,"projects":projects,"roots":roots,"accounts":accounts,"rootLimit":500}))
+    })).await?))
 }
 
 async fn timeseries(
