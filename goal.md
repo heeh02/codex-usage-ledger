@@ -5,7 +5,43 @@ Started: 2026-09-05
 Baseline: `93c6aa5dc63290a8c2e94579f81bc51cecd84e25`  
 Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-governance-goal.md).
 
+## Latest acceptance adjustment — 2026-09-08
+
+The user explicitly accepts the current zero display and asks to finish once the
+core implementation works. This supersedes treating minor presentation choices
+or exhaustive historical edge-case reconstruction as completion blockers.
+
+- Stop expanding scope for zero-versus-dash presentation polish.
+- Finish the core account/date → project/chat → model/bucket/trend workflow and
+  deliver a usable current application; document remaining minor limitations.
+- Retain the core safeguards against duplicate usage and mixed account/source
+  totals. Do not equate relaxed presentation acceptance with verified accounting.
+- Do not require recovery of deleted history, perfect coverage of every past
+  account, public release, or extra cosmetic audit rounds to finish this goal.
+- The current source build has passed isolated native Today/project navigation
+  and keyboard zoom checks. The installed application and main aggregate policy
+  still require delivery closure; this adjustment alone does not mark them done.
+
 ## Outcome
+
+### Native delivery checkpoint — 2026-09-08
+
+The latest continuation completed the existing isolated native acceptance rather
+than adding more zero-display changes. The built application exposes Today,
+project and projectless conversation scopes, M units, model distribution and
+input/cache/output details. Previously exercised keyboard zoom was retained.
+Cmd-Q terminated both the verified isolated application and its owned service;
+neither PID remained. The synthetic ledger SHA-256 remained
+`0972a5c3d35f61445af5f4320dc29e50cec79a7e963d3ad9d089ed6adffbb9e6`.
+Deep strict code-signature verification of the current bundle succeeded.
+
+This proves the isolated native lane, not installed production accounting.
+Current source inspection confirms that ordinary mode still uses
+`max_thread_day_v1`, whereas the occurrence union is installed through temporary
+views only in the read-only preview lane. Next core task is controlled production
+integration of the verified union policy and delivery of the current application;
+do not substitute further cosmetic acceptance for that task. No production
+ledger, installed application, login or reset state was changed in this check.
 
 Make usage understandable through a continuous user workflow:
 
