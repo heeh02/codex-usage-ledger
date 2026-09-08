@@ -63,6 +63,11 @@ mod tests {
             .unwrap();
         assert_eq!(total, 100);
         fs::rename(source, temp.path().join("parked-source")).unwrap();
+        let progress_path = output.path().join("automatic-history-progress.json");
+        let mut saved: Value = serde_json::from_slice(&fs::read(&progress_path).unwrap()).unwrap();
+        saved["isolated_threads"] = serde_json::json!(["earlier-unavailable"]);
+        saved.as_object_mut().unwrap().remove("isolated_errors");
+        fs::write(&progress_path, serde_json::to_vec(&saved).unwrap()).unwrap();
         let resumed = serde_json::to_value(
             run_history_reconciliation(
                 &shadow,
@@ -80,6 +85,8 @@ mod tests {
         assert_eq!(resumed["sourcesProcessed"], 0);
         assert_eq!(resumed["batchesCompleted"], 1);
         assert_eq!(resumed["hasMore"], false);
+        assert_eq!(resumed["sourcesIsolated"], 0);
+        assert_eq!(resumed["outstandingIsolatedSources"], 1);
         assert_eq!(
             store
                 .connection()

@@ -34,3 +34,9 @@ Failed/ambiguous sources are isolated and retained in the checkpoint, not guesse
 or silently converted to zero. Machine receipts remain diagnostic artifacts, not
 an invitation to audit each conversation manually. `hasMore=false` ends the
 inventory pass, not a claim that isolated errors or production promotion are done.
+
+Run counters describe this invocation. `outstandingIsolatedSources` includes
+unresolved sources saved by previous runs, including older checkpoints without
+error text. Private checkpoints retain each newly observed isolation reason;
+successful retries remove its saved isolation entry. An empty new batch must
+not reset the historical outstanding count or imply complete evidence coverage.

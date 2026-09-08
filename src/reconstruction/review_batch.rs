@@ -1,6 +1,6 @@
 //! Bounded, resumable draft generation. Never applies corrections or imports.
 use super::*;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +21,8 @@ pub struct ReviewBatchReport {
     has_more: bool,
     source_import: bool,
     production_policy_changed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    outstanding_isolated_sources: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -30,6 +32,8 @@ struct AutomaticProgress {
     home: PathBuf,
     next_after: Option<String>,
     isolated_threads: BTreeSet<String>,
+    #[serde(default)]
+    isolated_errors: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -39,6 +43,7 @@ pub struct AutomaticRunReport {
     sources_processed: usize,
     sources_reconciled: usize,
     sources_isolated: usize,
+    outstanding_isolated_sources: usize,
     has_more: bool,
     production_policy_changed: bool,
 }
@@ -63,6 +68,7 @@ pub fn run_history_reconciliation(
         sources_processed: 0,
         sources_reconciled: 0,
         sources_isolated: 0,
+        outstanding_isolated_sources: 0,
         has_more: true,
         production_policy_changed: false,
     };
@@ -85,10 +91,12 @@ pub fn run_history_reconciliation(
             .count();
         summary.sources_isolated = summary.sources_processed - summary.sources_reconciled;
         summary.has_more = report.has_more;
+        summary.outstanding_isolated_sources = report.outstanding_isolated_sources.unwrap_or(0);
         tracing::info!(
             batches = summary.batches_completed,
             sources = summary.sources_processed,
             isolated = summary.sources_isolated,
+            outstanding = summary.outstanding_isolated_sources,
             "automatic history progress"
         );
         if !summary.has_more {
@@ -152,6 +160,7 @@ pub fn reconcile_history_batch(
             home: home.clone(),
             next_after: None,
             isolated_threads: BTreeSet::new(),
+            isolated_errors: BTreeMap::new(),
         }
     };
     let after = after
@@ -214,8 +223,13 @@ pub fn reconcile_history_batch(
     for item in &report.items {
         if item.status == "reconciled" {
             progress.isolated_threads.remove(&item.thread);
+            progress.isolated_errors.remove(&item.thread);
         } else {
             progress.isolated_threads.insert(item.thread.clone());
+            progress.isolated_errors.insert(
+                item.thread.clone(),
+                item.error.clone().unwrap_or_else(|| item.status.into()),
+            );
         }
     }
     if report.next_after.is_some() {
@@ -235,6 +249,7 @@ pub fn reconcile_history_batch(
     file.sync_all()?;
     drop(file);
     fs::rename(&temporary, &progress_path)?;
+    report.outstanding_isolated_sources = Some(progress.isolated_threads.len());
     Ok(report)
 }
 
@@ -331,6 +346,7 @@ pub fn draft_reconstruction_batch(
         has_more,
         source_import: false,
         production_policy_changed: false,
+        outstanding_isolated_sources: None,
     })
 }
 

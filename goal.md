@@ -7,6 +7,14 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ## Latest execution direction — automate, do not manually audit sessions
 
+Latest automatic-job observation: session **18356** remains live and reached
+90 sources / 9 batches with no isolated sources in that invocation. No competing
+writer was started. Added persistent exception reasons and
+`outstandingIsolatedSources` to distinguish this run's error count from earlier
+unresolved sources after restart. Legacy checkpoints are supported. Full Rust
+tests and Clippy passed. These reporting changes apply to a future invocation;
+the running release process was not interrupted or replaced.
+
 Continuous runner is now implemented: `--automatic-batches 1000 --limit 10`
 resumes its persisted cursor, processes successive batches and returns aggregate
 counts only. It stops on inventory exhaustion rather than requiring manual
