@@ -364,7 +364,10 @@ mod tests {
     async fn quota_history_endpoint_does_not_recreate_missing_database() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("quota.sqlite3");
-        let state = ApiState::with_store(LedgerStore::open(&path).unwrap());
+        let mut state = ApiState::with_store(LedgerStore::open(&path).unwrap());
+        // Windows does not permit unlinking the open database. Keep the query
+        // path but release its handle, retaining an unrelated in-memory store.
+        state.store = Some(Arc::new(Mutex::new(LedgerStore::open_in_memory().unwrap())));
         std::fs::remove_file(&path).unwrap();
         assert!(
             history(

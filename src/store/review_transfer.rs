@@ -47,7 +47,20 @@ fn readonly_uri(path: &Path) -> Result<String> {
         .to_str()
         .ok_or_else(|| anyhow!("database path must be UTF-8"))?;
     #[cfg(windows)]
-    let text = text.replace('\\', "/");
+    let text = {
+        let normalized = text.replace('\\', "/");
+        if normalized.starts_with("//?/UNC/")
+            || (normalized.starts_with("//") && !normalized.starts_with("//?/"))
+        {
+            return Err(anyhow!(
+                "UNC database paths are not supported for review transfer"
+            ));
+        }
+        normalized
+            .strip_prefix("//?/")
+            .unwrap_or(&normalized)
+            .to_owned()
+    };
     let mut uri = String::from("file:");
     for byte in text.as_bytes() {
         if byte.is_ascii_alphanumeric() || b"/:-._~".contains(byte) {

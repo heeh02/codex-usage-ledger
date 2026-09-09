@@ -6,13 +6,13 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs::{File, Metadata};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 use std::time::UNIX_EPOCH;
 
 pub const DEFAULT_READ_CHUNK_BYTES: usize = 4 * 1024 * 1024;
@@ -364,7 +364,47 @@ pub fn physical_file_identity(_path: &Path, metadata: &Metadata) -> io::Result<S
         Ok(format!("unix:{}:{}", metadata.dev(), metadata.ino()))
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        // Creation timestamps can survive replacement through NTFS tunneling.
+        // The volume/file index identifies the actual opened file instead.
+        #[repr(C)]
+        #[derive(Default)]
+        struct FileInformation {
+            attributes: u32,
+            creation: [u32; 2],
+            access: [u32; 2],
+            write: [u32; 2],
+            volume: u32,
+            size_high: u32,
+            size_low: u32,
+            links: u32,
+            index_high: u32,
+            index_low: u32,
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetFileInformationByHandle(
+                handle: *mut std::ffi::c_void,
+                information: *mut FileInformation,
+            ) -> i32;
+        }
+        let file = std::fs::File::open(_path)?;
+        let mut info = FileInformation::default();
+        // SAFETY: file owns a valid live handle; info is a correctly sized,
+        // writable BY_HANDLE_FILE_INFORMATION layout for the duration of call.
+        if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let _ = metadata;
+        Ok(format!(
+            "windows:{}:{}:{}",
+            info.volume, info.index_high, info.index_low
+        ))
+    }
+
+    #[cfg(not(any(unix, windows)))]
     {
         let canonical = _path
             .canonicalize()
