@@ -33,8 +33,10 @@ passed. This closes the previously missing visualization implementation.
 
 Final process handoff exposed a detached prior collector after the window process
 was gone. A graceful termination was requested and its listener closed; the app's
-retry started a new owned listener. Final shutdown completion of the old process
-and successful dashboard response must be checked before goal closure.
+retry started a new owned listener. The old process subsequently exited,
+HTTP returned 200 and the native window restored its populated dashboard.
+One app-owned collector remains. Cold startup latency remains an improvement
+opportunity, not a claim of instant uncached queries. Core delivery is complete.
 
 Historical gaps and unknown pool attribution are accepted evidence limits, not
 items to fix by guessing. Exhaustive per-session review is explicitly out of the

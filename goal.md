@@ -1,6 +1,6 @@
 # Usage Visualization and Product Experience Goal
 
-Status: **ACTIVE**  
+Status: **COMPLETE — core application delivered and installed**  
 Started: 2026-09-05  
 Baseline: `93c6aa5dc63290a8c2e94579f81bc51cecd84e25`  
 Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-governance-goal.md).
@@ -8,6 +8,16 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 ## Latest execution direction — automate, do not manually audit sessions
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
+
+Final handoff completed: old detached process exited after graceful termination;
+one app-owned collector remains. The retry returned HTTP 200 and the actual
+native window recovered its populated dashboard. Initial cold startup was slow;
+subsequent cached response was immediate, not a cold-query benchmark.
+E01–E06 core delivery is complete with the functional evidence in the delivery
+review. Historical limitations remain explicit and accepted; no exhaustive
+per-session audit or missing-log recovery is pending. Older unchecked entries
+below are chronological records superseded by this final delivery result.
+No notarization, external release or Windows/Linux package acceptance is claimed.
 
 Quota chart visual/native delivery passed: inspected synthetic wide/narrow
 screenshots, installed manifest `35614600cc0c639b3bb3c91fdd9b847c9145cee9c3c5955bf929714b72ad8587`,
