@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TurnEvidenceResponse",
+  "type": "object",
+  "properties": {
+    "backfillComplete": {
+      "type": "boolean"
+    },
+    "end": {
+      "type": "string"
+    },
+    "historyComplete": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint",
+      "minimum": 0
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TurnEvidenceRow"
+      }
+    },
+    "scope": {
+      "type": "string"
+    },
+    "selectedAccount": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selectedModel": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "start": {
+      "type": "string"
+    },
+    "threadId": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "backfillComplete",
+    "scope",
+    "historyComplete",
+    "threadId",
+    "start",
+    "end",
+    "selectedAccount",
+    "selectedModel",
+    "nextOffset",
+    "rows"
+  ],
+  "$defs": {
+    "TokenUsage": {
+      "type": "object",
+      "properties": {
+        "cacheWrite": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteCoverage": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteObservedInput": {
+          "type": "number",
+          "format": "double"
+        },
+        "cached": {
+          "type": "number",
+          "format": "double"
+        },
+        "input": {
+          "type": "number",
+          "format": "double"
+        },
+        "output": {
+          "type": "number",
+          "format": "double"
+        },
+        "reasoning": {
+          "type": "number",
+          "format": "double"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        },
+        "uncached": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "input",
+        "cached",
+        "cacheWrite",
+        "cacheWriteObservedInput",
+        "cacheWriteCoverage",
+        "uncached",
+        "output",
+        "reasoning",
+        "total"
+      ]
+    },
+    "TurnEvidenceRow": {
+      "type": "object",
+      "properties": {
+        "confirmedRequestCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "confirmedUsage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TokenUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "firstAt": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "lastAt": {
+          "type": "string"
+        },
+        "requestCount": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "groupId",
+        "turnId",
+        "firstAt",
+        "lastAt",
+        "requestCount",
+        "confirmedRequestCount",
+        "confirmedUsage"
+      ]
+    }
+  }
+}

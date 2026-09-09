@@ -402,27 +402,7 @@ impl ReplayGuard {
         let Some(canonical) = self.canonical.as_ref() else {
             return false;
         };
-        let turn_id = record
-            .pointer("/payload/turn_id")
-            .and_then(Value::as_str)
-            .and_then(uuid_v7_millis_prefix);
-        let rollout_id = uuid_v7_millis_prefix(&canonical.rollout_id);
-        if matches!((turn_id, rollout_id), (Some(turn), Some(rollout)) if turn >= rollout) {
-            return true;
-        }
-
-        let started_at_ms = record
-            .pointer("/payload/started_at")
-            .and_then(json_u64)
-            .map(|seconds| seconds.saturating_mul(1_000));
-        let canonical_ms = canonical
-            .source_timestamp
-            .as_ref()
-            .and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok());
-        matches!(
-            (started_at_ms, canonical_ms),
-            (Some(started), Some(canonical)) if started.saturating_add(2_000) >= canonical
-        )
+        task_belongs_to_canonical_stream(record, &canonical.rollout_id, canonical.source_timestamp)
     }
 
     fn process_turn_context(&mut self, record: &Value) -> ReplayOutcome {
@@ -631,6 +611,10 @@ impl ReplayGuard {
             quality,
             quality_reason,
             provenance: EventProvenance {
+                source_turn_id: None,
+                candidate_rollout_event_id: None,
+                sampling_receipt_key: None,
+                source_record_key: None,
                 machine_id: self.config.machine_id.clone(),
                 source_id: self.config.source_id.clone(),
                 rollout_id,
@@ -642,7 +626,41 @@ impl ReplayGuard {
     }
 }
 
-/// Extract both cumulative context and the actual per-sampling delta.
+/// Shared by live interpretation and reconstruction; rewritten outer record
+/// timestamps alone do not establish that a task belongs to the child.
+pub(crate) fn task_belongs_to_canonical_stream(
+    record: &Value,
+    rollout_id: &str,
+    canonical_at: Option<DateTime<Utc>>,
+) -> bool {
+    let turn_id = record
+        .pointer("/payload/turn_id")
+        .and_then(Value::as_str)
+        .and_then(uuid_v7_millis_prefix);
+    let rollout_id = uuid_v7_millis_prefix(rollout_id);
+    if matches!((turn_id, rollout_id), (Some(turn), Some(rollout)) if turn >= rollout) {
+        return true;
+    }
+    let started_at_ms = record
+        .pointer("/payload/started_at")
+        .and_then(json_u64)
+        .map(|seconds| seconds.saturating_mul(1_000));
+    let canonical_ms =
+        canonical_at.and_then(|timestamp| u64::try_from(timestamp.timestamp_millis()).ok());
+    matches!((started_at_ms, canonical_ms), (Some(started), Some(canonical)) if started.saturating_add(2_000) >= canonical)
+}
+
+/// Distinguish numeric snapshots from token_count metadata notifications.
+pub(crate) fn is_usage_snapshot(record: &Value) -> bool {
+    record.get("type").and_then(Value::as_str) == Some("event_msg")
+        && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count")
+        && record
+            .pointer("/payload/info")
+            .is_some_and(|info| !info.is_null())
+}
+
+/// Extract quantities, if present. A token_count with null/absent info can
+/// carry a quota update only and is not itself a damaged cumulative snapshot.
 pub fn parse_token_sample(record: &Value) -> TokenSample {
     let info = record.pointer("/payload/info");
     TokenSample {
@@ -655,32 +673,32 @@ pub fn parse_token_sample(record: &Value) -> TokenSample {
     }
 }
 
-fn parse_usage(value: &Value) -> Option<TokenUsage> {
+/// Parse present unsigned fields without inventing absent measurements. Keep
+/// invariant validation at the consumer so diagnostic guards can quarantine
+/// complete but non-conserving records rather than losing their raw evidence.
+pub(crate) fn parse_usage(value: &Value) -> Option<TokenUsage> {
     let object = value.as_object()?;
-    let input_tokens = object.get("input_tokens").and_then(json_u64).unwrap_or(0);
-    let cached_input_tokens = object
-        .get("cached_input_tokens")
-        .and_then(json_u64)
-        .unwrap_or(0);
-    let cache_write_value = object
-        .get("cache_write_input_tokens")
-        .or_else(|| object.get("cache_write_tokens"))
-        .or_else(|| object.get("input_cache_write_tokens"));
-    let cache_write_input_tokens = cache_write_value.and_then(json_u64).unwrap_or(0);
-    let cache_write_observed_input_tokens = if cache_write_value.is_some() {
-        input_tokens
-    } else {
-        0
-    };
-    let output_tokens = object.get("output_tokens").and_then(json_u64).unwrap_or(0);
-    let reasoning_output_tokens = object
-        .get("reasoning_output_tokens")
-        .and_then(json_u64)
-        .unwrap_or(0);
-    let total_tokens = object
-        .get("total_tokens")
-        .and_then(json_u64)
-        .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
+    let input_tokens = object.get("input_tokens").and_then(json_u64)?;
+    let cached_input_tokens = object.get("cached_input_tokens").and_then(json_u64)?;
+    let mut cache_write = None;
+    for name in [
+        "cache_write_input_tokens",
+        "cache_write_tokens",
+        "input_cache_write_tokens",
+    ] {
+        if let Some(value) = object.get(name).filter(|value| !value.is_null()) {
+            let parsed = json_u64(value)?;
+            if cache_write.is_some_and(|previous| previous != parsed) {
+                return None;
+            }
+            cache_write = Some(parsed);
+        }
+    }
+    let cache_write_input_tokens = cache_write.unwrap_or(0);
+    let cache_write_observed_input_tokens = cache_write.map_or(0, |_| input_tokens);
+    let output_tokens = object.get("output_tokens").and_then(json_u64)?;
+    let reasoning_output_tokens = object.get("reasoning_output_tokens").and_then(json_u64)?;
+    let total_tokens = object.get("total_tokens").and_then(json_u64)?;
     Some(TokenUsage {
         input_tokens,
         cached_input_tokens,
@@ -707,14 +725,61 @@ fn parse_source_timestamp(record: &Value) -> Option<DateTime<Utc>> {
 }
 
 fn uuid_v7_millis_prefix(value: &str) -> Option<u64> {
-    let prefix: String = value
-        .chars()
-        .filter(|character| *character != '-')
-        .take(12)
-        .collect();
-    (prefix.len() == 12)
-        .then(|| u64::from_str_radix(&prefix, 16).ok())
-        .flatten()
+    let bytes = value.as_bytes();
+    if bytes.len() != 32 && bytes.len() != 36 {
+        return None;
+    }
+    if bytes.len() == 36 && [8, 13, 18, 23].iter().any(|&i| bytes[i] != b'-') {
+        return None;
+    }
+    let compact: Vec<u8> = bytes.iter().copied().filter(|byte| *byte != b'-').collect();
+    if compact.len() != 32
+        || !compact.iter().all(u8::is_ascii_hexdigit)
+        || compact[12] != b'7'
+        || !matches!(compact[16], b'8' | b'9' | b'a' | b'b' | b'A' | b'B')
+    {
+        return None;
+    }
+    u64::from_str_radix(std::str::from_utf8(&compact[..12]).ok()?, 16).ok()
+}
+
+#[cfg(test)]
+mod task_identity_tests {
+    use super::*;
+    #[test]
+    fn random_v4_task_cannot_release_foreign_history_using_its_random_prefix() {
+        let canonical = "019b76da-a800-7000-8000-000000000000";
+        let at = Some("2026-01-01T00:00:00Z".parse().unwrap());
+        let old = serde_json::json!({"type":"event_msg","payload":{"type":"task_started",
+            "turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":1}});
+        assert!(!task_belongs_to_canonical_stream(&old, canonical, at));
+        let mut current = old.clone();
+        current["payload"]["started_at"] = serde_json::json!(1767225601);
+        assert!(
+            task_belongs_to_canonical_stream(&current, canonical, at),
+            "v4 may still use the embedded start time"
+        );
+    }
+    #[test]
+    fn timestamp_identity_requires_an_entire_valid_v7_uuid() {
+        for id in [
+            "f1234567-89ab-4cde-8abc-0123456789ab",
+            "f1234567-89ab-7cde-7abc-0123456789ab",
+            "f123456789ab",
+            "f1234567-89ab-7cde-8abc-0123456789ab-tail",
+            "f123456789ab7cde8abc0123456789az",
+        ] {
+            assert_eq!(uuid_v7_millis_prefix(id), None, "{id}");
+        }
+        assert_eq!(
+            uuid_v7_millis_prefix("019b76da-a800-7000-8000-000000000000"),
+            Some(0x019b76daa800)
+        );
+        assert_eq!(
+            uuid_v7_millis_prefix("019B76DAA8007000A000000000000000"),
+            Some(0x019b76daa800)
+        );
+    }
 }
 
 fn stable_event_id(machine_id: &str, file_identity: &str, rollout_id: &str, offset: u64) -> String {
@@ -829,7 +894,7 @@ mod tests {
     fn missing_last_usage_never_becomes_confirmed_usage() {
         let lines = fixture_lines(
             "{\"type\":\"session_meta\",\"timestamp\":\"2026-08-31T00:00:00Z\",\"payload\":{\"id\":\"01a05549-db09-7e23-a8fa-4591323280d0\"}}\n\
-             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":9,\"output_tokens\":1,\"total_tokens\":10}}}}\n",
+             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"input_tokens\":9,\"cached_input_tokens\":0,\"output_tokens\":1,\"reasoning_output_tokens\":0,\"total_tokens\":10}}}}\n",
         );
         let mut guard = guard();
         guard.process_line(&lines[0], observed_at());
@@ -842,7 +907,7 @@ mod tests {
     fn non_conserving_last_usage_is_quarantined() {
         let lines = fixture_lines(
             "{\"type\":\"session_meta\",\"timestamp\":\"2026-08-31T00:00:00Z\",\"payload\":{\"id\":\"01a05549-db09-7e23-a8fa-4591323280d0\"}}\n\
-             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":90,\"output_tokens\":10,\"reasoning_output_tokens\":11,\"total_tokens\":101}}}}\n",
+             {\"type\":\"event_msg\",\"timestamp\":\"2026-08-31T00:00:01Z\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":90,\"cached_input_tokens\":0,\"output_tokens\":10,\"reasoning_output_tokens\":11,\"total_tokens\":101}}}}\n",
         );
         let mut guard = guard();
         guard.process_line(&lines[0], observed_at());
@@ -863,6 +928,7 @@ mod tests {
                 "cached_input_tokens": 70,
                 "cache_write_input_tokens": 10,
                 "output_tokens": 20,
+                "reasoning_output_tokens": 0,
                 "total_tokens": 120
             }}}
         });
@@ -878,6 +944,7 @@ mod tests {
                 "input_tokens": 100,
                 "cached_input_tokens": 70,
                 "output_tokens": 20,
+                "reasoning_output_tokens": 0,
                 "total_tokens": 120
             }}}
         });

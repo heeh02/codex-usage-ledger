@@ -3,9 +3,295 @@ use rusqlite::{Connection, TransactionBehavior, params};
 
 use super::{StoreError, StoreResult, rebuild_reconstruction_rollups_in, timestamp};
 
-pub(super) const CURRENT_SCHEMA_VERSION: i64 = 24;
+pub(super) const CURRENT_SCHEMA_VERSION: i64 = 43;
+
+const MIGRATION_43: &str = "ALTER TABLE usage_query_policy ADD COLUMN allow_unresolved INTEGER NOT NULL DEFAULT 0 CHECK(allow_unresolved IN (0,1));";
+
+const MIGRATION_42: &str = "INSERT OR IGNORE INTO measurement_union_dirty(kind,identity)
+    SELECT g.kind,g.identity FROM measurement_union_groups g
+    JOIN retained_request_evidence k ON g.kind='sampling' AND k.event_id=g.identity
+    WHERE k.quality<>'confirmed';";
+
+const MIGRATION_41: &str = "CREATE TABLE usage_query_policy (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    policy TEXT NOT NULL CHECK(policy IN ('max_thread_day_v1','request_union_v2')),
+    activated_at TEXT
+); INSERT INTO usage_query_policy VALUES(1,'max_thread_day_v1',NULL);";
+
+const MIGRATION_40: &str =
+    "CREATE INDEX measurement_union_selected_time ON measurement_union_selected(effective_at);";
+
+const MIGRATION_39: &str = r#"
+ALTER TABLE measurement_union_counts ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 2;
+UPDATE measurement_union_backfill SET last_id=NULL,
+ target_id=(SELECT event_id FROM retained_request_evidence ORDER BY event_id DESC LIMIT 1),
+ complete=NOT EXISTS(SELECT 1 FROM retained_request_evidence)
+ WHERE evidence_source='sampling';
+UPDATE measurement_union_backfill SET last_id=NULL,
+ target_id=(SELECT event_id FROM reconstruction_usage_events ORDER BY event_id DESC LIMIT 1),
+ complete=NOT EXISTS(SELECT 1 FROM reconstruction_usage_events)
+ WHERE evidence_source='reconstruction';
+"#;
+
+const MIGRATION_37: &str = r#"
+ALTER TABLE quota_window_observations ADD COLUMN created_revision INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX quota_window_ordered_stream_idx
+ON quota_window_observations(account_fingerprint,stream_key,observed_at,snapshot_id,window_ordinal);
+CREATE TABLE quota_boundary_state (
+    id INTEGER PRIMARY KEY CHECK(id=1), instance_id TEXT NOT NULL, cursor_key BLOB NOT NULL,
+    revision INTEGER NOT NULL, ready_revision INTEGER,
+    last_rowid INTEGER NOT NULL, target_rowid INTEGER NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1))
+);
+INSERT INTO quota_boundary_state
+SELECT 1,lower(hex(randomblob(16))),randomblob(32),0,
+       CASE WHEN target=0 AND (SELECT complete FROM quota_window_index_state WHERE id=1)=1 THEN 0 ELSE NULL END,
+       0,target,target=0 FROM (
+    SELECT COALESCE((SELECT rowid FROM quota_window_observations ORDER BY rowid DESC LIMIT 1),0) AS target
+);
+CREATE TABLE quota_boundary_versions (
+    observation_id TEXT NOT NULL REFERENCES quota_window_observations(observation_id),
+    valid_from INTEGER NOT NULL, valid_to INTEGER,
+    account_fingerprint TEXT NOT NULL, stream_key TEXT NOT NULL,
+    observed_at TEXT NOT NULL, snapshot_id TEXT NOT NULL, window_ordinal INTEGER NOT NULL,
+    boundary_kind TEXT NOT NULL, boundary_after TEXT,
+    PRIMARY KEY(observation_id,valid_from),
+    CHECK(valid_to IS NULL OR valid_to>valid_from)
+);
+CREATE UNIQUE INDEX quota_boundary_current_idx ON quota_boundary_versions(observation_id) WHERE valid_to IS NULL;
+CREATE INDEX quota_boundary_account_page_idx
+ON quota_boundary_versions(account_fingerprint,observed_at DESC,snapshot_id DESC,window_ordinal DESC,valid_from);
+CREATE INDEX quota_boundary_stream_page_idx
+ON quota_boundary_versions(account_fingerprint,stream_key,observed_at,snapshot_id,window_ordinal,valid_from);
+CREATE INDEX quota_boundary_live_page_idx
+ON quota_boundary_versions(account_fingerprint,observed_at DESC,snapshot_id DESC,window_ordinal DESC) WHERE valid_to IS NULL;
+CREATE INDEX quota_boundary_all_page_idx
+ON quota_boundary_versions(observed_at DESC,snapshot_id DESC,window_ordinal DESC,valid_from);
+CREATE INDEX quota_boundary_all_live_idx
+ON quota_boundary_versions(observed_at DESC,snapshot_id DESC,window_ordinal DESC) WHERE valid_to IS NULL;
+"#;
+
+const MIGRATION_36: &str = r#"
+CREATE TABLE quota_window_observations (
+    observation_id TEXT PRIMARY KEY,
+    snapshot_id TEXT NOT NULL REFERENCES quota_snapshots(snapshot_id),
+    window_ordinal INTEGER NOT NULL CHECK(window_ordinal>=0),
+    account_fingerprint TEXT NOT NULL,
+    auth_epoch TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    stream_key TEXT NOT NULL,
+    pool_key TEXT NOT NULL,
+    limit_id TEXT NOT NULL,
+    limit_name TEXT,
+    role TEXT NOT NULL,
+    used_percent REAL CHECK(used_percent IS NULL OR used_percent BETWEEN 0 AND 100),
+    window_seconds TEXT,
+    resets_at_unix INTEGER
+);
+CREATE INDEX quota_window_snapshot_idx ON quota_window_observations(snapshot_id);
+CREATE INDEX quota_window_account_time_idx
+ON quota_window_observations(account_fingerprint,observed_at DESC,observation_id DESC);
+CREATE INDEX quota_window_stream_time_idx
+ON quota_window_observations(account_fingerprint,stream_key,observed_at,observation_id);
+CREATE TABLE quota_window_index_state (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    last_rowid INTEGER NOT NULL,
+    target_rowid INTEGER NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1))
+);
+INSERT INTO quota_window_index_state(id,last_rowid,target_rowid,complete)
+SELECT 1,0,target,target=0 FROM (
+    SELECT COALESCE((SELECT rowid FROM quota_snapshots ORDER BY rowid DESC LIMIT 1),0) AS target
+);
+"#;
+
+const MIGRATION_35: &str = r#"
+CREATE INDEX IF NOT EXISTS retained_request_effective_time_idx
+ON retained_request_evidence(effective_at,event_id);
+"#;
+
+const MIGRATION_34: &str = r#"
+CREATE TABLE IF NOT EXISTS source_record_evidence (
+    evidence_source TEXT NOT NULL CHECK(evidence_source IN ('sampling','reconstruction')),
+    event_id TEXT NOT NULL,
+    record_key TEXT NOT NULL,
+    PRIMARY KEY(evidence_source,event_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS source_record_evidence_key ON source_record_evidence(record_key,evidence_source,event_id);
+"#;
+
+const MIGRATION_33: &str = r#"
+CREATE TABLE IF NOT EXISTS sampling_receipt_owners (
+    receipt_key TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE
+) WITHOUT ROWID;
+INSERT OR IGNORE INTO sampling_receipt_owners(receipt_key,event_id)
+SELECT receipt_key,MIN(event_id) FROM sampling_source_receipts
+GROUP BY receipt_key HAVING COUNT(*)=1;
+"#;
+
+const MIGRATION_32: &str = r#"
+CREATE TABLE IF NOT EXISTS sampling_source_receipts (
+    event_id TEXT PRIMARY KEY,
+    receipt_key TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS sampling_source_receipt_key_idx ON sampling_source_receipts(receipt_key,event_id);
+"#;
+
+const MIGRATION_31: &str = r#"
+CREATE TABLE IF NOT EXISTS request_backfill_state (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    last_rowid INTEGER NOT NULL,
+    target_rowid INTEGER NOT NULL,
+    complete INTEGER NOT NULL CHECK(complete IN (0,1))
+);
+INSERT OR IGNORE INTO request_backfill_state
+SELECT 1,0,COALESCE(MAX(rowid),0),CASE WHEN COUNT(*)=0 THEN 1 ELSE 0 END FROM usage_events;
+"#;
+
+const MIGRATION_30: &str = r#"
+CREATE TABLE IF NOT EXISTS retained_request_assignments (
+    event_id TEXT PRIMARY KEY,
+    account_fingerprint TEXT,
+    project_id TEXT
+) WITHOUT ROWID;
+"#;
+
+const MIGRATION_29: &str = r#"
+CREATE TABLE IF NOT EXISTS retained_request_origins (
+    event_id TEXT PRIMARY KEY,
+    machine_id TEXT NOT NULL
+) WITHOUT ROWID;
+"#;
+
+const MIGRATION_28: &str = r#"
+CREATE INDEX IF NOT EXISTS sampling_candidate_target_idx
+    ON sampling_candidate_links(reconstruction_event_id, event_id);
+"#;
+
+const MIGRATION_27: &str = r#"
+CREATE TABLE IF NOT EXISTS sampling_candidate_links (
+    event_id TEXT PRIMARY KEY,
+    reconstruction_event_id TEXT NOT NULL,
+    method TEXT NOT NULL CHECK(method = 'unique_nearest_timestamp')
+) WITHOUT ROWID;
+"#;
+
+const MIGRATION_26: &str = r#"
+CREATE TABLE IF NOT EXISTS retained_request_evidence (
+    event_id TEXT PRIMARY KEY,
+    event_hash TEXT NOT NULL,
+    effective_at TEXT NOT NULL,
+    thread_id TEXT,
+    model TEXT,
+    account_fingerprint TEXT,
+    project_id TEXT,
+    quality TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_input_tokens INTEGER NOT NULL,
+    cache_write_input_tokens INTEGER NOT NULL,
+    cache_write_observed_input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    reasoning_output_tokens INTEGER NOT NULL,
+    total_tokens INTEGER NOT NULL,
+    turn_id TEXT,
+    account_confidence TEXT NOT NULL,
+    project_confidence TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS retained_request_thread_time_idx
+    ON retained_request_evidence(thread_id, effective_at, event_id);
+"#;
+
+// Queue inserts use an existence predicate: an outer rollup UPSERT can override
+// INSERT OR IGNORE inside a trigger. SQLite serializes writers, so the predicate
+// and insert remain atomic. Existing dirty-state triggers are retained.
+const MIGRATION_25: &str = r#"
+CREATE TABLE IF NOT EXISTS effective_source_dirty_keys (
+ local_day TEXT NOT NULL, thread_key TEXT NOT NULL,
+ PRIMARY KEY(local_day, thread_key)
+) WITHOUT ROWID;
+INSERT OR IGNORE INTO effective_source_dirty_keys
+SELECT local_day, thread_key FROM daily_usage_rollups WHERE quality = 'confirmed'
+UNION SELECT local_day, thread_key FROM reconstruction_daily_rollups
+UNION SELECT local_day, thread_key FROM effective_thread_day_source;
+UPDATE effective_source_selection_state SET dirty = 1 WHERE id = 1;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_insert
+AFTER INSERT ON daily_usage_rollups WHEN NEW.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_update
+AFTER UPDATE ON daily_usage_rollups WHEN OLD.quality = 'confirmed' OR NEW.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_sampling_keys_delete
+AFTER DELETE ON daily_usage_rollups WHEN OLD.quality = 'confirmed'
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_insert
+AFTER INSERT ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_update
+AFTER UPDATE ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+ INSERT INTO effective_source_dirty_keys
+ SELECT NEW.local_day, NEW.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = NEW.local_day AND thread_key = NEW.thread_key
+ );
+END;
+CREATE TRIGGER IF NOT EXISTS effective_reconstruction_keys_delete
+AFTER DELETE ON reconstruction_daily_rollups
+BEGIN
+ INSERT INTO effective_source_dirty_keys
+ SELECT OLD.local_day, OLD.thread_key WHERE NOT EXISTS (
+     SELECT 1 FROM effective_source_dirty_keys
+     WHERE local_day = OLD.local_day AND thread_key = OLD.thread_key
+ );
+END;
+"#;
 
 pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
+    migrate_through(connection, CURRENT_SCHEMA_VERSION)
+}
+
+#[cfg(test)]
+pub(super) fn create_legacy_schema(connection: &mut Connection, version: i64) -> StoreResult<()> {
+    assert!((1..=CURRENT_SCHEMA_VERSION).contains(&version));
+    migrate_through(connection, version)
+}
+
+fn migrate_through(connection: &mut Connection, target_version: i64) -> StoreResult<()> {
     let mut version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version > CURRENT_SCHEMA_VERSION {
         return Err(StoreError::SchemaTooNew {
@@ -14,7 +300,7 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
         });
     }
 
-    while version < CURRENT_SCHEMA_VERSION {
+    while version < target_version {
         let next = version + 1;
         let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         match next {
@@ -46,6 +332,25 @@ pub(super) fn migrate(connection: &mut Connection) -> StoreResult<()> {
                 audit_persisted_usage_invariants(&transaction)?;
                 transaction.execute_batch(MIGRATION_24)?;
             }
+            25 => transaction.execute_batch(MIGRATION_25)?,
+            26 => transaction.execute_batch(MIGRATION_26)?,
+            27 => transaction.execute_batch(MIGRATION_27)?,
+            28 => transaction.execute_batch(MIGRATION_28)?,
+            29 => transaction.execute_batch(MIGRATION_29)?,
+            30 => transaction.execute_batch(MIGRATION_30)?,
+            31 => transaction.execute_batch(MIGRATION_31)?,
+            32 => transaction.execute_batch(MIGRATION_32)?,
+            33 => transaction.execute_batch(MIGRATION_33)?,
+            34 => transaction.execute_batch(MIGRATION_34)?,
+            35 => transaction.execute_batch(MIGRATION_35)?,
+            36 => transaction.execute_batch(MIGRATION_36)?,
+            37 => transaction.execute_batch(MIGRATION_37)?,
+            38 => super::union_projection::migrate(&transaction)?,
+            39 => transaction.execute_batch(MIGRATION_39)?,
+            40 => transaction.execute_batch(MIGRATION_40)?,
+            41 => transaction.execute_batch(MIGRATION_41)?,
+            42 => transaction.execute_batch(MIGRATION_42)?,
+            43 => transaction.execute_batch(MIGRATION_43)?,
             _ => unreachable!("all migrations must be enumerated"),
         }
         transaction.pragma_update(None, "user_version", next)?;

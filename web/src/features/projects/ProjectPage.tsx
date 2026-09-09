@@ -4,8 +4,11 @@ import { ProjectExplorer } from '../../components/Explorer';
 import { UsageTrendPanel } from '../../components/TrendAndTimeline';
 import { useI18n } from '../../i18n';
 import type { AppPage } from '../../page';
+import { ConversationControls } from '../../components/ConversationControls';
 
 interface ProjectPageProps {
+  filters: DashboardFilters;
+  onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
   page: Extract<AppPage, 'project' | 'conversation' | 'unmatched'>;
   projectId: string;
@@ -18,6 +21,8 @@ interface ProjectPageProps {
 }
 
 export function ProjectPage({
+  filters,
+  onFiltersChange,
   bundle,
   page,
   projectId,
@@ -40,14 +45,19 @@ export function ProjectPage({
     <ProjectExplorer
       key={selectedProject?.id ?? projectId}
       explorer={bundle.explorer}
+      usagePolicy={bundle.collection.usagePolicy}
       period={period}
       periodWindow={bundle.summary.period}
       scopeKind={selectedProject?.kind ?? 'project'}
       tab={tab}
       onTabChange={onTabChange}
-      trend={<UsageTrendPanel data={bundle.timeseries} metric={metric} title={title} allowProjectCompare={false} className="project-usage-trend" />}
-      modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
+      trend={<UsageTrendPanel data={bundle.timeseries} metric={metric} title={title} allowProjectCompare={false} className="project-usage-trend" onInspectRange={range => {
+        onFiltersChange({ ...filters, ...range, period: 'custom', sessionOffset: 0, sessionSearch: '' });
+        onTabChange('sessions');
+      }} />}
+      modelBreakdown={<BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />}
       onOpenSession={onOpenSession}
+      conversationControls={<ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} />}
     />
   );
 }

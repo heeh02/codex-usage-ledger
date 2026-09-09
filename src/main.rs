@@ -14,14 +14,19 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use codex_usage_ledger::{
+    AttributionConfidence, OfficialUsageScope,
     api::{self, ApiState, UsageQuery},
     cli_support::{
-        AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore,
-        POST_SAMPLING_SOURCE_ID, compact_expired_raw_events, discover_rollouts,
-        fetch_official_account_usage, ingest_post_sampling, ingest_quota_tails,
-        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
-        load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
-        prepare_store, sync_account_history, sync_native_catalog,
+        AccountBinding, AggregateDimension, AggregateFilter, CollectorStatus,
+        CorrectionPreviewFilter, CorrectionPreviewGrain, LedgerStore, POST_SAMPLING_SOURCE_ID,
+        RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain, SourceUnionQuery,
+        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
+        compact_expired_raw_events, compare_preview_sampling, create_correction_preview,
+        discover_rollouts, ingest_post_sampling, ingest_quota_tails, ingest_reconstruction_batch,
+        ingest_reconstruction_batch_for_project, load_or_create_hmac_key,
+        load_or_create_machine_id, observe_auth, prepare_fast_ledger, prepare_store,
+        read_correction_preview, sync_account_history, sync_native_catalog,
+        verify_correction_against_ledger, verify_correction_manifest, write_correction_manifest,
     },
 };
 use serde_json::json;
@@ -37,6 +42,321 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Build a separate exact-match migration candidate; never overwrites either input.
+    PrepareReviewTransfer {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        review: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        expected_source_sha256: String,
+        #[arg(long)]
+        expected_review_sha256: String,
+    },
+    /// Generate bounded per-thread review drafts; reuse valid drafts without rescanning sources.
+    DraftReconstructionBatch {
+        /// Apply deterministic reconciliation and sampling linkage automatically on a shadow.
+        #[arg(long)]
+        automatic: bool,
+        #[arg(long, requires="automatic", default_value_t=1, value_parser=clap::value_parser!(u16).range(1..=1000))]
+        automatic_batches: u16,
+        #[arg(long, requires = "automatic")]
+        missing_identities_only: bool,
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
+        #[arg(long)]
+        after: Option<String>,
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes_per_source: usize,
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Restore associations in a corrected review shadow; never changes Token facts.
+    LinkShadowSampling {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+    },
+    /// Create a new isolated review copy, preserving the source ledger.
+    CreateReviewShadow {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Apply a sealed correction only to a generated shadow, never an ordinary ledger.
+    ApplyShadowCorrection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        expected_sha256: String,
+        /// Correct existing facts only; archive new candidates separately without importing them.
+        #[arg(long)]
+        existing_only: bool,
+    },
+    /// Requalify persisted sampling anchors against a complete rollout prefix; never writes.
+    AuditLegacySampling {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 100000)]
+        limit: usize,
+        #[arg(long, default_value_t = 1073741824)]
+        max_bytes: u64,
+        #[arg(long)]
+        include_links: bool,
+    },
+    /// Read the actual dashboard bundle through the resolved union, without promoting policy.
+    PreviewUnionBundle {
+        #[arg(long)]
+        db: PathBuf,
+        /// UsageQuery JSON, with the same account/project/session/time filters as the app.
+        #[arg(long, default_value = "{}")]
+        query: String,
+    },
+    /// Read all retained quota observation intervals by stable seek pages; never migrates or writes.
+    QuotaHistory {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        cursor: Option<String>,
+        #[arg(long, default_value_t=20, value_parser=clap::value_parser!(u16).range(1..=100))]
+        limit: u16,
+    },
+    /// Read-only paired raw/retained hash audit. Does not authorize repair.
+    AuditRetainedHashes {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value_t = 0)]
+        after_rowid: i64,
+        #[arg(long, default_value_t = 1000)]
+        limit: usize,
+    },
+    /// Compare a bounded retained rollout prefix with existing reconstructed facts; never writes.
+    AuditReconstruction {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 4194304)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        /// Diagnostic only: compare under the old namespace when only Unix device differs.
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Stream one source file for comparison; never migrates or updates the ledger.
+    AuditReconstructionFile {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_token_rows: usize,
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Compare an explicit fork's inherited Token-info prefix with its indexed parent.
+    AuditInheritedPrefix {
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_tokens: usize,
+    },
+    /// Export a new private review-only JSONL draft; never applies corrections.
+    DraftReconstructionCorrection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        codex_home: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 1_073_741_824)]
+        max_bytes: usize,
+        #[arg(long, default_value_t = 1_000_000)]
+        max_token_rows: usize,
+        #[arg(long)]
+        allow_device_drift: bool,
+    },
+    /// Validate a draft's structure/checksum; not source validation or approval.
+    VerifyReconstructionCorrection {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Also compare expected old records with one read-only ledger snapshot.
+        #[arg(long)]
+        against_db: Option<PathBuf>,
+    },
+    /// Build a separate review-only SQLite preview from a revalidated full draft.
+    CreateCorrectionPreview {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        against_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Read old/candidate dimensions from a preview; never opens the source ledger.
+    ReadCorrectionPreview {
+        #[arg(long)]
+        preview: PathBuf,
+        #[arg(long)]
+        start: Option<chrono::DateTime<chrono::Utc>>,
+        #[arg(long)]
+        end: Option<chrono::DateTime<chrono::Utc>>,
+        #[arg(long, default_value = "Asia/Shanghai")]
+        timezone: String,
+        #[arg(long, default_value = "day")]
+        grain: CorrectionPreviewGrain,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        thread: Option<String>,
+    },
+    /// Compare sampling with a candidate preview without deduplicating by proximity.
+    CompareCorrectionSources {
+        #[arg(long)]
+        preview: PathBuf,
+        #[arg(long)]
+        against_db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 10000)]
+        limit: usize,
+        #[arg(long)]
+        include_rows: bool,
+    },
+    /// Resume retained request detail backfill in an existing current-schema ledger.
+    /// Writes derived details, but never imports sources or changes token rollups.
+    BackfillRequests {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long, default_value_t=1, value_parser=clap::value_parser!(u16).range(1..=100))]
+        batches: u16,
+    },
+    /// Shadow local source-record union; never changes the active accounting policy.
+    ShadowUnion {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value_t = 1000)]
+        limit: usize,
+    },
+    /// Promote a reviewed, fully prepared ledger. Restart running services afterwards.
+    PromoteUnion {
+        /// Show confirmed records with explicit history gaps instead of blocking all queries.
+        #[arg(long)]
+        allow_incomplete_history: bool,
+        #[arg(long)]
+        db: PathBuf,
+    },
+    /// Inspect the staged request-level union; does not switch production policy.
+    UnionProjection {
+        #[arg(long)]
+        db: PathBuf,
+        /// Explicitly write bounded candidate batches in an existing current-schema ledger.
+        #[arg(long)]
+        advance: bool,
+        #[arg(long, requires="advance", value_parser=clap::value_parser!(u16).range(1..=100))]
+        batches: Option<u16>,
+    },
+    /// Query staged union dimensions in one read snapshot. Never changes active policy.
+    ReadUnionProjection {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long, default_value = "Asia/Shanghai")]
+        timezone: String,
+        #[arg(long, default_value = "day")]
+        grain: SourceUnionGrain,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        thread: Option<String>,
+        #[arg(long, requires = "thread")]
+        include_descendants: bool,
+    },
+    /// Read one retained-request candidate audit page. Never migrates or imports.
+    AuditOverlap {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long)]
+        start: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        end: chrono::DateTime<chrono::Utc>,
+        #[arg(long)]
+        account: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long, default_value_t=100, value_parser=clap::value_parser!(u16).range(1..=500))]
+        limit: u16,
+        #[arg(long, requires = "after_id")]
+        after_time: Option<String>,
+        #[arg(long, requires = "after_time")]
+        after_id: Option<String>,
+    },
     /// Continuously ingest changes and serve the loopback dashboard.
     Daemon {
         #[arg(long)]
@@ -60,6 +380,9 @@ enum Command {
         listen: SocketAddr,
         #[arg(long)]
         web_root: Option<PathBuf>,
+        /// Read-only request-union UI acceptance; no collection, auth or migration.
+        #[arg(long,requires_all=["db","web_root"])]
+        union_preview: bool,
     },
     /// Print one filtered replay-safe snapshot as JSON.
     Summary {
@@ -138,6 +461,446 @@ async fn main() -> Result<()> {
         .init();
 
     match Cli::parse().command {
+        Command::PrepareReviewTransfer {
+            source,
+            review,
+            output,
+            expected_source_sha256,
+            expected_review_sha256,
+        } => {
+            let report = codex_usage_ledger::cli_support::prepare_review_transfer(
+                &source,
+                &review,
+                &output,
+                &expected_source_sha256,
+                &expected_review_sha256,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditRetainedHashes {
+            db,
+            after_rowid,
+            limit,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&store.audit_retained_hashes(after_rowid, limit)?)?
+            );
+        }
+        Command::AuditReconstruction {
+            db,
+            codex_home,
+            thread,
+            max_bytes,
+            limit,
+            allow_device_drift,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = audit_reconstruction_prefix(
+                &store,
+                &codex_home,
+                &thread,
+                max_bytes,
+                limit,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditLegacySampling {
+            db,
+            codex_home,
+            thread,
+            start,
+            end,
+            limit,
+            max_bytes,
+            include_links,
+        } => {
+            let report = codex_usage_ledger::cli_support::audit_legacy_sampling(
+                &db,
+                &codex_home,
+                &thread,
+                codex_usage_ledger::cli_support::LegacySamplingAuditOptions {
+                    start,
+                    end,
+                    limit,
+                    max_bytes,
+                    include_links,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::LinkShadowSampling {
+            db,
+            codex_home,
+            manifest,
+            expected_sha256,
+            start,
+            end,
+        } => {
+            let receipt = codex_usage_ledger::cli_support::link_shadow_sampling(
+                &db,
+                &codex_home,
+                &manifest,
+                &expected_sha256,
+                codex_usage_ledger::cli_support::LegacySamplingAuditOptions {
+                    start,
+                    end,
+                    limit: 100000,
+                    max_bytes: 1073741824,
+                    include_links: true,
+                },
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+        }
+        Command::CreateReviewShadow { db, output } => {
+            codex_usage_ledger::cli_support::create_review_shadow(&db, &output)?;
+            println!(
+                "{}",
+                json!({"status":"review_shadow_created","productionPolicyChanged":false})
+            );
+        }
+        Command::DraftReconstructionBatch {
+            automatic,
+            automatic_batches,
+            missing_identities_only,
+            db,
+            codex_home,
+            output_dir,
+            after,
+            limit,
+            max_bytes_per_source,
+            allow_device_drift,
+        } => {
+            if automatic {
+                let report = codex_usage_ledger::cli_support::run_history_reconciliation(
+                    &db,
+                    &codex_home,
+                    &output_dir,
+                    after.as_deref(),
+                    limit,
+                    max_bytes_per_source,
+                    allow_device_drift,
+                    usize::from(automatic_batches),
+                    missing_identities_only,
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                return Ok(());
+            }
+            let report = codex_usage_ledger::cli_support::draft_reconstruction_batch(
+                &db,
+                &codex_home,
+                &output_dir,
+                after.as_deref(),
+                limit,
+                max_bytes_per_source,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::ApplyShadowCorrection {
+            db,
+            manifest,
+            expected_sha256,
+            existing_only,
+        } => {
+            let receipt = codex_usage_ledger::cli_support::apply_shadow_correction_with_policy(
+                &db,
+                &manifest,
+                &expected_sha256,
+                existing_only,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&receipt)?);
+        }
+        Command::PreviewUnionBundle { db, query } => {
+            anyhow::ensure!(query.len() <= 8192, "query is too large");
+            let query: UsageQuery = serde_json::from_str(&query)?;
+            let store = LedgerStore::open_source_union_main_preview(db)?;
+            let bundle = ApiState::with_store(store).bundle_json(query).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "policy":"request_union_preview", "productionPolicyChanged":false,
+                    "historyComplete":false, "bundle":bundle
+                }))?
+            );
+        }
+        Command::AuditReconstructionFile {
+            db,
+            codex_home,
+            thread,
+            max_bytes,
+            max_token_rows,
+            allow_device_drift,
+        } => {
+            let report = audit_reconstruction_file(
+                &db,
+                &codex_home,
+                &thread,
+                max_bytes,
+                max_token_rows,
+                allow_device_drift,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditInheritedPrefix {
+            codex_home,
+            thread,
+            max_bytes,
+            max_tokens,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&audit_inherited_prefix(
+                    &codex_home,
+                    &thread,
+                    max_bytes,
+                    max_tokens
+                )?)?
+            );
+        }
+        Command::DraftReconstructionCorrection {
+            db,
+            codex_home,
+            thread,
+            output,
+            max_bytes,
+            max_token_rows,
+            allow_device_drift,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&write_correction_manifest(
+                    &db,
+                    &codex_home,
+                    &thread,
+                    max_bytes,
+                    max_token_rows,
+                    allow_device_drift,
+                    &output
+                )?)?
+            );
+        }
+        Command::VerifyReconstructionCorrection {
+            manifest,
+            against_db,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&match against_db {
+                    Some(db) => verify_correction_against_ledger(&manifest, &db)?,
+                    None => verify_correction_manifest(&manifest)?,
+                })?
+            );
+        }
+        Command::CreateCorrectionPreview {
+            manifest,
+            against_db,
+            output,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&create_correction_preview(
+                    &manifest,
+                    &against_db,
+                    &output
+                )?)?
+            );
+        }
+        Command::ReadCorrectionPreview {
+            preview,
+            start,
+            end,
+            timezone,
+            grain,
+            account,
+            project,
+            model,
+            thread,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&read_correction_preview(
+                    &preview,
+                    &CorrectionPreviewFilter {
+                        start,
+                        end,
+                        timezone,
+                        grain,
+                        account,
+                        project,
+                        model,
+                        thread
+                    }
+                )?)?
+            );
+        }
+        Command::CompareCorrectionSources {
+            preview,
+            against_db,
+            thread,
+            start,
+            end,
+            limit,
+            include_rows,
+        } => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&compare_preview_sampling(
+                    &preview,
+                    &against_db,
+                    &thread,
+                    start,
+                    end,
+                    limit,
+                    include_rows
+                )?)?
+            );
+        }
+        Command::QuotaHistory {
+            db,
+            account,
+            cursor,
+            limit,
+        } => {
+            anyhow::ensure!(
+                cursor.as_ref().is_none_or(|value| value.len() <= 8192),
+                "quota cursor is too large"
+            );
+            let cursor: Option<codex_usage_ledger::cli_support::QuotaHistoryCursor> =
+                cursor.as_deref().map(serde_json::from_str).transpose()?;
+            let store = LedgerStore::open_read_only(&db)?;
+            let page = store.quota_history_page(&account, cursor.as_ref(), usize::from(limit))?;
+            println!("{}", serde_json::to_string_pretty(&page)?);
+        }
+        Command::BackfillRequests { db, batches } => {
+            // Reject missing/old ledgers before opening for writes. Migration
+            // acceptance must be a separate explicit step, not a side effect.
+            drop(LedgerStore::open_read_only(&db)?);
+            let mut store = LedgerStore::open(&db)?;
+            let mut complete = store.request_evidence_backfill_complete()?;
+            let mut attempted = 0;
+            while !complete && attempted < batches {
+                complete = store.backfill_request_evidence_chunk(1000)?;
+                attempted += 1;
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "schemaVersion":store.schema_version()?,"batchesAttempted":attempted,
+                    "maxRowsPerBatch":1000,"backfillComplete":complete,
+                    "historyComplete":false,"sourceImport":false,"rollupRecount":false
+                }))?
+            );
+        }
+        Command::ShadowUnion {
+            db,
+            thread,
+            start,
+            end,
+            limit,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = store.shadow_source_union(&thread, start, end, limit)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::PromoteUnion {
+            db,
+            allow_incomplete_history,
+        } => {
+            // Refuse accidental creation or implicit schema upgrade.
+            drop(LedgerStore::open_read_only(&db)?);
+            let mut store = LedgerStore::open(&db)?;
+            if allow_incomplete_history {
+                store.promote_available_source_union_queries()?;
+            } else {
+                store.promote_source_union_queries()?;
+            }
+            println!(
+                "{}",
+                json!({"policy":"request_union_v2","restartRequired":true,"historyMayBeIncomplete":allow_incomplete_history})
+            );
+        }
+        Command::UnionProjection {
+            db,
+            advance,
+            batches,
+        } => {
+            // Require an existing, current-schema database even for explicit writes.
+            // This diagnostic must not create or migrate an installed ledger.
+            let reader = LedgerStore::open_read_only(&db)?;
+            let mut report = reader.source_union_projection_progress()?;
+            if advance {
+                drop(reader);
+                let mut store = LedgerStore::open(&db)?;
+                for _ in 0..batches.unwrap_or(1) {
+                    if report.projection_ready {
+                        break;
+                    }
+                    report = store.stage_source_union_batch(200, 200, 10000)?;
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::ReadUnionProjection {
+            db,
+            start,
+            end,
+            timezone,
+            grain,
+            account,
+            project,
+            model,
+            thread,
+            include_descendants,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let report = store.read_source_union_projection(&SourceUnionQuery {
+                start,
+                end,
+                timezone,
+                grain,
+                account,
+                project,
+                model,
+                thread,
+                include_descendants,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        Command::AuditOverlap {
+            db,
+            thread,
+            start,
+            end,
+            account,
+            model,
+            limit,
+            after_time,
+            after_id,
+        } => {
+            let store = LedgerStore::open_read_only(db)?;
+            let after =
+                after_time
+                    .zip(after_id)
+                    .map(|(effective_at, event_id)| RetainedRequestCursor {
+                        effective_at,
+                        event_id,
+                    });
+            let report = store.audit_candidate_page(
+                RetainedRequestScope {
+                    thread_id: &thread,
+                    start,
+                    end,
+                    account: account.as_deref(),
+                    model: model.as_deref(),
+                },
+                after.as_ref(),
+                usize::from(limit),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::Daemon {
             db,
             codex_home,
@@ -154,10 +917,23 @@ async fn main() -> Result<()> {
             codex_home,
             listen,
             web_root,
+            union_preview,
         } => {
             ensure_loopback(listen)?;
-            let paths = RuntimePaths::resolve(codex_home, db, web_root)?;
-            run_dashboard_only(paths, listen).await?;
+            if union_preview {
+                let store =
+                    LedgerStore::open_source_union_diagnostics(db.expect("explicit preview DB"))?;
+                serve_http_mode(
+                    ApiState::with_store(store),
+                    listen,
+                    web_root.expect("explicit preview web root"),
+                    true,
+                )
+                .await?;
+            } else {
+                let paths = RuntimePaths::resolve(codex_home, db, web_root)?;
+                run_dashboard_only(paths, listen).await?;
+            }
         }
         Command::Summary {
             db,
@@ -185,6 +961,7 @@ async fn main() -> Result<()> {
                     metric: None,
                     ranking_period: None,
                     ranking_sort: None,
+                    ..UsageQuery::default()
                 },
             )?;
             println!("{}", serde_json::to_string_pretty(&snapshot)?);
@@ -341,12 +1118,13 @@ async fn main() -> Result<()> {
                 &machine_id,
             )?
             .context("no active Codex authentication")?;
-            let account = binding
-                .account_fingerprint
-                .context("active Codex account cannot be fingerprinted safely")?;
-            let usage = tokio::task::spawn_blocking(fetch_official_account_usage)
+            let scope = OfficialUsageScope::new(&paths.codex_home)?;
+            update_official_scope(&scope, Some(&binding))?;
+            let bound = tokio::task::spawn_blocking(move || scope.fetch(None))
                 .await
                 .context("official usage worker stopped")??;
+            let account = bound.account;
+            let usage = bound.usage;
             let observed_at = chrono::Utc::now();
             store.upsert_official_account_usage(&account, observed_at, &usage)?;
             println!(
@@ -393,9 +1171,11 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
         &hmac_key,
         &machine_id,
     )?;
+    let official_scope = OfficialUsageScope::new(&paths.codex_home)?;
+    update_official_scope(&official_scope, account_binding.as_ref())?;
     let reader = prepare_store(&paths.db)?;
     let http = tokio::spawn(serve_http(
-        ApiState::with_store(reader),
+        ApiState::with_store(reader).with_official_scope(official_scope.clone()),
         listen,
         paths.web_root.clone(),
     ));
@@ -413,7 +1193,7 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     info!(%listen, "dashboard started with post-sampling collector");
 
     if let Some(binding) = account_binding.as_ref() {
-        refresh_official_usage(&mut writer, binding).await;
+        refresh_official_usage(&mut writer, binding, &official_scope).await;
     }
 
     let first_sampling_import = writer
@@ -431,33 +1211,22 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
             updated_at: chrono::Utc::now(),
         })?;
     }
-    let initial = ingest_post_sampling(&mut writer, &paths.codex_home, &machine_id)?;
-    let initial_quota = ingest_quota_tails(&mut writer, &paths.codex_home, &machine_id)?;
+    let initial_status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
     writer.reproject_usage_from_catalog()?;
-    if let Err(error) = ingest_reconstruction_batch(&mut writer, &paths.codex_home, &machine_id, 8)
-    {
-        warn!(%error, "initial rollout reconstruction slice failed");
-    }
     prepare_fast_ledger(&mut writer, "daemon")?;
-    let compacted = compact_expired_raw_events(&mut writer, "daemon")?;
-    writer.set_collector_status(&CollectorStatus {
-        mode: "daemon".to_owned(),
-        phase: "live".to_owned(),
-        items_total: initial.observations,
-        items_completed: initial.matched.saturating_add(initial.unmatched),
-        bytes_read: initial.bytes_read,
-        events_inserted: initial.inserted_events,
-        message: None,
-        updated_at: chrono::Utc::now(),
-    })?;
+    writer.maintain_active_source_union()?;
+    if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+        warn!(%error, "quota window index backfill deferred");
+    }
+    if let Err(error) = writer.backfill_quota_history_chunk(200) {
+        warn!(%error, "quota boundary backfill deferred");
+    }
+    // Starting live collection is not authorization to delete retained details.
+    // Storage compaction remains an explicit maintenance operation.
+    writer.set_collector_status(&initial_status)?;
     info!(
-        observations = initial.observations,
-        matched = initial.matched,
-        unmatched = initial.unmatched,
-        compacted,
-        quota_snapshots = initial_quota.quota_snapshots,
-        quota_bytes_read = initial_quota.bytes_read,
-        "post-sampling synchronization complete"
+        phase = initial_status.phase,
+        "initial source collection finished"
     );
     let mut reconcile = tokio::time::interval(Duration::from_secs(reconcile_seconds.max(5)));
     reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -470,6 +1239,15 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
         tokio::select! {
             _ = reconcile.tick() => {
                 ticks = ticks.saturating_add(1);
+                if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
+                    warn!(%error, "retained request backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+                    warn!(%error, "quota window index backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_history_chunk(200) {
+                    warn!(%error, "quota boundary backfill deferred");
+                }
                 if ticks.is_multiple_of(6) {
                     if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
                         warn!(%error, "Codex project and session directory refresh failed");
@@ -484,13 +1262,14 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                             let switched = account_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref())
                                 != next_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref());
                             account_binding = next_binding;
+                            update_official_scope(&official_scope, account_binding.as_ref())?;
                             if switched
                                 && let Some(binding) = account_binding.as_ref()
                             {
-                                refresh_official_usage(&mut writer, binding).await;
+                                refresh_official_usage(&mut writer, binding, &official_scope).await;
                             }
                         }
-                        Err(error) => warn!(%error, "auth observation was temporarily unavailable"),
+                        Err(error) => { official_scope.observe(None,None)?; warn!(%error, "auth observation was temporarily unavailable"); },
                     }
                     if let Err(error) = sync_account_history(
                         &mut writer,
@@ -501,48 +1280,15 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
                         warn!(%error, "historical account boundary refresh failed");
                     }
                 }
-                let report = ingest_post_sampling(&mut writer, &paths.codex_home, &machine_id)?;
-                let quota_report = ingest_quota_tails(&mut writer, &paths.codex_home, &machine_id)?;
-                match ingest_reconstruction_batch(
-                    &mut writer,
-                    &paths.codex_home,
-                    &machine_id,
-                    8,
-                ) {
-                    Ok(reconstruction) if reconstruction.files_advanced > 0 => info!(
-                        files = reconstruction.files_advanced,
-                        bytes = reconstruction.bytes_read,
-                        events = reconstruction.inserted_events,
-                        pending = reconstruction.pending_sources,
-                        "rollout reconstruction slice synchronized"
-                    ),
-                    Ok(_) => {}
-                    Err(error) => warn!(%error, "rollout reconstruction slice failed"),
+                let status = collect_daemon_sources(&mut writer, &paths.codex_home, &machine_id)?;
+                if let Err(error) = writer.maintain_active_source_union() {
+                    warn!(%error, "request union maintenance deferred");
                 }
-                if report.observations > 0 {
-                    writer.set_collector_status(&CollectorStatus {
-                        mode: "daemon".to_owned(),
-                        phase: "live".to_owned(),
-                        items_total: report.observations,
-                        items_completed: report.matched.saturating_add(report.unmatched),
-                        bytes_read: report.bytes_read,
-                        events_inserted: report.inserted_events,
-                        message: None,
-                        updated_at: chrono::Utc::now(),
-                    })?;
-                }
-                if quota_report.quota_snapshots > 0 {
-                    info!(
-                        snapshots = quota_report.quota_snapshots,
-                        files = quota_report.files_advanced,
-                        bytes_read = quota_report.bytes_read,
-                        "official quota snapshots synchronized"
-                    );
-                }
+                publish_daemon_status(&mut writer, &status)?;
             }
             _ = official_refresh.tick() => {
                 if let Some(binding) = account_binding.as_ref() {
-                    refresh_official_usage(&mut writer, binding).await;
+                    refresh_official_usage(&mut writer, binding, &official_scope).await;
                 }
             }
             _ = shutdown_signal() => {
@@ -556,13 +1302,130 @@ async fn run_daemon(paths: RuntimePaths, listen: SocketAddr, reconcile_seconds: 
     Ok(())
 }
 
-async fn refresh_official_usage(writer: &mut LedgerStore, binding: &AccountBinding) {
+// Source failures are retryable operational state, not a reason to discard
+// the HTTP service. Reading/publishing collector state can still fail fatally;
+// an ingest failure never authorizes discarding evidence or resetting cursors.
+fn collection_step<T>(
+    source: &'static str,
+    result: Result<T>,
+    failures: &mut Vec<&'static str>,
+) -> Option<T> {
+    match result {
+        Ok(report) => Some(report),
+        Err(error) => {
+            warn!(source, %error, "source collection deferred until next tick");
+            failures.push(source);
+            None
+        }
+    }
+}
+
+fn collect_daemon_sources(
+    store: &mut LedgerStore,
+    home: &Path,
+    machine: &str,
+) -> Result<CollectorStatus> {
+    let mut status = store.collector_status()?;
+    let mut failures = Vec::new();
+    let sampling = collection_step(
+        "sampling",
+        ingest_post_sampling(store, home, machine),
+        &mut failures,
+    );
+    if let Some(report) = sampling {
+        status.items_total = report.observations;
+        status.items_completed = report.matched.saturating_add(report.unmatched);
+        status.bytes_read = report.bytes_read;
+        status.events_inserted = report.inserted_events;
+    }
+    if let Some(report) = collection_step(
+        "quota",
+        ingest_quota_tails(store, home, machine),
+        &mut failures,
+    ) {
+        if !report.issues.is_empty() {
+            failures.push("quota");
+        }
+        if report.quota_snapshots > 0 {
+            info!(
+                snapshots = report.quota_snapshots,
+                "quota snapshots synchronized"
+            );
+        }
+    }
+    if let Some(report) = collection_step(
+        "reconstruction",
+        ingest_reconstruction_batch(store, home, machine, 8),
+        &mut failures,
+    ) {
+        if report.identity_review_sources > 0 {
+            failures.push("reconstruction_identity_review");
+        } else if !report.issues.is_empty() {
+            failures.push("reconstruction");
+        }
+        if report.files_advanced > 0 {
+            info!(
+                files = report.files_advanced,
+                events = report.inserted_events,
+                "rollout reconstruction slice synchronized"
+            );
+        }
+    }
+    status.mode = "daemon".to_owned();
+    status.phase = if failures.is_empty() {
+        "live"
+    } else {
+        "degraded"
+    }
+    .to_owned();
+    // Stable codes only: never expose a source path, database error, or body in
+    // the dashboard. Each locale supplies the user-facing explanation.
+    status.message = (!failures.is_empty()).then(|| failures.join(","));
+    status.updated_at = chrono::Utc::now();
+    Ok(status)
+}
+
+fn publish_daemon_status(store: &mut LedgerStore, status: &CollectorStatus) -> Result<()> {
+    let previous = store.collector_status()?;
+    if previous.phase != status.phase
+        || previous.message != status.message
+        || previous.items_total != status.items_total
+        || previous.items_completed != status.items_completed
+        || previous.bytes_read != status.bytes_read
+        || previous.events_inserted != status.events_inserted
+    {
+        store.set_collector_status(status)?;
+    }
+    Ok(())
+}
+
+fn update_official_scope(
+    scope: &OfficialUsageScope,
+    binding: Option<&AccountBinding>,
+) -> Result<()> {
+    let binding = binding.filter(|binding| binding.confidence == AttributionConfidence::Verified);
+    scope.observe(
+        binding.and_then(|value| value.account_fingerprint.as_deref()),
+        binding.and_then(|value| value.auth_file_stamp.as_ref()),
+    )
+}
+
+async fn refresh_official_usage(
+    writer: &mut LedgerStore,
+    binding: &AccountBinding,
+    scope: &OfficialUsageScope,
+) {
     let Some(account_fingerprint) = binding.account_fingerprint.as_deref() else {
         return;
     };
     let observed_at = chrono::Utc::now();
-    match tokio::task::spawn_blocking(fetch_official_account_usage).await {
-        Ok(Ok(usage)) => {
+    let scope = scope.clone();
+    match tokio::task::spawn_blocking(move || scope.fetch(None)).await {
+        Ok(Ok(bound)) => {
+            if bound.account != account_fingerprint {
+                return;
+            }
+            let usage = bound.usage;
             if let Err(error) =
                 writer.upsert_official_account_usage(account_fingerprint, observed_at, &usage)
             {
@@ -599,9 +1462,11 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         &hmac_key,
         &machine_id,
     )?;
+    let official_scope = OfficialUsageScope::new(&paths.codex_home)?;
+    update_official_scope(&official_scope, account_binding.as_ref())?;
     let reader = prepare_store(&paths.db)?;
     let mut http = tokio::spawn(serve_http(
-        ApiState::with_store(reader),
+        ApiState::with_store(reader).with_official_scope(official_scope.clone()),
         listen,
         paths.web_root.clone(),
     ));
@@ -618,11 +1483,19 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
     official_refresh.tick().await;
 
     if let Some(binding) = account_binding.as_ref() {
-        refresh_official_usage(&mut writer, binding).await;
+        refresh_official_usage(&mut writer, binding, &official_scope).await;
     }
 
     prepare_fast_ledger(&mut writer, "serve")?;
-    compact_expired_raw_events(&mut writer, "serve")?;
+    writer.maintain_active_source_union()?;
+    if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+        warn!(%error, "quota window index backfill deferred");
+    }
+    if let Err(error) = writer.backfill_quota_history_chunk(200) {
+        warn!(%error, "quota boundary backfill deferred");
+    }
+    // Opening the dashboard is not a request to delete historical raw details.
+    // Keep retention in explicit maintenance workflows with its guards.
     writer.set_collector_status(&CollectorStatus {
         mode: "serve".to_owned(),
         phase: "idle".to_owned(),
@@ -639,8 +1512,20 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
         tokio::select! {
             _ = catalog_refresh.tick() => {
                 catalog_ticks = catalog_ticks.saturating_add(1);
+                if let Err(error) = writer.backfill_quota_window_index_chunk(200) {
+                    warn!(%error, "quota window index backfill deferred");
+                }
+                if let Err(error) = writer.backfill_quota_history_chunk(200) {
+                    warn!(%error, "quota boundary backfill deferred");
+                }
+                if let Err(error) = writer.backfill_request_evidence_chunk(1000) {
+                    warn!(%error, "retained request backfill deferred");
+                }
                 if let Err(error) = sync_native_catalog(&mut writer, &paths.codex_home) {
                     warn!(%error, "Codex project and session directory refresh failed");
+                }
+                if let Err(error) = writer.maintain_active_source_union() {
+                    warn!(%error, "request union maintenance deferred");
                 }
                 if catalog_ticks.is_multiple_of(3) {
                     match observe_auth(
@@ -653,13 +1538,14 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
                             let switched = account_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref())
                                 != next_binding.as_ref().and_then(|value| value.account_fingerprint.as_ref());
                             account_binding = next_binding;
+                            update_official_scope(&official_scope, account_binding.as_ref())?;
                             if switched
                                 && let Some(binding) = account_binding.as_ref()
                             {
-                                refresh_official_usage(&mut writer, binding).await;
+                                refresh_official_usage(&mut writer, binding, &official_scope).await;
                             }
                         }
-                        Err(error) => warn!(%error, "auth observation was temporarily unavailable"),
+                        Err(error) => { official_scope.observe(None,None)?; warn!(%error, "auth observation was temporarily unavailable"); },
                     }
                     if let Err(error) = sync_account_history(
                         &mut writer,
@@ -673,7 +1559,7 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
             }
             _ = official_refresh.tick() => {
                 if let Some(binding) = account_binding.as_ref() {
-                    refresh_official_usage(&mut writer, binding).await;
+                    refresh_official_usage(&mut writer, binding, &official_scope).await;
                 }
             }
             result = &mut http => {
@@ -685,11 +1571,39 @@ async fn run_dashboard_only(paths: RuntimePaths, listen: SocketAddr) -> Result<(
 }
 
 async fn serve_http(state: ApiState, listen: SocketAddr, web_root: PathBuf) -> Result<()> {
+    serve_http_mode(state, listen, web_root, false).await
+}
+
+async fn serve_http_mode(
+    state: ApiState,
+    listen: SocketAddr,
+    web_root: PathBuf,
+    read_only: bool,
+) -> Result<()> {
     let index = web_root.join("index.html");
-    let app = Router::new()
+    let mut app = Router::new()
         .merge(api::router(state))
         .fallback_service(ServeDir::new(&web_root).fallback(ServeFile::new(index)))
         .layer(middleware::from_fn(enforce_local_http_identity));
+    if read_only {
+        app = app.layer(middleware::from_fn(
+            |request: Request<Body>, next: Next| async move {
+                if !matches!(
+                    *request.method(),
+                    axum::http::Method::GET
+                        | axum::http::Method::HEAD
+                        | axum::http::Method::OPTIONS
+                ) {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        axum::Json(json!({"error":"read_only_preview"})),
+                    )
+                        .into_response();
+                }
+                next.run(request).await
+            },
+        ));
+    }
     let listener = tokio::net::TcpListener::bind(listen).await?;
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
@@ -796,6 +1710,72 @@ impl RuntimePaths {
 #[cfg(test)]
 mod local_http_tests {
     use super::*;
+
+    #[test]
+    fn unavailable_sources_are_retryable_and_preserve_previous_evidence() {
+        let home = tempfile::tempdir().unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        let mut previous = startup_collector_status("daemon");
+        previous.items_total = 12;
+        previous.items_completed = 12;
+        previous.events_inserted = 10;
+        store.set_collector_status(&previous).unwrap();
+        let before = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+        for _ in 0..2 {
+            let failed =
+                collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+            assert_eq!(failed.phase, "degraded");
+            assert!(
+                failed
+                    .message
+                    .as_deref()
+                    .unwrap()
+                    .split(',')
+                    .any(|source| source == "sampling")
+            );
+            assert_eq!(failed.events_inserted, 10);
+            publish_daemon_status(&mut store, &failed).unwrap();
+            assert_eq!(
+                store.aggregate_usage(&AggregateFilter::default()).unwrap(),
+                before
+            );
+        }
+        let saved = store.collector_status().unwrap();
+        let mut repeated = saved.clone();
+        repeated.updated_at += chrono::Duration::seconds(5);
+        publish_daemon_status(&mut store, &repeated).unwrap();
+        assert_eq!(
+            store.collector_status().unwrap().updated_at,
+            saved.updated_at
+        );
+        rusqlite::Connection::open(home.path().join("logs_2.sqlite")).unwrap().execute_batch(
+            "CREATE TABLE logs(id INTEGER PRIMARY KEY, ts INTEGER, ts_nanos INTEGER, thread_id TEXT, feedback_log_body TEXT, target TEXT, process_uuid TEXT);"
+        ).unwrap();
+        let partial = collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+        assert_eq!(partial.phase, "degraded");
+        rusqlite::Connection::open(home.path().join("state_5.sqlite")).unwrap().execute_batch(
+            "CREATE TABLE threads(id TEXT, rollout_path TEXT, cwd TEXT, model TEXT, source TEXT, updated_at INTEGER);"
+        ).unwrap();
+        let recovered =
+            collect_daemon_sources(&mut store, home.path(), "synthetic-machine").unwrap();
+        assert_eq!(recovered.phase, "live", "{:?}", recovered.message);
+        publish_daemon_status(&mut store, &recovered).unwrap();
+        assert_eq!(store.collector_status().unwrap().phase, "live");
+        assert!(store.collector_status().unwrap().message.is_none());
+    }
+
+    #[test]
+    fn failed_source_does_not_prevent_other_steps_or_leak_error_text() {
+        let mut failures = Vec::new();
+        let failed: Option<()> = collection_step(
+            "sampling",
+            Err(anyhow::anyhow!("private source details")),
+            &mut failures,
+        );
+        assert!(failed.is_none());
+        assert_eq!(collection_step("quota", Ok(7), &mut failures), Some(7));
+        assert_eq!(failures, ["sampling"]);
+    }
 
     #[test]
     fn rejects_dns_rebinding_and_cross_site_origins() {

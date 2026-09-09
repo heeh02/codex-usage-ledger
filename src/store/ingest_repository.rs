@@ -1,6 +1,45 @@
 use super::*;
 
 impl LedgerStore {
+    /// First binding only; inconsistent unbound history is held for review.
+    /// Returns whether metadata changed, never deletes history or checkpoints.
+    pub(crate) fn refresh_arrived_unbound_source(
+        &mut self,
+        machine_id: &str,
+        source_id: &str,
+        identity: &str,
+        bytes_total: u64,
+    ) -> StoreResult<bool> {
+        if identity.is_empty() {
+            return Err(StoreError::InvalidRequestQuery(
+                "source identity is required",
+            ));
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let updated=transaction.execute("UPDATE reconstruction_sources SET file_identity=?3,bytes_total=?4,
+                status='pending',last_error=NULL,updated_at=?5
+            WHERE machine_id=?1 AND source_id=?2 AND file_identity='' AND bytes_processed=0
+                AND prefix_events=0 AND unchanged_events=0 AND counter_resets=0
+                AND status='unrecoverable' AND COALESCE(last_error,'')<>?6
+                AND NOT EXISTS(SELECT 1 FROM reconstruction_usage_events e WHERE e.machine_id=?1 AND e.source_id=?2)
+                AND NOT EXISTS(SELECT 1 FROM file_cursors c WHERE c.machine_id=?1 AND c.source_id=?2)",
+            params![machine_id,source_id,identity,sql_u64(bytes_total,"source_bytes_total")?,timestamp(Utc::now()),RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED])?;
+        let reviewed = if updated == 0 {
+            transaction.execute("UPDATE reconstruction_sources SET last_error=?3,updated_at=?4
+            WHERE machine_id=?1 AND source_id=?2 AND file_identity='' AND status='unrecoverable'
+                AND COALESCE(last_error,'')<>?3 AND (bytes_processed<>0 OR prefix_events<>0 OR unchanged_events<>0 OR counter_resets<>0
+                OR EXISTS(SELECT 1 FROM reconstruction_usage_events e WHERE e.machine_id=?1 AND e.source_id=?2)
+                OR EXISTS(SELECT 1 FROM file_cursors c WHERE c.machine_id=?1 AND c.source_id=?2))",
+            params![machine_id,source_id,RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED,timestamp(Utc::now())])?
+        } else {
+            0
+        };
+        transaction.commit()?;
+        Ok(updated + reviewed > 0)
+    }
+
     pub fn upsert_event(&mut self, event: &UsageEvent) -> StoreResult<UpsertOutcome> {
         let transaction = self
             .connection
@@ -99,6 +138,33 @@ impl LedgerStore {
         Ok(outcome)
     }
 
+    /// Sampling quantities depend on rollout counter state. Commit the entire
+    /// supplied cohort and both kinds of cursor together, or none of them.
+    pub(crate) fn upsert_sampling_events_and_cursors(
+        &mut self,
+        events: &[UsageEvent],
+        log_cursor: &FileCursor,
+        candidates: &[(FileCursor, bool)],
+    ) -> StoreResult<BatchOutcome> {
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut outcome = BatchOutcome::default();
+        for event in events {
+            outcome.observe(upsert_event_in(&transaction, event)?);
+        }
+        advance_cursor_in(&transaction, log_cursor)?;
+        for (cursor, reset) in candidates {
+            if *reset {
+                write_cursor_in(&transaction, cursor)?;
+            } else {
+                advance_cursor_in(&transaction, cursor)?;
+            }
+        }
+        transaction.commit()?;
+        Ok(outcome)
+    }
+
     /// Persists replay-safe reconstruction facts, source progress and the
     /// matching byte/parser cursor atomically. Reconstruction is deliberately
     /// isolated from `usage_events`; the effective views choose one source per
@@ -134,6 +200,89 @@ impl LedgerStore {
         Ok(())
     }
 
+    /// Enumerate compact policy progress without loading every main parser blob.
+    pub(crate) fn pending_reconstruction_policy_cursors(
+        &self,
+        machine_id: &str,
+    ) -> StoreResult<Vec<String>> {
+        let mut query=self.connection.prepare("SELECT source_id FROM file_cursors WHERE machine_id=?1
+            AND source_id >= 'reconstruction-policy-upgrade-v2:' AND source_id < 'reconstruction-policy-upgrade-v2;'
+            AND (CASE WHEN json_valid(parser_state_json) THEN json_extract(parser_state_json,'$.finished') ELSE 0 END) IS NOT 1")?;
+        Ok(query
+            .query_map([machine_id], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Compare-and-swap both cursor lanes without changing usage facts; completed
+    /// requalification changes parser state at the same committed byte boundary.
+    pub(crate) fn commit_reconstruction_policy_step(
+        &mut self,
+        expected_main: &FileCursor,
+        expected_progress: Option<&FileCursor>,
+        progress: &FileCursor,
+        source: &ReconstructionSourceStatus,
+        replacement: Option<&FileCursor>,
+    ) -> StoreResult<()> {
+        if source.source_id != expected_main.source_id
+            || source.machine_id != expected_main.machine_id
+            || source.file_identity != expected_main.file_identity
+            || source.bytes_processed != expected_main.byte_offset
+            || progress.byte_offset > expected_main.byte_offset
+            || progress.line_number > expected_main.line_number
+            || progress.machine_id != expected_main.machine_id
+            || progress.file_identity != expected_main.file_identity
+            || progress.source_id == expected_main.source_id
+            || replacement.is_some_and(|next| {
+                next.source_id != expected_main.source_id
+                    || next.machine_id != expected_main.machine_id
+                    || next.file_identity != expected_main.file_identity
+                    || next.byte_offset != expected_main.byte_offset
+                    || next.line_number != expected_main.line_number
+            })
+        {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let matches = |cursor: &FileCursor| -> StoreResult<bool> {
+            Ok(transaction.query_row("SELECT EXISTS(SELECT 1 FROM file_cursors WHERE machine_id=?1 AND source_id=?2
+                AND file_identity=?3 AND byte_offset=?4 AND line_number=?5 AND parser_state_json IS ?6)",
+                params![cursor.machine_id,cursor.source_id,cursor.file_identity,sql_u64(cursor.byte_offset,"cursor_offset")?,
+                    sql_u64(cursor.line_number,"cursor_line")?,cursor.parser_state_json],|row|row.get(0))?)
+        };
+        if !matches(expected_main)? {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        if let Some(expected) = expected_progress {
+            if expected.machine_id != progress.machine_id
+                || expected.source_id != progress.source_id
+                || !matches(expected)?
+            {
+                return Err(StoreError::ReconstructionPolicyConflict);
+            }
+        } else if transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_cursors WHERE machine_id=?1 AND source_id=?2)",
+            params![progress.machine_id, progress.source_id],
+            |row| row.get::<_, bool>(0),
+        )? {
+            return Err(StoreError::ReconstructionPolicyConflict);
+        }
+        if replacement.is_some() && transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM reconstruction_usage_events WHERE machine_id=?1 AND source_id=?2 AND file_identity=?3 AND byte_offset>=?4)",
+            params![expected_main.machine_id,expected_main.source_id,expected_main.file_identity,sql_u64(progress.byte_offset,"resume_boundary")?],
+            |row|row.get::<_,bool>(0))? {
+            return Err(StoreError::ReconstructionPolicyOverlap);
+        }
+        advance_cursor_in(&transaction, progress)?;
+        if let Some(replacement) = replacement {
+            advance_cursor_in(&transaction, replacement)?;
+        }
+        upsert_reconstruction_source_in(&transaction, source)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn upsert_reconstruction_sources(
         &mut self,
         sources: &[ReconstructionSourceStatus],
@@ -148,10 +297,9 @@ impl LedgerStore {
         Ok(())
     }
 
-    /// Replaces derived reconstruction facts when Codex has replaced the
-    /// physical rollout behind a logical thread. Replaying the new file on top
-    /// of the old identity would double count, so the replacement and rollup
-    /// rebuild happen in one transaction.
+    /// Explicit destructive replacement primitive for receipt-reviewed maintenance.
+    /// Automatic collectors must not call this merely because an identity changed.
+    /// Replacement and rollup rebuild happen in one transaction.
     pub fn replace_reconstruction_sources(
         &mut self,
         sources: &[ReconstructionSourceStatus],
@@ -280,8 +428,10 @@ impl LedgerStore {
                    AND source_id IN (
                        SELECT source_id FROM reconstruction_sources
                        WHERE machine_id = ?1 AND status = 'unrecoverable'
+                         AND file_identity <> ''
+                         AND COALESCE(last_error, '') <> ?2
                    )",
-                [machine_id],
+                params![machine_id, RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED],
             )
             .map_err(StoreError::from)
     }

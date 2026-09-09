@@ -1,6 +1,73 @@
 use super::*;
 
 impl LedgerStore {
+    pub fn request_evidence_backfill_complete(&self) -> StoreResult<bool> {
+        Ok(self.connection.query_row(
+            "SELECT complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )?)
+    }
+    /// Bounded upgrade backfill. Returns true only when the persisted target is complete.
+    pub fn backfill_request_evidence_chunk(&mut self, limit: usize) -> StoreResult<bool> {
+        if self.connection.query_row(
+            "SELECT complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| row.get::<_, bool>(0),
+        )? {
+            return Ok(true);
+        }
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (last, target, complete): (i64, i64, bool) = transaction.query_row(
+            "SELECT last_rowid,target_rowid,complete FROM request_backfill_state WHERE id=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        if complete {
+            return Ok(true);
+        }
+        let mut statement=transaction.prepare(
+            "SELECT rowid FROM usage_events raw WHERE rowid>?1 AND rowid<=?2
+             AND (NOT EXISTS(SELECT 1 FROM retained_request_evidence kept WHERE kept.event_id=raw.event_id)
+               OR NOT EXISTS(SELECT 1 FROM retained_request_origins origin WHERE origin.event_id=raw.event_id)
+               OR NOT EXISTS(SELECT 1 FROM retained_request_assignments assigned WHERE assigned.event_id=raw.event_id))
+             ORDER BY rowid LIMIT ?3"
+        )?;
+        let ids = statement
+            .query_map(params![last, target, limit.clamp(1, 1000) as i64], |row| {
+                row.get::<_, i64>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        for id in &ids {
+            // Raw identity hashes may predate a metadata-only SQL projection.
+            // Copy the persisted hash verbatim; don't manufacture a new hash
+            // from projected fields or overwrite an existing observed record.
+            transaction.execute("INSERT INTO retained_request_evidence(
+                event_id,event_hash,effective_at,thread_id,model,account_fingerprint,project_id,quality,
+                input_tokens,cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+                output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence)
+                SELECT event_id,event_hash,COALESCE(source_timestamp,observed_at),thread_id,model,account_fingerprint,project_id,quality,
+                input_tokens,cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+                output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence
+                FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
+            transaction.execute("INSERT INTO retained_request_origins(event_id,machine_id)
+                SELECT event_id,machine_id FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
+            transaction.execute("INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+                SELECT event_id,account_fingerprint,project_id FROM usage_events WHERE rowid=?1 ON CONFLICT(event_id) DO NOTHING",[id])?;
+        }
+        let next = ids.last().copied().unwrap_or(target);
+        let complete = next >= target;
+        transaction.execute(
+            "UPDATE request_backfill_state SET last_rowid=?1,complete=?2 WHERE id=1",
+            params![next, complete],
+        )?;
+        transaction.commit()?;
+        Ok(complete)
+    }
+
     pub fn rollup_progress(&self) -> StoreResult<RollupProgress> {
         self.connection
             .query_row(
@@ -196,6 +263,19 @@ impl LedgerStore {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute_batch(
+            "UPDATE retained_request_assignments
+             SET project_id=(
+                 SELECT catalog.project_id FROM retained_request_evidence kept
+                 JOIN thread_catalog catalog ON catalog.thread_id=kept.thread_id
+                 WHERE kept.event_id=retained_request_assignments.event_id)
+             WHERE EXISTS(
+                 SELECT 1 FROM retained_request_evidence kept
+                 JOIN thread_catalog catalog ON catalog.thread_id=kept.thread_id
+                 WHERE kept.event_id=retained_request_assignments.event_id
+                   AND catalog.project_id IS NOT NULL
+                   AND catalog.project_id <> COALESCE(retained_request_assignments.project_id,''));"
+        )?;
         transaction.execute(
             "UPDATE usage_events
              SET project_id = (
@@ -374,6 +454,56 @@ impl LedgerStore {
              JOIN compaction_candidates candidate ON candidate.event_id = usage.event_id",
             params![timestamp(Utc::now())],
         )?;
+        transaction.execute_batch(
+            "INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+             SELECT usage.event_id,usage.account_fingerprint,usage.project_id FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+             WHERE true ON CONFLICT(event_id) DO UPDATE SET
+             account_fingerprint=excluded.account_fingerprint,project_id=excluded.project_id;
+             INSERT INTO retained_request_origins(event_id,machine_id)
+             SELECT usage.event_id,usage.machine_id FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+             WHERE true ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id;
+             INSERT INTO retained_request_evidence(
+                event_id, event_hash, effective_at, thread_id, model,
+                account_fingerprint, project_id, quality, input_tokens,
+                cached_input_tokens, cache_write_input_tokens,
+                cache_write_observed_input_tokens, output_tokens,
+                reasoning_output_tokens, total_tokens, account_confidence, project_confidence)
+             SELECT usage.event_id, usage.event_hash,
+                COALESCE(usage.source_timestamp, usage.observed_at),
+                usage.thread_id, usage.model, usage.account_fingerprint,
+                usage.project_id, usage.quality, usage.input_tokens,
+                usage.cached_input_tokens, usage.cache_write_input_tokens,
+                usage.cache_write_observed_input_tokens, usage.output_tokens,
+                usage.reasoning_output_tokens, usage.total_tokens,
+                usage.account_confidence, usage.project_confidence
+             FROM usage_events usage
+             JOIN compaction_candidates candidate ON candidate.event_id = usage.event_id
+             WHERE true ON CONFLICT(event_id) DO NOTHING;",
+        )?;
+        let mismatch: bool = transaction.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM usage_events usage
+                JOIN compaction_candidates candidate ON candidate.event_id=usage.event_id
+                JOIN retained_request_evidence kept ON kept.event_id=usage.event_id
+                WHERE kept.event_hash != usage.event_hash
+                  OR kept.effective_at != COALESCE(usage.source_timestamp, usage.observed_at)
+                  OR kept.thread_id IS NOT usage.thread_id
+                  OR kept.model IS NOT usage.model
+                  OR kept.quality != usage.quality
+                  OR kept.input_tokens != usage.input_tokens
+                  OR kept.cached_input_tokens != usage.cached_input_tokens
+                  OR kept.cache_write_input_tokens != usage.cache_write_input_tokens
+                  OR kept.cache_write_observed_input_tokens != usage.cache_write_observed_input_tokens
+                  OR kept.output_tokens != usage.output_tokens
+                  OR kept.reasoning_output_tokens != usage.reasoning_output_tokens
+                  OR kept.total_tokens != usage.total_tokens
+            )", [], |row| row.get(0),
+        )?;
+        if mismatch {
+            return Err(StoreError::RetainedEvidenceMismatch);
+        }
         let deleted = transaction.execute(
             "DELETE FROM usage_events
              WHERE event_id IN (SELECT event_id FROM compaction_candidates)",

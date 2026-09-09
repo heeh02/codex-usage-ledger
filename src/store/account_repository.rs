@@ -236,6 +236,11 @@ impl LedgerStore {
             upsert_event_in(&transaction, &event)?;
         }
         transaction.execute(
+            "UPDATE retained_request_assignments SET account_fingerprint=?1
+             WHERE account_fingerprint=?2",
+            params![to_account, from_account],
+        )?;
+        transaction.execute(
             "INSERT INTO hourly_usage_rollups(
                  local_hour, thread_key, account_key, project_key, model_key, quality,
                  event_count, input_tokens, cached_input_tokens, cache_write_input_tokens,
@@ -505,6 +510,18 @@ impl LedgerStore {
             let start = ceil_local_hour(epoch.observed_from);
             let end = epoch.observed_to.map(floor_local_hour);
             transaction.execute(
+                "UPDATE retained_request_assignments SET account_fingerprint=?1
+                 WHERE COALESCE(account_fingerprint,'')=''
+                   AND event_id IN (
+                     SELECT kept.event_id FROM retained_request_evidence kept
+                     JOIN retained_request_origins origin ON origin.event_id=kept.event_id
+                     WHERE origin.machine_id=?4
+                       AND strftime('%Y-%m-%dT%H:00',kept.effective_at,'+8 hours') >= ?2
+                       AND (?3 IS NULL OR strftime('%Y-%m-%dT%H:00',kept.effective_at,'+8 hours') < ?3)
+                   )",
+                params![epoch.account_fingerprint, start, end, machine_id],
+            )?;
+            transaction.execute(
                 "INSERT INTO hourly_usage_rollups(
                      local_hour, thread_key, account_key, project_key, model_key, quality,
                      event_count, input_tokens, cached_input_tokens, cache_write_input_tokens,
@@ -605,7 +622,10 @@ impl LedgerStore {
             digest.update(value);
         }
         let snapshot_id = hex::encode(digest.finalize());
-        self.connection.execute(
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute(
             "INSERT OR IGNORE INTO quota_snapshots(
                  snapshot_id, account_fingerprint, auth_epoch, observed_at, source, normalized_json
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -618,6 +638,17 @@ impl LedgerStore {
                 normalized_json,
             ],
         )?;
+        super::quota_repository::project_quota_snapshot_in(
+            &transaction,
+            &StoredQuotaSnapshot {
+                snapshot_id: snapshot_id.clone(),
+                account_fingerprint: account_fingerprint.to_owned(),
+                auth_epoch: auth_epoch.to_owned(),
+                observed_at,
+                snapshot: snapshot.clone(),
+            },
+        )?;
+        transaction.commit()?;
         Ok(snapshot_id)
     }
 

@@ -6,22 +6,27 @@ pub(super) fn http_summary(
 ) -> Result<serde_json::Value, StoreError> {
     let (base, period) = filter_and_period(query, DataQuality::Confirmed);
     let confirmed = aggregate_selected_period(store, query, &base, &period)?;
-    let quarantined = aggregate_for_quality(store, &base, DataQuality::Quarantined)?;
-    let unknown = aggregate_for_quality(store, &base, DataQuality::Unknown)?;
+    let mut quality_filter = base.clone();
+    quality_filter.quality = Some(DataQuality::Quarantined);
+    let quarantined = aggregate_selected_period(store, query, &quality_filter, &period)?;
+    quality_filter.quality = Some(DataQuality::Unknown);
+    let unknown = aggregate_selected_period(store, query, &quality_filter, &period)?;
     let previous =
         if let (Some(start), Some(end)) = (period.comparison_start, period.comparison_end) {
             let mut previous_filter = base.clone();
             previous_filter.start_inclusive = Some(start);
             previous_filter.end_exclusive = Some(end);
-            Some(store.aggregate_rollup_usage(&previous_filter)?)
+            Some(aggregate_selected_period(
+                store,
+                query,
+                &previous_filter,
+                &period,
+            )?)
         } else {
             None
         };
-    let cache_rate = if confirmed.usage.input_tokens == 0 {
-        0.0
-    } else {
-        confirmed.usage.cached_input_tokens as f64 / confirmed.usage.input_tokens as f64
-    };
+    let cache_rate = (confirmed.usage.input_tokens > 0)
+        .then(|| confirmed.usage.cached_input_tokens as f64 / confirmed.usage.input_tokens as f64);
     let previous_total = previous
         .as_ref()
         .map(|aggregate| aggregate.usage.total_tokens)
@@ -45,11 +50,8 @@ pub(super) fn http_summary(
         .event_count
         .saturating_add(quarantined.event_count)
         .saturating_add(unknown.event_count);
-    let match_rate = if evidence_events == 0 {
-        1.0
-    } else {
-        confirmed.event_count as f64 / evidence_events as f64
-    };
+    let match_rate =
+        (evidence_events > 0).then(|| confirmed.event_count as f64 / evidence_events as f64);
     // Account totals are a stable account/time metric. Project, model, session,
     // and selected local token dimensions must never change their definition.
     let mut account_query = query.clone();
@@ -65,10 +67,8 @@ pub(super) fn http_summary(
         .get("coverageComplete")
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
-    let local_coverage_complete = period
-        .start
-        .zip(earliest_event_at(store)?)
-        .is_none_or(|(requested, earliest)| requested >= earliest);
+    // First/last observations do not establish uninterrupted collection.
+    let local_coverage_complete = false;
     let reconciliation_comparable = official_coverage_complete
         && local_coverage_complete
         && official
@@ -82,9 +82,13 @@ pub(super) fn http_summary(
     });
     let account_total_metric = resolved_account_total_metric(query, &period, &official);
     let local_attributed_metric = ResolvedMetric {
-        value: Some(confirmed.usage.total_tokens),
+        value: (confirmed.event_count > 0).then_some(confirmed.usage.total_tokens),
         source: MetricSource::Local,
-        status: MetricStatus::LocalSample,
+        status: if confirmed.event_count > 0 {
+            MetricStatus::LocalSample
+        } else {
+            MetricStatus::Unknown
+        },
         window_start: period.start,
         window_end: period.end,
         timezone: period.timezone.clone(),
@@ -92,7 +96,7 @@ pub(super) fn http_summary(
         machine_scope: "this_machine".to_owned(),
         coverage: MetricCoverage {
             complete: local_coverage_complete,
-            ratio: if local_coverage_complete { 1.0 } else { 0.0 },
+            ratio: None,
             known_account_count: official
                 .get("knownAccountCount")
                 .and_then(serde_json::Value::as_u64)
@@ -107,7 +111,7 @@ pub(super) fn http_summary(
     Ok(serde_json::json!({
         "generatedAt": Utc::now(),
         "mode": "http",
-        "period": period_value(store, &period),
+        "period": period_value(store, &period, query),
         "filters": filter_catalog(store)?,
         "usage": quality_usage_value(confirmed.usage, quarantined.usage, unknown.usage),
         "official": official,
@@ -134,7 +138,7 @@ pub(super) fn http_summary(
             "deltaPercent": delta_percent,
             "available": period.comparison_start.is_some(),
         },
-        "averagePerDay": confirmed.usage.total_tokens as f64 / elapsed_days,
+        "averagePerDay": (confirmed.event_count > 0).then_some(confirmed.usage.total_tokens as f64 / elapsed_days),
         "matchRate": match_rate,
         "unmatchedEvents": unknown.event_count,
         "latestConfirmedAt": latest_confirmed_at(store)?,
@@ -226,16 +230,24 @@ pub(super) fn project_attribution_coverage(
 
     let mut evidence_filter = confirmed_filter.clone();
     evidence_filter.quality = None;
-    let evidence_days = store
-        .aggregate_rollup_by(AggregateDimension::Day, &evidence_filter)?
-        .into_iter()
-        .filter_map(|bucket| bucket.key.filter(|_| bucket.event_count > 0))
-        .collect::<BTreeSet<_>>();
-    let local_days = store
-        .aggregate_rollup_by(AggregateDimension::Day, &confirmed_filter)?
-        .into_iter()
-        .filter_map(|bucket| bucket.key.map(|day| (day, bucket.usage.total_tokens)))
-        .collect::<HashMap<_, _>>();
+    let evidence_days = aggregate_selected_period_by(
+        store,
+        &scope_query,
+        AggregateDimension::Day,
+        &evidence_filter,
+    )?
+    .into_iter()
+    .filter_map(|bucket| bucket.key.filter(|_| bucket.event_count > 0))
+    .collect::<BTreeSet<_>>();
+    let local_days = aggregate_selected_period_by(
+        store,
+        &scope_query,
+        AggregateDimension::Day,
+        &confirmed_filter,
+    )?
+    .into_iter()
+    .filter_map(|bucket| bucket.key.map(|day| (day, bucket.usage.total_tokens)))
+    .collect::<HashMap<_, _>>();
     let first_evidence_day = evidence_days.iter().next().cloned();
     let mut official_before_local_evidence = 0_u64;
     let mut official_without_local_evidence = 0_u64;

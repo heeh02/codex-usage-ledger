@@ -79,7 +79,7 @@ pub enum MetricStatus {
 #[serde(rename_all = "camelCase")]
 pub struct MetricCoverage {
     pub complete: bool,
-    pub ratio: f64,
+    pub ratio: Option<f64>,
     pub known_account_count: u64,
     pub missing_official_account_count: u64,
 }

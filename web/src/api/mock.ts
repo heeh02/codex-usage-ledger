@@ -56,6 +56,7 @@ const PERIODS = [
   { id: 'rolling30' as const, label: '近30天' },
   { id: 'weeks12' as const, label: '12周' },
   { id: 'months12' as const, label: '12月' },
+  { id: 'year' as const, label: '本年' },
   { id: 'lifetime' as const, label: 'Lifetime' },
 ];
 
@@ -254,11 +255,11 @@ function periodDays(period: PeriodKey): number {
   return DEMO_DAYS;
 }
 
-function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
+function periodWindow(anchor: Date, period: PeriodKey, filters?: DashboardFilters): PeriodWindow {
   const days = Math.min(periodDays(period), DEMO_DAYS);
   const option = PERIODS.find((item) => item.id === period) ?? PERIODS[2];
-  const start = dateFromOffset(anchor, days - 1);
-  const end = isoDate(anchor);
+  const start = period === 'custom' && filters?.startDate ? filters.startDate : period === 'year' ? `${anchor.getUTCFullYear()}-01-01` : dateFromOffset(anchor, days - 1);
+  const end = period === 'custom' && filters?.endDate ? filters.endDate : isoDate(anchor);
   const windowKind = period === 'rolling7' || period === 'rolling30'
     ? 'rolling'
     : period === 'lifetime'
@@ -266,7 +267,7 @@ function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
       : 'calendar';
   return {
     key: period,
-    label: option.label,
+    label: period === 'custom' ? 'Custom dates' : option.label,
     start,
     end,
     timezone: 'Asia/Shanghai',
@@ -277,7 +278,7 @@ function periodWindow(anchor: Date, period: PeriodKey): PeriodWindow {
 }
 
 function filterFacts(facts: MockFact[], filters: DashboardFilters, anchor: Date): MockFact[] {
-  const window = periodWindow(anchor, filters.period);
+  const window = periodWindow(anchor, filters.period, filters);
   return facts.filter((fact) => {
     if (fact.date < window.start || fact.date > window.end) return false;
     if (filters.account !== ALL && fact.accountId !== filters.account) return false;
@@ -405,11 +406,11 @@ function mockOfficial(points: TimeseriesPoint[], total: number): OfficialUsageVi
 
 function mockMissingAccountEstimate(): MissingAccountEstimate {
   return {
-    definitionId: 'missing_accounts_residual_v1',
+    definitionId: 'unexplained_account_difference_v2',
     status: 'insufficient_coverage',
     applicable: false,
     isEstimate: true,
-    isConservativeFloor: true,
+    isConservativeFloor: false,
     canSplitByMissingAccount: false,
     combinedUnobservedAccountCount: 0,
     capturedAccountCount: 1,
@@ -567,7 +568,7 @@ function buildTimeline(anchor: Date, filters: DashboardFilters): TimelineEvent[]
       confidence: 'verified',
     },
   ];
-  const window = periodWindow(anchor, filters.period);
+  const window = periodWindow(anchor, filters.period, filters);
   return rows.filter((row) => {
     const date = row.at.slice(0, 10);
     if (date < window.start || date > window.end) return false;
@@ -598,6 +599,46 @@ function scaledUsage(usage: TokenUsage, ratio: number): TokenUsage {
     Math.round(usage.cacheWrite * ratio),
     Math.round(usage.cacheWriteObservedInput * ratio),
   );
+}
+
+function paginateMockNodes(result: ExplorerResponse, filters: DashboardFilters): ExplorerResponse {
+  const detail = result.selectedSession;
+  if (!detail) return result;
+  const nodes = detail.nodes;
+  detail.ownEventCount = nodes.find(node => node.id === detail.id)?.eventCount ?? 0;
+  detail.treeEventCount = nodes.reduce((sum, node) => sum + node.eventCount, 0);
+  const search = (filters.nodeSearch ?? '').trim().toLowerCase();
+  const matches = nodes.filter(node => `${node.title} ${node.id}`.toLowerCase().includes(search));
+  const offset = filters.nodeOffset ?? 0, limit = filters.nodeLimit ?? 200;
+  detail.nodes = matches.slice(offset, offset + limit);
+  detail.nodePage = { offset, limit, total: matches.length, hasMore: offset + detail.nodes.length < matches.length, search, sort: 'hierarchy' };
+  detail.truncated = offset > 0 || detail.nodes.length < matches.length;
+  return result;
+}
+
+// Synthetic fixture allocation only. Never used for real account attribution.
+function splitIntegers(total: number, weights: number[]): number[] {
+  const denominator = weights.reduce((sum, value) => sum + value, 0);
+  let prefix = 0, previous = 0;
+  return weights.map(weight => {
+    prefix += weight;
+    const cumulative = denominator ? Math.round(total * prefix / denominator) : 0;
+    const value = cumulative - previous;
+    previous = cumulative;
+    return value;
+  });
+}
+
+function splitFixtureUsage(usage: TokenUsage, weights: number[]): TokenUsage[] {
+  const cached = splitIntegers(usage.cached, weights);
+  const write = splitIntegers(usage.cacheWrite, weights);
+  const uncached = splitIntegers(usage.uncached, weights);
+  const reasoning = splitIntegers(usage.reasoning, weights);
+  const otherOutput = splitIntegers(usage.output - usage.reasoning, weights);
+  const input = weights.map((_, i) => cached[i] + write[i] + uncached[i]);
+  const observed = splitIntegers(usage.cacheWriteObservedInput, input);
+  return weights.map((_, i) => makeUsage(input[i], cached[i],
+    reasoning[i] + otherOutput[i], reasoning[i], write[i], observed[i]));
 }
 
 function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date): ExplorerResponse {
@@ -647,8 +688,10 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
 
   const sessions = allSessions.map((session, index) => {
     const projectUsage = projects.find((project) => project.id === session.projectId)?.periodUsage ?? emptyUsage();
-    const treeUsage = scaledUsage(projectUsage, index % 2 === 0 ? 0.58 : 0.37);
-    const ownUsage = scaledUsage(treeUsage, session.agents.length ? 0.44 : 1);
+    const siblings = MOCK_SESSIONS.filter(item => item.projectId === session.projectId);
+    const treeUsage = splitFixtureUsage(projectUsage, siblings.map(() => 1))[siblings.findIndex(item => item.id === session.id)];
+    const ownUsage = splitFixtureUsage(treeUsage, session.agents.length
+      ? [44, ...session.agents.map(() => 56 / session.agents.length)] : [1])[0];
     const updatedAt = new Date(now.getTime() - index * 37 * 60_000).toISOString();
     return {
       id: session.id,
@@ -671,8 +714,8 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
   const selected = filters.session === ALL ? undefined : MOCK_SESSIONS.find((session) => session.id === filters.session);
   const selectedRow = sessions.find((session) => session.id === filters.session);
   const selectedSession = selected && selectedRow ? (() => {
-    const agentRatio = selected.agents.length ? 0.56 / selected.agents.length : 0;
-    const agentUsage = selected.agents.map((agent) => scaledUsage(selectedRow.treeUsage, agentRatio));
+    const agentUsage = splitFixtureUsage(selectedRow.treeUsage, selected.agents.length
+      ? [44, ...selected.agents.map(() => 56 / selected.agents.length)] : [1]).slice(1);
     const nodes = [
       {
         id: selected.id,
@@ -719,6 +762,21 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
         subtreeEventCount: 8 + index * 4,
       })),
     ];
+    for (const node of [...nodes].reverse()) {
+      if (!node.parentId) continue;
+      const parent = nodes.find(item => item.id === node.parentId);
+      if (parent && parent.id !== selected.id) {
+        parent.subtreeUsage = { ...parent.subtreeUsage };
+        addUsage(parent.subtreeUsage, node.subtreeUsage);
+        parent.subtreeEventCount += node.subtreeEventCount;
+      }
+    }
+    const series = buildTimeseries(filterFacts(facts, { ...filters, project: selected.projectId }, anchor));
+    const weights = series.map(point => point.confirmed.total);
+    const treeBuckets = splitFixtureUsage(selectedRow.treeUsage, weights);
+    const ownBuckets = splitFixtureUsage(selectedRow.ownUsage, weights);
+    const treeEvents = splitIntegers(nodes[0].subtreeEventCount, weights);
+    const ownEvents = splitIntegers(selectedRow.eventCount, weights);
     return {
       id: selected.id,
       title: selected.title,
@@ -731,15 +789,15 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
       ownUsage: selectedRow.ownUsage,
       treeUsage: selectedRow.treeUsage,
       subagentCount: selected.agents.length,
-      samplingTimeline: buildTimeseries(filterFacts(facts, filters, anchor)).map((point) => ({
+      samplingTimeline: series.map((point, index) => ({
         bucket: point.date,
-        events: point.confirmedEvents,
-        usage: point.confirmed,
+        events: treeEvents[index],
+        usage: treeBuckets[index],
       })),
-      ownSamplingTimeline: buildTimeseries(filterFacts(facts, filters, anchor)).map((point) => ({
+      ownSamplingTimeline: series.map((point, index) => ({
         bucket: point.date,
-        events: Math.max(1, Math.round(point.confirmedEvents * (selectedRow.ownUsage.total / Math.max(selectedRow.treeUsage.total, 1)))),
-        usage: scaledUsage(point.confirmed, selectedRow.ownUsage.total / Math.max(selectedRow.treeUsage.total, 1)),
+        events: ownEvents[index],
+        usage: ownBuckets[index],
       })),
       samplingGrain: 'day' as const,
       officialThreadUsage: null,
@@ -796,7 +854,18 @@ function explorerFor(facts: MockFact[], filters: DashboardFilters, anchor: Date)
       latestConfirmedAt: now.toISOString(),
     },
     projects,
-    sessions,
+    sessions: sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase()))
+      .sort((a, b) => filters.sessionSort === 'recent' ? b.updatedAt.localeCompare(a.updatedAt)
+        : filters.sessionSort === 'output' ? b.treeUsage.output - a.treeUsage.output
+          : filters.sessionSort === 'requests' ? b.eventCount - a.eventCount : b.treeUsage.total - a.treeUsage.total)
+      .slice(filters.sessionOffset ?? 0, (filters.sessionOffset ?? 0) + (filters.sessionLimit ?? 30)),
+    sessionPage: {
+      total: sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase())).length,
+      offset: filters.sessionOffset ?? 0,
+      limit: filters.sessionLimit ?? 30,
+      hasMore: (filters.sessionOffset ?? 0) + (filters.sessionLimit ?? 30) < sessions.filter(session => `${session.title} ${session.id}`.toLowerCase().includes((filters.sessionSearch ?? '').toLowerCase())).length,
+      search: filters.sessionSearch ?? '', sort: filters.sessionSort ?? 'tokens',
+    },
     selectedSession,
   };
 }
@@ -822,8 +891,9 @@ export class MockLedgerApi implements LedgerApi {
     await delayed(signal);
     const facts = filterFacts(this.facts, filters, this.anchor);
     const usage = aggregateByQuality(facts);
-    const period = periodWindow(this.anchor, filters.period);
-    const official = mockOfficial(buildTimeseries(facts), usage.confirmed.total);
+    const period = periodWindow(this.anchor, filters.period, filters);
+    const accountFacts = filterFacts(this.facts, { ...filters, project: ALL, model: ALL, session: ALL }, this.anchor);
+    const official = mockOfficial(buildTimeseries(accountFacts), aggregateByQuality(accountFacts).confirmed.total);
     const confirmedEvents = facts
       .filter((fact) => fact.quality === 'confirmed')
       .reduce((sum, fact) => sum + fact.events, 0);
@@ -857,9 +927,9 @@ export class MockLedgerApi implements LedgerApi {
           definitionId: 'account_total_v1',
         },
         localAttributedTotal: {
-          value: usage.confirmed.total,
+          value: confirmedEvents > 0 ? usage.confirmed.total : null,
           source: 'local',
-          status: 'local_sample',
+          status: confirmedEvents > 0 ? 'local_sample' : 'unknown',
           windowStart: period.start,
           windowEnd: period.end,
           timezone: period.timezone,
@@ -875,7 +945,7 @@ export class MockLedgerApi implements LedgerApi {
         },
       },
       confirmedEvents,
-      cacheRate: usage.confirmed.input ? usage.confirmed.cached / usage.confirmed.input : 0,
+      cacheRate: usage.confirmed.input ? usage.confirmed.cached / usage.confirmed.input : null,
       latestConfirmedAt: confirmedDates.length ? `${confirmedDates.sort().at(-1)}T10:00:00.000Z` : null,
       quotaPools: buildQuotaPools(this.anchor, filters),
       quotaCycles: buildQuotaPools(this.anchor, filters).map((pool) => ({
@@ -896,6 +966,10 @@ export class MockLedgerApi implements LedgerApi {
         usedDeltaPercent: pool.usedPercent == null ? null : 18,
         sampleCount: 24,
         localObservationStart: new Date(this.anchor.getTime() - 2 * DAY_MS).toISOString(),
+        localObservationEnd: this.anchor.toISOString(),
+        boundaryKind: 'first_observation',
+        boundaryAfter: null,
+        historyLimited: false,
         localCoverageRatio: 0.72,
         localUsage: usage.confirmed,
         localEvents: confirmedEvents,
@@ -909,8 +983,8 @@ export class MockLedgerApi implements LedgerApi {
         available: false,
         previousEvents: 0,
       },
-      averagePerDay: usage.confirmed.total / Math.max(periodDays(filters.period), 1),
-      matchRate: confirmedEvents ? confirmedEvents / Math.max(confirmedEvents + 2, 1) : 1,
+      averagePerDay: confirmedEvents > 0 ? usage.confirmed.total / Math.max(periodDays(filters.period), 1) : null,
+      matchRate: facts.some(fact => fact.events > 0) ? confirmedEvents / facts.reduce((sum, fact) => sum + fact.events, 0) : null,
       unmatchedEvents: facts.filter((fact) => fact.quality === 'unknown').reduce((sum, fact) => sum + fact.events, 0),
       reconciliation: {
         comparable: false,
@@ -927,12 +1001,24 @@ export class MockLedgerApi implements LedgerApi {
     await delayed(signal);
     const facts = filterFacts(this.facts, filters, this.anchor);
     const points = buildTimeseries(facts);
+    const accountFacts = filterFacts(this.facts, { ...filters, project: ALL, model: ALL, session: ALL }, this.anchor);
+    const official = mockOfficial(buildTimeseries(accountFacts), aggregateByQuality(accountFacts).confirmed.total);
+    official.primaryScope = filters.project === ALL && filters.model === ALL && filters.session === ALL;
     return {
       generatedAt: new Date().toISOString(),
-      period: periodWindow(this.anchor, filters.period),
+      period: periodWindow(this.anchor, filters.period, filters),
       grain: 'day',
       points,
       comparisonPoints: [],
+      dailyPoints: points,
+      modelSeries: MODELS.map(model => {
+        const points = buildTimeseries(facts.filter(fact => fact.modelId === model.id));
+        return { id: model.id, label: model.label, points, totalTokens: points.reduce((sum, point) => sum + point.confirmed.total, 0) };
+      }).filter(series => series.totalTokens > 0),
+      accountSeries: ACCOUNTS.map(account => {
+        const points = buildTimeseries(facts.filter(fact => fact.accountId === account.id));
+        return { id: account.id, label: account.label, points, totalTokens: points.reduce((sum, point) => sum + point.confirmed.total, 0) };
+      }).filter(series => series.totalTokens > 0),
       projectSeries: PROJECTS.map((project) => {
         const projectFacts = facts.filter((fact) => fact.projectId === project.id);
         return {
@@ -942,7 +1028,7 @@ export class MockLedgerApi implements LedgerApi {
           points: buildTimeseries(projectFacts).map((point) => ({ date: point.date, confirmed: point.confirmed, confirmedEvents: point.confirmedEvents })),
         };
       }).filter((series) => series.totalTokens > 0),
-      official: mockOfficial(points, points.reduce((sum, point) => sum + point.confirmed.total, 0)),
+      official,
       timeline: buildTimeline(this.anchor, filters),
     };
   }
@@ -952,7 +1038,7 @@ export class MockLedgerApi implements LedgerApi {
     const facts = filterFacts(this.facts, filters, this.anchor);
     return {
       generatedAt: new Date().toISOString(),
-      period: periodWindow(this.anchor, filters.period),
+      period: periodWindow(this.anchor, filters.period, filters),
       account: buildBreakdown(facts, 'account'),
       project: buildBreakdown(facts, 'project'),
       model: buildBreakdown(facts, 'model'),
@@ -1007,7 +1093,7 @@ export class MockLedgerApi implements LedgerApi {
         description: 'Excluded until attribution or schema evidence becomes sufficient.',
       },
     ];
-    const window = periodWindow(this.anchor, filters.period);
+    const window = periodWindow(this.anchor, filters.period, filters);
     const issues: QualityIssue[] = [
       {
         id: 'foreign-session-meta',
@@ -1071,7 +1157,38 @@ export class MockLedgerApi implements LedgerApi {
 
   async getExplorer(filters: DashboardFilters, signal?: AbortSignal): Promise<ExplorerResponse> {
     await delayed(signal);
-    return explorerFor(this.facts, filters, this.anchor);
+    const owner = MOCK_SESSIONS.find(session => session.agents.some(agent => agent.id === filters.session));
+    if (owner) {
+      const result = explorerFor(this.facts, { ...filters, project: owner.projectId, session: owner.id }, this.anchor);
+      const root = result.selectedSession!;
+      const included = new Set([filters.session]);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const node of root.nodes) {
+          if (node.parentId && included.has(node.parentId) && !included.has(node.id)) { included.add(node.id); changed = true; }
+        }
+      }
+      const selected = root.nodes.find(node => node.id === filters.session)!;
+      const nodes = root.nodes.filter(node => included.has(node.id)).map(node => ({ ...node, relativeDepth: node.relativeDepth - selected.relativeDepth }));
+      const total = emptyUsage();
+      nodes.forEach(node => addUsage(total, node.ownUsage));
+      const events = nodes.reduce((sum, node) => sum + node.eventCount, 0);
+      nodes[0].subtreeUsage = total;
+      nodes[0].subtreeEventCount = events;
+      const weights = root.samplingTimeline.map(point => point.usage.total);
+      const treeUsage = splitFixtureUsage(total, weights);
+      const ownUsage = splitFixtureUsage(selected.ownUsage, weights);
+      const treeEvents = splitIntegers(events, weights);
+      const ownEvents = splitIntegers(selected.eventCount, weights);
+      result.selectedSession = { ...root, id: selected.id, title: selected.title, model: selected.model,
+        ownUsage: selected.ownUsage, treeUsage: total, nodes, subagentCount: nodes.length - 1,
+        samplingTimeline: root.samplingTimeline.map((point, index) => ({
+          bucket: point.bucket, usage: treeUsage[index], events: treeEvents[index] })),
+        ownSamplingTimeline: root.samplingTimeline.map((point, index) => ({
+          bucket: point.bucket, usage: ownUsage[index], events: ownEvents[index] })) };
+      return paginateMockNodes(result, filters);
+    }
+    return paginateMockNodes(explorerFor(this.facts, filters, this.anchor), filters);
   }
 
   async getBundle(filters: DashboardFilters, signal?: AbortSignal): Promise<DashboardBundle> {

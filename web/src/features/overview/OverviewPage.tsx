@@ -1,17 +1,20 @@
-import type { DashboardBundle, MetricKey } from '../../api/types';
+import type { DashboardBundle, DashboardFilters, MetricKey } from '../../api/types';
+import { ConversationControls } from '../../components/ConversationControls';
 import { AttributionCoveragePanel } from '../../components/AttributionCoveragePanel';
 import { BreakdownPanel } from '../../components/BreakdownPanel';
 import { OverviewSessions } from '../../components/Explorer';
 import { MissingAccountEstimatePanel } from '../../components/MissingAccountEstimatePanel';
-import { TokenOverview } from '../../components/TokenOverview';
-import { ExplorerPulse } from '../../components/Explorer';
+import { LocalComposition } from '../../components/LocalComposition';
+import { LocalUsagePulse } from '../../components/Explorer';
+import { ActivityCalendar } from '../../components/ActivityCalendar';
 import { TrendAndTimeline } from '../../components/TrendAndTimeline';
-import { compactNumber, formatPercent } from '../../lib';
 import { useI18n } from '../../i18n';
 
 export type OverviewDetailTab = 'projects' | 'models' | 'sessions';
 
 interface OverviewPageProps {
+  filters: DashboardFilters;
+  onFiltersChange: (filters: DashboardFilters) => void;
   bundle: DashboardBundle;
   metric: MetricKey;
   detailTab: OverviewDetailTab;
@@ -22,6 +25,8 @@ interface OverviewPageProps {
 }
 
 export function OverviewPage({
+  filters,
+  onFiltersChange,
   bundle,
   metric,
   detailTab,
@@ -31,41 +36,43 @@ export function OverviewPage({
   onSelectBreakdown,
 }: OverviewPageProps) {
   const { t } = useI18n();
-  const officialTotal = bundle.summary.official.totalTokens;
-  const showReconciliation = metric === 'total'
-    && bundle.summary.official.authoritativeForAccountTotal
-    && officialTotal !== null;
 
   return (
     <>
-      <ExplorerPulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
-      <AttributionCoveragePanel coverage={bundle.summary.attributionCoverage} />
-      <MissingAccountEstimatePanel estimate={bundle.summary.missingAccountEstimate} />
-      <TrendAndTimeline data={bundle.timeseries} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} />
-      <TokenOverview summary={bundle.summary} metric={metric} />
+      <LocalUsagePulse explorer={bundle.explorer} summary={bundle.summary} metric={metric} />
+      <TrendAndTimeline data={{ ...bundle.timeseries, official: { ...bundle.timeseries.official, primaryScope: false } }} explorer={bundle.explorer} metric={metric} onOpenProject={onOpenProject} onInspectRange={range => {
+        onFiltersChange({ ...filters, ...range, period: 'custom', sessionOffset: 0, sessionSearch: '' });
+        onDetailTabChange('sessions');
+      }} />
       <section className="overview-tabs panel">
         <nav aria-label={t('overview.usage_details')}>
-          {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', 'Sessions']] as const).map(([id, label]) => (
+          {([['projects', t('components.explorer.projects')], ['models', t('overview.models')], ['sessions', t('overview.sessions')]] as const).map(([id, label]) => (
             <button aria-pressed={detailTab === id} className={detailTab === id ? 'is-active' : ''} key={id} onClick={() => onDetailTabChange(id)} type="button">{label}</button>
           ))}
         </nav>
         <div className="overview-tab-content">
           {detailTab === 'projects' && (
             <>
-              {showReconciliation && (
-                <div className="project-tab-reconciliation">
-                  <span>{t('overview.official_account_total')} <strong>{compactNumber(officialTotal)}</strong></span>
-                  <span>{t('components.trend-and-timeline.local_project_sample')} <strong>{compactNumber(bundle.summary.usage.confirmed.total)} · {officialTotal ? formatPercent(bundle.summary.usage.confirmed.total / officialTotal) : '0%'}</strong></span>
-                  <span>{t('overview.scope')} <strong>{t('overview.official_data_has_no_project_dimension_gaps')}</strong></span>
-                </div>
-              )}
-              <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['project']} onSelect={onSelectBreakdown} />
+              <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['project']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />
             </>
           )}
-          {detailTab === 'models' && <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} onSelect={onSelectBreakdown} />}
-          {detailTab === 'sessions' && <OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} />}
+          {detailTab === 'models' && <BreakdownPanel data={bundle.breakdowns} metric={metric} dimensions={['model']} scopeKey={JSON.stringify(filters)} onSelect={onSelectBreakdown} />}
+          {detailTab === 'sessions' && <><ConversationControls explorer={bundle.explorer} filters={filters} onChange={onFiltersChange} /><OverviewSessions explorer={bundle.explorer} onOpenSession={onOpenSession} /></>}
         </div>
       </section>
+      <ActivityCalendar data={bundle.timeseries} metric={metric} onSelectDay={date => {
+        onFiltersChange({ ...filters, period: 'custom', startDate: date, endDate: date, sessionOffset: 0, sessionSearch: '' });
+        onDetailTabChange('sessions');
+      }} />
+      <details className="overview-secondary panel">
+        <summary>{t('overview.composition_details')}</summary>
+        <LocalComposition usage={bundle.summary.usage.confirmed} eventCount={bundle.summary.confirmedEvents} />
+      </details>
+      <details className="overview-secondary panel">
+        <summary>{t('overview.evidence_details')}</summary>
+        <AttributionCoveragePanel coverage={bundle.summary.attributionCoverage} />
+        <MissingAccountEstimatePanel estimate={bundle.summary.missingAccountEstimate} />
+      </details>
     </>
   );
 }

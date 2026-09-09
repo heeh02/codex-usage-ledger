@@ -3,6 +3,10 @@ use super::*;
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageQuery {
+    /// Internal bundle clock; never accepted from or exposed to HTTP clients.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub reference_time: Option<DateTime<Utc>>,
     pub period: Option<String>,
     pub account: Option<String>,
     pub project: Option<String>,
@@ -14,10 +18,135 @@ pub struct UsageQuery {
     pub metric: Option<String>,
     pub ranking_period: Option<String>,
     pub ranking_sort: Option<String>,
+    pub session_search: Option<String>,
+    pub session_sort: Option<String>,
+    pub session_offset: Option<usize>,
+    pub session_limit: Option<usize>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub node_offset: Option<usize>,
+    pub node_limit: Option<usize>,
+    pub node_search: Option<String>,
+}
+
+impl UsageQuery {
+    pub(super) fn validate(&self) -> Result<(), ApiError> {
+        if self
+            .node_limit
+            .is_some_and(|limit| !(1..=1000).contains(&limit))
+        {
+            return Err(ApiError::InvalidQuery(
+                "nodeLimit must be between 1 and 1000".to_owned(),
+            ));
+        }
+        for (name, value, allowed) in [
+            (
+                "period",
+                self.period.as_deref(),
+                &[
+                    "today",
+                    "week",
+                    "rolling7",
+                    "month",
+                    "rolling30",
+                    "weeks12",
+                    "months12",
+                    "year",
+                    "custom",
+                    "lifetime",
+                ][..],
+            ),
+            (
+                "grain",
+                self.grain.as_deref(),
+                &["hour", "day", "week", "month"][..],
+            ),
+            (
+                "metric",
+                self.metric.as_deref(),
+                &[
+                    "total",
+                    "input",
+                    "cached",
+                    "cacheWrite",
+                    "uncached",
+                    "output",
+                    "reasoning",
+                    "requests",
+                ][..],
+            ),
+            (
+                "sessionSort",
+                self.session_sort.as_deref(),
+                &["tokens", "output", "requests", "recent"][..],
+            ),
+        ] {
+            if value.is_some_and(|value| !allowed.contains(&value)) {
+                return Err(ApiError::InvalidQuery(format!("unsupported {name}")));
+            }
+        }
+        if self.period.as_deref() == Some("custom") {
+            let parse = |value: Option<&str>| {
+                value.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+            };
+            let dates = parse(self.start_date.as_deref()).zip(parse(self.end_date.as_deref()));
+            if !dates.is_some_and(|(start, end)| start <= end && end.succ_opt().is_some()) {
+                return Err(ApiError::InvalidQuery(
+                    "custom requires ordered startDate and endDate (YYYY-MM-DD)".to_owned(),
+                ));
+            }
+            let timezone = self
+                .timezone
+                .as_deref()
+                .unwrap_or("Asia/Shanghai")
+                .parse::<chrono_tz::Tz>()
+                .map_err(|_| ApiError::InvalidQuery("unsupported timezone".to_owned()))?;
+            let (start, end) = dates.expect("ordered dates validated above");
+            if super::period::local_midnight_utc(start, timezone).is_none()
+                || end
+                    .succ_opt()
+                    .and_then(|date| super::period::local_midnight_utc(date, timezone))
+                    .is_none()
+            {
+                return Err(ApiError::InvalidQuery(
+                    "custom date boundary does not exist in the selected timezone".to_owned(),
+                ));
+            }
+        }
+        if self
+            .session_limit
+            .is_some_and(|limit| !(1..=100).contains(&limit))
+        {
+            return Err(ApiError::InvalidQuery(
+                "sessionLimit must be between 1 and 100".to_owned(),
+            ));
+        }
+        if self
+            .session_search
+            .as_ref()
+            .is_some_and(|search| search.chars().count() > 256)
+        {
+            return Err(ApiError::InvalidQuery(
+                "sessionSearch exceeds 256 characters".to_owned(),
+            ));
+        }
+        if self
+            .timezone
+            .as_deref()
+            .is_some_and(|timezone| Tz::from_str(timezone).is_err())
+        {
+            return Err(ApiError::InvalidQuery(
+                "timezone must be a valid IANA name".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    #[error("invalid query: {0}")]
+    InvalidQuery(String),
     #[error(transparent)]
     Store(#[from] StoreError),
     #[error("ledger database lock was poisoned")]
@@ -39,10 +168,22 @@ pub enum ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
-            Self::InvalidAccountCount(_) => StatusCode::BAD_REQUEST,
+            Self::Store(StoreError::SnapshotUnavailable) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Store(StoreError::InsufficientTimePrecision) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
-        (status, Json(serde_json::json!({"error": self.to_string()}))).into_response()
+        let code = match &self {
+            Self::Store(StoreError::SnapshotUnavailable) => "snapshot_unavailable",
+            Self::Store(StoreError::InsufficientTimePrecision) => "insufficient_time_precision",
+            Self::InvalidAccountCount(_) | Self::InvalidQuery(_) => "invalid_query",
+            _ => "request_failed",
+        };
+        (
+            status,
+            Json(serde_json::json!({"error": self.to_string(), "code": code})),
+        )
+            .into_response()
     }
 }
 
@@ -54,8 +195,20 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/breakdowns", get(breakdowns))
         .route("/v1/quality", get(quality))
         .route("/v1/explorer", get(explorer))
+        .route(
+            "/v1/request-evidence",
+            get(super::requests::request_evidence),
+        )
         .route("/v1/bundle", get(bundle))
+        .route("/v1/source-union", get(source_union))
+        .route("/v1/source-catalog", get(source_catalog))
+        .route("/v1/turn-evidence", get(super::requests::turn_evidence))
         .route("/v1/quotas", get(quotas))
+        .route("/v1/quota-history", get(super::quota_history::history))
+        .route(
+            "/v1/quota-interval-usage",
+            get(super::quota_history::interval_usage),
+        )
         .route("/v1/switches", get(switches))
         .route("/v1/changes", get(changes))
         .route(
@@ -132,7 +285,9 @@ async fn refresh_official_thread(
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(serde_json::json!({"status": "ok", "service": "codex-usage-ledger"}))
+    Json(
+        serde_json::json!({"status": "ok", "service": "codex-usage-ledger", "processId": std::process::id()}),
+    )
 }
 
 async fn summary(
@@ -144,6 +299,50 @@ async fn summary(
             .cached_query_value("summary", query, http_summary)
             .await?,
     ))
+}
+
+pub(super) async fn source_union(
+    State(state): State<ApiState>,
+    Query(query): Query<crate::store::SourceUnionQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if query.start >= query.end
+        || query.timezone.parse::<Tz>().is_err()
+        || (query.include_descendants && query.thread.is_none())
+    {
+        return Err(ApiError::InvalidQuery(
+            "require ordered timestamps and a valid timezone".into(),
+        ));
+    }
+    Ok(Json(
+        state
+            .query_read_only(move |store| queries::scoped_union_display(store, &query))
+            .await?,
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub(super) struct SourceCatalogQuery {
+    pub search: String,
+}
+
+pub(super) async fn source_catalog(
+    State(state): State<ApiState>,
+    Query(query): Query<SourceCatalogQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if query.search.chars().count() > 256 {
+        return Err(ApiError::InvalidQuery(
+            "catalog search exceeds 256 characters".into(),
+        ));
+    }
+    let search = query.search.trim().to_owned();
+    Ok(Json(state.query_read_only(move |store| store.with_source_audit_snapshot(|store| {
+        let projects = store.list_projects()?.into_iter().map(|p|serde_json::json!({"id":p.project_id,"label":p.project_name})).collect::<Vec<_>>();
+        let roots = store.search_dashboard_catalog_roots(None,500,&search)?.into_iter().map(|r|{let label=explorer::thread_label(&r);serde_json::json!({"id":r.thread_id,"project":r.project_id,"label":label})}).collect::<Vec<_>>();
+        let mut accounts = store.verified_auth_accounts()?;
+        accounts.extend(store.list_official_accounts()?); accounts.sort(); accounts.dedup();
+        Ok(serde_json::json!({"version":1,"projects":projects,"roots":roots,"accounts":accounts,"rootLimit":500,"search":search}))
+    })).await?))
 }
 
 async fn timeseries(
@@ -194,11 +393,7 @@ async fn bundle(
     State(state): State<ApiState>,
     Query(query): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Ok(Json(
-        state
-            .cached_query_value("bundle", query, http_bundle)
-            .await?,
-    ))
+    Ok(Json(state.bundle_json(query).await?))
 }
 
 async fn quotas(State(state): State<ApiState>) -> Json<serde_json::Value> {
@@ -268,4 +463,16 @@ pub(super) fn accepts_local_origin(headers: &HeaderMap) -> bool {
     origin.starts_with("http://127.0.0.1:")
         || origin.starts_with("http://localhost:")
         || origin == "null"
+}
+
+#[cfg(test)]
+mod health_tests {
+    #[tokio::test]
+    async fn health_identifies_the_serving_process_without_ledger_data() {
+        let response = super::health().await.0;
+        assert_eq!(response["processId"], std::process::id());
+        assert_eq!(response["status"], "ok");
+        assert_eq!(response["service"], "codex-usage-ledger");
+        assert_eq!(response.as_object().unwrap().len(), 3);
+    }
 }

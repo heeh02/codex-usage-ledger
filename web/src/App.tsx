@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createLedgerApi, loadDashboardBundle } from './api/client';
+import { useScopedEvidenceView } from './features/quality/ScopedEvidenceView';
 import type { DashboardBundle, DashboardFilters } from './api/types';
 import {
   LedgerSidebar,
@@ -11,10 +12,21 @@ import { OverviewPage, type OverviewDetailTab } from './features/overview/Overvi
 import { ProjectPage } from './features/projects/ProjectPage';
 import { QualityPage } from './features/quality/QualityPage';
 import { SessionPage } from './features/sessions/SessionPage';
-import { compactNumber, formatDateTime, formatPeriodRange } from './lib';
+import { ConversationsPage } from './features/conversations/ConversationsPage';
+import { ModelsPage } from './features/models/ModelsPage';
+import { formatTokenMillions, formatDateTime, formatPeriodRange } from './lib';
 import { useI18n } from './i18n';
 import { requestNativePngExport } from './nativeBridge';
 import type { AppPage } from './page';
+import { exportUsageCsv, exportUsageJson } from './export';
+import { runScopedRequest } from './shared/requestLifecycle';
+import { parseChangeRevision } from './shared/changeRevision';
+import { oneOf, readSessionObject, writeSessionObjects } from './shared/sessionPreferences';
+import { restoreDashboardFilters } from './shared/dashboardPreferences';
+import { AccountSwitcher, accountScopeLabel } from './components/AccountSwitcher';
+import { requestFailureMessage } from './shared/requestFailureMessage';
+import { LedgerRequestError } from './api/errors';
+import { parentSessionFilters, type SessionTrailEntry } from './shared/sessionTrail';
 
 const INITIAL_FILTERS: DashboardFilters = {
   account: 'all',
@@ -34,73 +46,107 @@ const INITIAL_SESSION_VIEW: SessionViewState = {
   scope: 'tree',
 };
 
-function restoredSessionValue<T>(key: string, fallback: T): T {
-  try {
-    const encoded = window.sessionStorage.getItem(key);
-    return encoded ? { ...fallback, ...JSON.parse(encoded) } : fallback;
-  } catch {
-    return fallback;
-  }
+function restoreFilters(): DashboardFilters {
+  return restoreDashboardFilters(INITIAL_FILTERS);
 }
 
 function App() {
   const { language, setLanguage, t } = useI18n();
   const api = useMemo(() => createLedgerApi(), []);
-  const [filters, setFilters] = useState<DashboardFilters>(() => restoredSessionValue('ledger.filters', INITIAL_FILTERS));
-  const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(() => restoredSessionValue('ledger.filters', INITIAL_FILTERS));
+  const [filters, setFilters] = useState<DashboardFilters>(restoreFilters);
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(restoreFilters);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const requestInFlight = useRef(false);
+  const recentViews = useRef(new Map<string, { at: number; bundle: DashboardBundle }>());
+  const [requestFailure, setRequestFailure] = useState<unknown>(null);
+  const error = requestFailure === null ? '' : requestFailureMessage(requestFailure, t);
+  const timePrecisionFailure = requestFailure instanceof LedgerRequestError && requestFailure.code === 'insufficient_time_precision';
   const [refreshKey, setRefreshKey] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [refreshFeedback, setRefreshFeedback] = useState('');
-  const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => restoredSessionValue('ledger.overviewTab', { value: 'projects' as const }).value);
-  const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => restoredSessionValue('ledger.projectTab', { value: 'overview' as const }).value);
-  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality'>(() => restoredSessionValue('ledger.primaryPage', { value: 'overview' as const }).value);
-  const [sessionView, setSessionView] = useState<SessionViewState>(() => restoredSessionValue('ledger.sessionView', INITIAL_SESSION_VIEW));
+  const [officialSyncing, setOfficialSyncing] = useState(false);
+  const [officialSyncFailed, setOfficialSyncFailed] = useState(false);
+  const [accountView, setAccountView] = useState<'usage' | 'history'>(() => readSessionObject('ledger.accountView', { value: 'usage' as const }, { value: oneOf('usage', 'history') }).value);
+  const [detailTab, setDetailTab] = useState<OverviewDetailTab>(() => readSessionObject('ledger.overviewTab', { value: 'projects' as const }, { value: oneOf('projects', 'models', 'sessions') }).value);
+  const [projectDetailTab, setProjectDetailTab] = useState<'overview' | 'sessions'>(() => readSessionObject('ledger.projectTab', { value: 'overview' as const }, { value: oneOf('overview', 'sessions') }).value);
+  const [primaryPage, setPrimaryPage] = useState<'overview' | 'accounts' | 'quality' | 'chats' | 'models'>(() => readSessionObject('ledger.primaryPage', { value: 'overview' as const }, { value: oneOf('overview', 'accounts', 'quality', 'chats', 'models') }).value);
+  const [sessionView, setSessionView] = useState<SessionViewState>(() => readSessionObject('ledger.sessionView', INITIAL_SESSION_VIEW, { scope: oneOf('own', 'tree'), sort: oneOf('hierarchy', 'own', 'tree', 'recent') }));
   const [privacyMode, setPrivacyMode] = useState(false);
+  const [sessionTrail, setSessionTrail] = useState<Array<SessionTrailEntry<SessionViewState>>>([]);
+  const pendingSessionReturn = useRef<SessionTrailEntry<SessionViewState> | null>(null);
+  const returnedScroll = useRef<{ id: string; top: number } | null>(null);
   const lastRevision = useRef<string | null>(null);
   const backgroundRefreshTimer = useRef<number | null>(null);
   const savedScrollTop = useRef(0);
+  const scopedFallback = useRef(false);
+  const lastBundleRefresh = useRef(-1);
+  const [scopeAccounts,setScopeAccounts]=useState<string[]>([]);
+  const [scopePending,setScopePending]=useState(false);
+  const [scopeAccountRevision,setScopeAccountRevision]=useState(0);
 
   useEffect(() => {
-    window.sessionStorage.setItem('ledger.filters', JSON.stringify(appliedFilters));
-    window.sessionStorage.setItem('ledger.overviewTab', JSON.stringify({ value: detailTab }));
-    window.sessionStorage.setItem('ledger.projectTab', JSON.stringify({ value: projectDetailTab }));
-    window.sessionStorage.setItem('ledger.primaryPage', JSON.stringify({ value: primaryPage }));
-    window.sessionStorage.setItem('ledger.sessionView', JSON.stringify(sessionView));
-  }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView]);
+    writeSessionObjects({ 'ledger.filters': appliedFilters, 'ledger.overviewTab': { value: detailTab },
+      'ledger.projectTab': { value: projectDetailTab }, 'ledger.primaryPage': { value: primaryPage }, 'ledger.sessionView': sessionView, 'ledger.accountView': { value: accountView } });
+  }, [appliedFilters, detailTab, primaryPage, projectDetailTab, sessionView, accountView]);
 
   useEffect(() => {
+    if(scopedFallback.current && lastBundleRefresh.current===refreshKey)return;
+    lastBundleRefresh.current=refreshKey;
     const controller = new AbortController();
-    setError('');
+    requestInFlight.current = true;
+    const scopeKey = JSON.stringify(filters);
+    const cached = recentViews.current.get(scopeKey);
+    if (cached && Date.now() - cached.at < 60_000) {
+      setBundle(cached.bundle);
+      setAppliedFilters(filters);
+    }
+    if (pendingSessionReturn.current?.id !== filters.session) pendingSessionReturn.current = null;
+    if(!scopedFallback.current)setRequestFailure(null);
     setLoading(true);
 
-    loadDashboardBundle(api, filters, controller.signal)
-      .then((nextBundle) => {
+    void runScopedRequest(controller.signal,
+      () => loadDashboardBundle(api, filters, controller.signal), {
+      success: (nextBundle) => {
+        recentViews.current.delete(scopeKey);
+        recentViews.current.set(scopeKey, { at: Date.now(), bundle: nextBundle });
+        if (recentViews.current.size > 6) recentViews.current.delete(recentViews.current.keys().next().value!);
+        scopedFallback.current=false;
+        setRequestFailure(null);
         setBundle(nextBundle);
         setAppliedFilters(filters);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === 'AbortError') return;
-        setError(reason instanceof Error ? reason.message : t('app.unknown_dashboard_error'));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setManualRefreshing(false);
-          setLoading(false);
+        const nextSession = nextBundle.explorer.selectedSession;
+        if (nextSession) {
+          const restore = pendingSessionReturn.current;
+          if (restore?.id === nextSession.id) {
+            setSessionView(restore.view);
+            returnedScroll.current = { id: restore.id, top: restore.scrollTop };
+            pendingSessionReturn.current = null;
+          } else {
+            setSessionView(value => value.sessionId === nextSession.id ? value : { ...INITIAL_SESSION_VIEW, sessionId: nextSession.id });
+          }
         }
+      },
+      failure: (reason: unknown) => {
+        if(!bundle && reason instanceof LedgerRequestError && reason.code==='snapshot_unavailable')scopedFallback.current=true;
+        setRequestFailure(() => reason ?? new Error());
+      },
+      settled: () => {
+        requestInFlight.current = false;
+        setManualRefreshing(false);
+        setLoading(false);
+      },
       });
 
-    return () => controller.abort();
+    return () => { controller.abort(); requestInFlight.current = false; };
   }, [api, filters, refreshKey]);
 
   useEffect(() => {
     if (api.mode !== 'http') return;
     const source = new EventSource('/v1/changes');
     source.addEventListener('ledger-change', (event) => {
-      const payload = JSON.parse((event as MessageEvent<string>).data) as { revision?: string | number };
-      const revision = String(payload.revision ?? '');
+      const revision = parseChangeRevision((event as MessageEvent<string>).data);
+      if (revision === null) return;
       if (lastRevision.current === null) {
         lastRevision.current = revision;
       } else if (revision && revision !== lastRevision.current) {
@@ -108,7 +154,7 @@ function App() {
         if (backgroundRefreshTimer.current === null) {
           backgroundRefreshTimer.current = window.setTimeout(() => {
             backgroundRefreshTimer.current = null;
-            setRefreshKey((value) => value + 1);
+            if (!requestInFlight.current) setRefreshKey((value) => value + 1);
           }, 10_000);
         }
       }
@@ -131,15 +177,24 @@ function App() {
     return () => window.cancelAnimationFrame(frame);
   }, [privacyMode]);
 
-  const retry = async () => {
+  const retry = () => {
     setManualRefreshing(true);
+    setRefreshKey((value) => value + 1);
+  };
+  const showToday = () => setFilters(value => ({ ...value, period: 'today', startDate: undefined, endDate: undefined, nodeOffset: 0, sessionOffset: 0 }));
+  const syncOfficial = async () => {
+    if (officialSyncing) return;
+    setOfficialSyncing(true);
+    setOfficialSyncFailed(false);
     setRefreshFeedback(t('app.syncing_official_usage_for_the_current_account'));
     try {
       await api.refreshOfficial();
       setRefreshFeedback(`${t('app.sync_complete')} · ${new Date().toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en-US', { hour: '2-digit', minute: '2-digit' })}`);
     } catch (reason) {
+      setOfficialSyncFailed(true);
       setRefreshFeedback(reason instanceof Error ? `${t('app.sync_failed')} · ${reason.message}` : t('app.official_usage_sync_failed'));
     } finally {
+      setOfficialSyncing(false);
       setRefreshKey((value) => value + 1);
     }
   };
@@ -149,14 +204,24 @@ function App() {
       await api.setUserConfirmedAccountCount(count);
       setRefreshKey((value) => value + 1);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('app.account_count_calibration_failed'));
+      setRequestFailure(() => reason ?? new Error());
     } finally {
       setManualRefreshing(false);
     }
   };
   const openOverview = () => {
     setPrimaryPage('overview');
-    setFilters((value) => ({ ...value, project: 'all', model: 'all', session: 'all' }));
+    setFilters((value) => ({ ...value, project: 'all', session: 'all' }));
+  };
+  const openChats = () => {
+    setPrimaryPage('chats');
+    setSessionTrail([]);
+    setFilters(value => ({ ...value, project: 'all', session: 'all', sessionSearch: '', sessionOffset: 0 }));
+  };
+  const openModels = () => {
+    setPrimaryPage('models');
+    setSessionTrail([]);
+    setFilters(value => ({ ...value, project: 'all', session: 'all', sessionSearch: '', sessionOffset: 0 }));
   };
   const openAccounts = () => {
     setPrimaryPage('accounts');
@@ -167,15 +232,30 @@ function App() {
     setFilters((value) => ({ ...value, account: 'all', project: 'all', model: 'all', session: 'all' }));
   };
   const openProject = (project: string) => {
+    setSessionTrail([]);
     setPrimaryPage('overview');
     setProjectDetailTab('overview');
-    setFilters((value) => ({ ...value, account: 'all', project, session: 'all' }));
+    setFilters((value) => ({ ...value, project, session: 'all', sessionOffset: 0, sessionSearch: '' }));
   };
   const openSession = (session: string) => {
-    setFilters((value) => ({ ...value, session }));
+    const current = bundle?.explorer.selectedSession;
+    if (current && current.id !== session) {
+      setSessionTrail(trail => [...trail, { id: current.id, title: current.title, view: { ...sessionView, sessionId: current.id },
+        nodes: { nodeOffset: appliedFilters.nodeOffset, nodeLimit: appliedFilters.nodeLimit, nodeSearch: appliedFilters.nodeSearch },
+        scrollTop: document.querySelector<HTMLElement>('.workspace-scroll')?.scrollTop ?? 0 }]);
+    }
+    setFilters((value) => ({ ...value, session, nodeOffset: 0, nodeSearch: '' }));
+    if (bundle?.collection.mode === 'union-preview') return;
     api.refreshOfficialThread(session)
       .then(() => setRefreshKey((value) => value + 1))
       .catch(() => { /* Thread billing detail can legitimately be unavailable. */ });
+  };
+  const returnToSession = (index: number) => {
+    const parent = sessionTrail[index];
+    if (!parent) return;
+    pendingSessionReturn.current = parent;
+    setSessionTrail(trail => trail.slice(0, index));
+    setFilters(value => parentSessionFilters(value, parent));
   };
   const selectBreakdown = (dimension: 'account' | 'project' | 'model', id: string) => {
     if (dimension === 'project') {
@@ -204,17 +284,11 @@ function App() {
     if (!bundle) return;
     const stamp = new Date().toISOString().slice(0, 10);
     if (format === 'json') {
-      download(`codex-usage-${stamp}.json`, 'application/json', JSON.stringify({ filters: appliedFilters, bundle }, null, 2));
+      download(`codex-usage-${stamp}.json`, 'application/json', exportUsageJson(bundle, appliedFilters, sessionView.scope));
       return;
     }
     if (format === 'csv') {
-      const local = new Map(bundle.timeseries.points.map((point) => [point.date, point]));
-      const rows: Array<Array<string | number>> = [['bucket', 'official_total', 'local_total', 'input', 'cached_input', 'uncached_input', 'output', 'reasoning', 'sampling_requests']];
-      for (const point of bundle.summary.official.points) {
-        const sample = local.get(point.date);
-        rows.push([point.date, point.tokens, sample?.confirmed.total ?? '', sample?.confirmed.input ?? '', sample?.confirmed.cached ?? '', sample?.confirmed.uncached ?? '', sample?.confirmed.output ?? '', sample?.confirmed.reasoning ?? '', sample?.confirmedEvents ?? '']);
-      }
-      download(`codex-usage-${stamp}.csv`, 'text/csv;charset=utf-8', rows.map((row) => row.join(',')).join('\n'));
+      download(`codex-usage-${stamp}.csv`, 'text/csv;charset=utf-8', exportUsageCsv(bundle, appliedFilters, sessionView.scope));
       return;
     }
     requestNativePngExport({ privacyMode, suggestedName: `codex-usage-${stamp}.png` });
@@ -236,26 +310,31 @@ function App() {
           ? 'unmatched'
           : 'project'
       : primaryPage;
-  const pageIdentity = `${currentPage}:${appliedFilters.project}:${appliedFilters.session}:${projectDetailTab}`;
+  const pageIdentity = `${currentPage}:${appliedFilters.project}:${appliedFilters.session}:${projectDetailTab}:${currentPage === 'accounts' ? `${accountView}:${appliedFilters.account}` : ''}`;
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const scroller = document.querySelector<HTMLElement>('.workspace-scroll');
-      if (scroller) scroller.scrollTo({ top: 0, behavior: 'auto' });
+      const restore = returnedScroll.current;
+      if (scroller) scroller.scrollTo({ top: restore?.id === appliedFilters.session ? restore.top : 0, behavior: 'auto' });
+      returnedScroll.current = null;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [pageIdentity]);
-  const pageTitle = currentPage === 'accounts'
+  const quotaHistoryActive = currentPage === 'accounts' && accountView === 'history';
+  const pageTitle = currentPage === 'models' ? t('models.title') : currentPage === 'chats' ? t('chats.title') : currentPage === 'accounts'
     ? t('app.accounts_quota')
     : currentPage === 'quality'
       ? t('app.data_quality')
       : selectedSession?.title ?? (selectedProject?.kind === 'standalone_conversations' ? t('app.standalone_chats') : selectedProject?.kind === 'unmatched_records' ? t('app.local_unmatched') : selectedProject?.label) ?? t('app.overview');
   const periodCaption = bundle ? `${formatPeriodRange(bundle.summary.period)}${bundle.summary.period.crossesMonth ? ` · ${t('app.cross_month')}` : ''}` : t('app.loading_time_range');
-  const pageCaption = currentPage === 'accounts'
+  const pageCaption = currentPage === 'overview' || currentPage === 'chats' || currentPage === 'models'
+    ? `${t('app.local_attribution')} · ${periodCaption}`
+    : currentPage === 'accounts'
     ? t('app.official_account_archives_quota_cycles_reset_times')
     : currentPage === 'quality'
       ? t('app.sources_freshness_unmatched_records_reconstruction_and_r')
       : selectedSession
-    ? `${t('app.local_attribution')} · ${periodCaption} · ${selectedSession.subagentCount} subagents · ${selectedSession.model ?? t('app.model_unknown')}`
+    ? `${t('app.local_attribution')} · ${periodCaption} · ${selectedSession.subagentCount} subagents`
     : selectedProject
       ? `${selectedProject.kind === 'standalone_conversations' ? t('app.standalone_conversation_attribution') : selectedProject.kind === 'unmatched_records' ? t('app.local_unmatched_records') : t('app.local_project_attribution')} · ${periodCaption} · ${bundle?.explorer.stats.sessionCount ?? 0} ${t('app.current_sessions')} · ${bundle?.explorer.stats.historicalSessionCount ?? 0} ${t('app.historical_sessions')} · ${bundle?.explorer.stats.subagentCount ?? 0} subagents`
       : t('app.official_account_totals_with_local_project_session');
@@ -273,15 +352,19 @@ function App() {
     })
     : t('app.official_daily_coverage_tail', { date: bundle?.summary.official.commonCoverageThrough ?? t('app.unknown') });
   const viewClass = `view-${currentPage}`;
-  const mobilePageValue = currentPage === 'overview' || currentPage === 'accounts' || currentPage === 'quality'
+  const mobilePageValue = currentPage === 'overview' || currentPage === 'accounts' || currentPage === 'quality' || currentPage === 'chats' || currentPage === 'models'
     ? currentPage
     : selectedProject?.id ?? 'overview';
   const navigateMobile = (value: string) => {
     if (value === 'overview') openOverview();
+    else if (value === 'chats') openChats();
+    else if (value === 'models') openModels();
     else if (value === 'accounts') openAccounts();
     else if (value === 'quality') openQuality();
     else openProject(value);
   };
+
+  const scopedEvidenceView=useScopedEvidenceView({enabled:!bundle&&scopedFallback.current&&!privacyMode,accountId:filters.account,accountRevision:scopeAccountRevision,onAccounts:setScopeAccounts,onPending:setScopePending,onAppliedAccount:account=>setAppliedFilters(value=>({...value,account}))});
 
   if (privacyMode) {
     return (
@@ -296,6 +379,12 @@ function App() {
     );
   }
 
+  const accountOptions=bundle?.summary.filters.accounts ?? [{id:'all',label:t('components.ui.all_accounts')},...scopeAccounts.map(id=>({id,label:`${t('scope.account')} ${id.slice(0,8)}`}))];
+  const accountControl = <AccountSwitcher options={accountOptions}
+    rows={bundle?.breakdowns.officialAccounts ?? []} selected={filters.account}
+    pending={loading||scopePending} onSelect={account => {if(scopedFallback.current)setScopeAccountRevision(n=>n+1);setFilters(value => ({ ...value, account, sessionOffset: 0, nodeOffset: 0 }));}}
+    onAccounts={openAccounts} />;
+
   return (
     <div className="app-shell">
       <LedgerSidebar
@@ -304,9 +393,12 @@ function App() {
         page={currentPage}
         period={bundle?.summary.period ?? null}
         onOverview={openOverview}
+        onChats={openChats}
+        onModels={openModels}
         onProject={openProject}
         onAccounts={openAccounts}
         onQuality={openQuality}
+        accountControl={accountControl}
       />
 
       <main className="workspace-shell">
@@ -316,15 +408,21 @@ function App() {
               <button onClick={openOverview} type="button">Usage</button>
               {selectedProject && <><span>›</span><button onClick={() => openProject(selectedProject.id)} type="button">{selectedProject.label}</button></>}
               {selectedSession && <><span>›</span><strong>Session</strong></>}
+              {selectedSession && sessionTrail.map((ancestor, index) => <button key={`${ancestor.id}-${index}`} onClick={() => returnToSession(index)} type="button">{ancestor.title}</button>)}
               {currentPage === 'accounts' && <><span>›</span><strong>{t('app.accounts_quota')}</strong></>}
               {currentPage === 'quality' && <><span>›</span><strong>{t('app.data_quality')}</strong></>}
             </div>
             <h1>{pageTitle}</h1>
+            <div className="viewed-account-label">{t('account-switcher.viewing')} {accountScopeLabel(appliedFilters.account, accountOptions, bundle?.breakdowns.officialAccounts ?? [], t('components.ui.all_accounts'))}</div>
             <p>{pageCaption}</p>
           </div>
           <div className="topbar-actions">
+            <div className="mobile-account-switcher">{accountControl}</div>
+            {currentPage === 'accounts' && !quotaHistoryActive && <button type="button" onClick={syncOfficial} disabled={officialSyncing}>{t('app.sync_official')}</button>}
             <select className="mobile-page-select" aria-label={t('app.page_navigation')} value={mobilePageValue} onChange={(event) => navigateMobile(event.target.value)}>
               <option value="overview">{t('app.overview')}</option>
+              <option value="chats">{t('chats.title')}</option>
+              <option value="models">{t('models.title')}</option>
               <optgroup label={t('app.work')}>{bundle?.explorer.projects.filter((project) => project.kind !== 'unmatched_records').map((project) => <option key={project.id} value={project.id}>{project.kind === 'standalone_conversations' ? t('app.standalone_chats') : project.label}</option>)}</optgroup>
               <option value="accounts">{t('app.accounts_quota')}</option>
               <option value="quality">{t('app.data_quality')}</option>
@@ -342,47 +440,56 @@ function App() {
           </div>
         </header>
 
-        <div className={`workspace-scroll ${viewClass}`}>
+        <div className={`workspace-scroll ${viewClass}`} tabIndex={0} role="region" aria-label={t('app.usage_workspace')}>
           {api.mode === 'mock' && (
             <aside className="demo-notice"><strong>{t('app.interactive_demo_mode')}</strong><span>{t('app.projects_sessions_and_subagents_use_demo_data')}</span></aside>
           )}
 
-          {bundle && (
-            <FilterBar catalog={bundle.summary.filters} value={appliedFilters} page={currentPage} contextLabel={pageTitle} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
+          {bundle && !quotaHistoryActive && (
+            <FilterBar catalog={bundle.summary.filters} value={filters} page={currentPage} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
           )}
 
           {bundle && loading && <div className="view-updating" role="status">{JSON.stringify(filters) === JSON.stringify(appliedFilters) ? t('app.updating_the_current_snapshot_the_previous_trusted') : t('app.applying_the_new_page_scope_and_time')}</div>}
 
-          {bundle && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
+          {bundle && !quotaHistoryActive && <DataStatusStrip summary={bundle.summary} page={currentPage} />}
+          {bundle?.quality.issues.some(issue => issue.id === 'source-union-unresolved') && currentPage !== 'accounts' && currentPage !== 'quality' && !quotaHistoryActive && (
+            <aside className="refresh-feedback" role="note">{t('quality.history_gap_note')}</aside>
+          )}
 
-          {refreshFeedback && <div className={refreshFeedback.startsWith('同步失败') || refreshFeedback.startsWith('Sync failed') ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
+          {refreshFeedback && currentPage === 'accounts' && !quotaHistoryActive && <div className={officialSyncFailed ? 'refresh-feedback is-error' : 'refresh-feedback'} role="status">{refreshFeedback}</div>}
 
-          {bundle?.summary.official.totalIsLowerBound && (currentPage === 'overview' || currentPage === 'accounts') && (
+          {bundle?.summary.official.totalIsLowerBound && currentPage === 'accounts' && !quotaHistoryActive && (
             <aside className="account-coverage-alert">
               <div><strong>{coverageAlertTitle}</strong><span>{t('app.primary_kpi_explanation', {
-                tail: compactNumber(bundle.summary.official.localTailTokens),
-                missing: compactNumber(bundle.summary.official.missingAccountLocalTokens),
-                residual: compactNumber(bundle.summary.missingAccountEstimate.totalUsage.total),
+                tail: formatTokenMillions(bundle.summary.official.localTailTokens),
+                missing: formatTokenMillions(bundle.summary.official.missingAccountLocalTokens),
+                residual: formatTokenMillions(bundle.summary.missingAccountEstimate.totalUsage.total),
               })}</span></div>
               <button onClick={openAccounts} type="button">{t('app.review_account_calibration')}</button>
             </aside>
           )}
 
-          {bundle && <CollectionProgress status={bundle.collection} />}
+          {bundle?.collection.mode === 'union-preview' && <aside className="account-coverage-alert" role="status"><div><strong>{t('app.union_preview_title')}</strong><span>{t('app.union_preview_description')}</span></div></aside>}
+          {bundle && bundle.collection.mode !== 'union-preview' && !quotaHistoryActive && <CollectionProgress status={bundle.collection} />}
 
           {!bundle && !error && <LoadingState />}
-          {!bundle && error && <ErrorState message={error} onRetry={retry} />}
+          {!bundle && scopedFallback.current && scopedEvidenceView}
+          {!bundle && error && !scopedFallback.current && <ErrorState message={error} onRetry={timePrecisionFailure ? showToday : retry}
+            title={timePrecisionFailure ? t('app.time_precision_unavailable_title') : undefined}
+            actionLabel={timePrecisionFailure ? t('app.show_today_usage') : undefined} />}
 
           {bundle && (
             <>
-              {error && <div className="inline-error">{t('app.update_failed')}: {error}. {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
-              {currentPage === 'overview' && <OverviewPage bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
-              {currentPage === 'accounts' && <AccountsPage bundle={bundle} onConfirmAccountCount={confirmAccountCount} />}
+              {error && <div className="inline-error" role="alert">{t('app.update_failed')}: {error} {t('app.the_previous_trusted_snapshot_remains_visible')}</div>}
+              {currentPage === 'overview' && <OverviewPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} detailTab={detailTab} onDetailTabChange={setDetailTab} onOpenProject={openProject} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />}
+              {currentPage === 'accounts' && <AccountsPage bundle={bundle} accountId={appliedFilters.account} demo={api.mode === 'mock'} view={accountView} onViewChange={setAccountView} onConfirmAccountCount={confirmAccountCount} />}
+              {currentPage === 'chats' && <ConversationsPage bundle={bundle} filters={appliedFilters} onChange={setFilters} onOpenSession={openSession} />}
+              {currentPage === 'models' && <ModelsPage bundle={bundle} metric={appliedFilters.metric} onSelect={selectBreakdown} />}
               {currentPage === 'quality' && <QualityPage bundle={bundle} metric={appliedFilters.metric} />}
               {(currentPage === 'project' || currentPage === 'conversation' || currentPage === 'unmatched') && (
-                <ProjectPage bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
+                <ProjectPage filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} page={currentPage} projectId={appliedFilters.project} metric={appliedFilters.metric} period={appliedFilters.period} tab={projectDetailTab} onTabChange={setProjectDetailTab} onOpenSession={openSession} onSelectBreakdown={selectBreakdown} />
               )}
-              {currentPage === 'session' && <SessionPage bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} />}
+              {currentPage === 'session' && <SessionPage dataMode={api.mode} filters={appliedFilters} onFiltersChange={setFilters} bundle={bundle} metric={appliedFilters.metric} view={sessionView} onViewChange={setSessionView} onOpenSession={openSession} onBack={sessionTrail.length ? () => returnToSession(sessionTrail.length - 1) : undefined} />}
             </>
           )}
 

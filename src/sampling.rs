@@ -8,13 +8,15 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OpenFlags, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use crate::{
     ingest::physical_file_identity,
     project::{ProjectRecord, ProjectResolutionInput, resolve_project},
     store::{BatchOutcome, FileCursor, LedgerStore},
+    stream_boundary::{BoundaryAction, StreamBoundary, StreamPhase, record_timestamp},
     types::{
         AttributionConfidence, DataQuality, EventProvenance, ProjectAttribution, TokenUsage,
         UsageEvent,
@@ -22,8 +24,11 @@ use crate::{
 };
 
 pub const POST_SAMPLING_SOURCE_ID: &str = "logs2-post-sampling-v1";
+mod legacy_requalification;
+pub use legacy_requalification::{LegacySamplingAuditOptions, audit_legacy_sampling};
 const MATCH_TOLERANCE_NANOS: i64 = 250_000_000;
 const NEW_THREAD_TAIL_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_JOIN_WINDOW_RECORDS: usize = 10_000;
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +47,8 @@ pub struct SamplingImportReport {
 
 #[derive(Debug, Clone)]
 struct Observation {
+    anchor_key: String,
+    receipt_key: Option<String>,
     log_id: u64,
     observed_at: DateTime<Utc>,
     thread_id: String,
@@ -59,11 +66,257 @@ struct ThreadInfo {
     project_name: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct UsageCandidate {
+    record_digest: String,
+    byte_offset: u64,
     observed_at: DateTime<Utc>,
-    usage: TokenUsage,
-    used: bool,
+    usage: Option<TokenUsage>,
+    unavailable_reason: Option<String>,
+    #[serde(default)]
+    claimed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct AnchorContext {
+    at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CandidateFileSnapshot {
+    len: u64,
+    modified: DateTime<Utc>,
+}
+
+impl CandidateFileSnapshot {
+    fn from_metadata(metadata: &std::fs::Metadata) -> Result<Self> {
+        Ok(Self {
+            len: metadata.len(),
+            modified: metadata.modified()?.into(),
+        })
+    }
+    fn accepts_append(&self, next: &Self) -> bool {
+        next.len > self.len || (next.len == self.len && next.modified == self.modified)
+    }
+}
+
+/// Paired with the candidate byte cursor, never restored independently of it.
+#[derive(Debug, Serialize, Deserialize)]
+struct CandidateCounterCheckpoint {
+    version: u32,
+    previous_total: Option<TokenUsage>,
+    cumulative_seen: bool,
+    allow_initial_sample: bool,
+    #[serde(default = "unknown_stream_boundary")]
+    boundary: StreamBoundary,
+    #[serde(default)]
+    last_token_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    allow_unframed: bool,
+    #[serde(default)]
+    canonical_header_checked: bool,
+    #[serde(default)]
+    candidate_tail: Vec<UsageCandidate>,
+    #[serde(default)]
+    anchor_tail: Vec<AnchorContext>,
+    #[serde(default)]
+    closed_through: Option<DateTime<Utc>>,
+    #[serde(default)]
+    file_snapshot: Option<CandidateFileSnapshot>,
+}
+
+fn unknown_stream_boundary() -> StreamBoundary {
+    StreamBoundary {
+        foreign_replay: true,
+        ..StreamBoundary::default()
+    }
+}
+
+impl CandidateCounterCheckpoint {
+    fn new(start_offset: u64) -> Self {
+        Self {
+            version: 4,
+            previous_total: None,
+            cumulative_seen: start_offset > 0,
+            allow_initial_sample: start_offset == 0,
+            boundary: if start_offset == 0 {
+                StreamBoundary::default()
+            } else {
+                unknown_stream_boundary()
+            },
+            last_token_at: None,
+            allow_unframed: start_offset == 0,
+            canonical_header_checked: start_offset == 0,
+            candidate_tail: Vec::new(),
+            anchor_tail: Vec::new(),
+            closed_through: None,
+            file_snapshot: None,
+        }
+    }
+
+    fn observe_record(
+        &mut self,
+        record: &Value,
+        thread_id: &str,
+        is_child: bool,
+    ) -> (Option<TokenUsage>, Option<&'static str>) {
+        let total = record
+            .pointer("/payload/info/total_token_usage")
+            .and_then(parse_candidate_usage);
+        let is_token = record.get("type").and_then(Value::as_str) == Some("event_msg")
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+        if is_token && !crate::replay::is_usage_snapshot(record) {
+            return (None, Some("post_sampling_metadata_only"));
+        }
+        if is_token && record_timestamp(record).is_none() {
+            self.break_continuity();
+            self.previous_total = total;
+            return (None, Some("post_sampling_missing_usage_timestamp"));
+        }
+        if is_token
+            && total.is_none()
+            && (self.cumulative_seen || record.pointer("/payload/info/total_token_usage").is_some())
+        {
+            self.break_continuity();
+        }
+        if record.get("type").and_then(Value::as_str) == Some("session_meta") {
+            self.allow_unframed = false;
+        }
+        let action = self.boundary.classify(
+            record,
+            thread_id,
+            is_child,
+            self.last_token_at,
+            self.previous_total.is_some(),
+            total.is_some(),
+        );
+        let unframed_root = self.allow_unframed
+            && !is_child
+            && self.boundary.phase == StreamPhase::AwaitingCanonical
+            && record.get("type").and_then(Value::as_str) == Some("event_msg")
+            && record.pointer("/payload/type").and_then(Value::as_str) == Some("token_count");
+        if action == BoundaryAction::Usage || unframed_root {
+            let result = self.normalize(record);
+            if total.is_some() {
+                self.last_token_at = record_timestamp(record);
+            }
+            return result;
+        }
+        if action == BoundaryAction::Baseline {
+            self.previous_total = total;
+            self.cumulative_seen = true;
+            self.allow_initial_sample = false;
+            self.last_token_at = record_timestamp(record);
+            return (None, Some("post_sampling_inherited_history"));
+        }
+        (None, Some("post_sampling_unestablished_or_replayed_stream"))
+    }
+
+    fn normalize(&mut self, record: &Value) -> (Option<TokenUsage>, Option<&'static str>) {
+        let last = record
+            .pointer("/payload/info/last_token_usage")
+            .and_then(parse_candidate_usage);
+        let Some(raw_total) = record.pointer("/payload/info/total_token_usage") else {
+            if !self.cumulative_seen {
+                return (
+                    last,
+                    last.is_none()
+                        .then_some("post_sampling_invalid_nearby_last_token_usage"),
+                );
+            }
+            // Never bridge an unobserved counter interval and assign its whole
+            // increment to the following marker's timestamp/model/account.
+            self.previous_total = None;
+            self.allow_initial_sample = false;
+            return (None, Some("post_sampling_missing_counter_continuity"));
+        };
+        self.cumulative_seen = true;
+        let Some(total) = parse_candidate_usage(raw_total) else {
+            self.previous_total = None;
+            self.allow_initial_sample = false;
+            return (None, Some("post_sampling_invalid_cumulative_usage"));
+        };
+        let allowed_last = if self.previous_total.is_some() || self.allow_initial_sample {
+            last
+        } else {
+            None
+        };
+        let step = crate::counter::normalize_counter(self.previous_total, total, allowed_last);
+        self.previous_total = Some(total);
+        self.allow_initial_sample = false;
+        let reason = if step.unchanged {
+            Some("post_sampling_counter_unchanged")
+        } else if step.usage.is_none() {
+            Some("post_sampling_counter_baseline_only")
+        } else {
+            None
+        };
+        (step.usage, reason)
+    }
+
+    fn break_continuity(&mut self) {
+        self.previous_total = None;
+        self.cumulative_seen = true;
+        self.allow_initial_sample = false;
+        self.last_token_at = None;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Nearest {
+    Missing,
+    Ambiguous,
+    Unique(usize),
+}
+
+fn nearest(times: &[i128], at: i128) -> Nearest {
+    let right = times.partition_point(|value| *value < at);
+    let mut best: Option<(u128, usize)> = None;
+    let mut tied = false;
+    for index in [right.checked_sub(1), (right < times.len()).then_some(right)]
+        .into_iter()
+        .flatten()
+    {
+        let distance = times[index].abs_diff(at);
+        if distance > MATCH_TOLERANCE_NANOS as u128 {
+            continue;
+        }
+        if best.is_none_or(|(previous, _)| distance < previous) {
+            best = Some((distance, index));
+            tied = false;
+        } else if best.is_some_and(|(previous, _)| distance == previous) {
+            tied = true;
+        }
+    }
+    let Some((_, index)) = best else {
+        return Nearest::Missing;
+    };
+    if tied
+        || (index > 0 && times[index - 1] == times[index])
+        || (index + 1 < times.len() && times[index + 1] == times[index])
+    {
+        Nearest::Ambiguous
+    } else {
+        Nearest::Unique(index)
+    }
+}
+
+/// Associations within the supplied mature cohort, not proof of model calls.
+/// A used nearest candidate must never force a farther replacement match.
+fn mutual_matches(observations: &[i128], candidates: &[i128]) -> Vec<Nearest> {
+    observations
+        .iter()
+        .enumerate()
+        .map(|(index, at)| match nearest(candidates, *at) {
+            Nearest::Unique(candidate)
+                if nearest(observations, candidates[candidate]) == Nearest::Unique(index) =>
+            {
+                Nearest::Unique(candidate)
+            }
+            Nearest::Unique(_) => Nearest::Ambiguous,
+            other => other,
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone)]
@@ -79,21 +332,45 @@ pub fn ingest_post_sampling(
     codex_home: &Path,
     machine_id: &str,
 ) -> Result<SamplingImportReport> {
+    ingest_post_sampling_at(store, codex_home, machine_id, Utc::now())
+}
+
+fn ingest_post_sampling_at(
+    store: &mut LedgerStore,
+    codex_home: &Path,
+    machine_id: &str,
+    now: DateTime<Utc>,
+) -> Result<SamplingImportReport> {
     let sources = sampling_log_sources(codex_home);
     if sources.is_empty() {
         return Err(anyhow!("Codex logs_2.sqlite is unavailable"));
     }
     let mut combined = SamplingImportReport::default();
+    let legacy_binding = store
+        .get_cursor(machine_id, POST_SAMPLING_SOURCE_ID)?
+        .and_then(|cursor| cursor.parser_state_json)
+        .and_then(|state| serde_json::from_str::<Value>(&state).ok())
+        .and_then(|state| {
+            state
+                .get("relativePath")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
     for (index, logs_path) in sources.iter().enumerate() {
-        let source_id = if index == 0 {
-            POST_SAMPLING_SOURCE_ID.to_owned()
+        let relative = relative_source(codex_home, logs_path);
+        let named_source = format!("{POST_SAMPLING_SOURCE_ID}:{relative}");
+        // A previously namespaced source must not inherit another source's
+        // high-water mark merely because an earlier path disappeared.
+        let namespaced = store.get_cursor(machine_id, &named_source)?.is_some()
+            || legacy_binding
+                .as_ref()
+                .map_or(index > 0, |bound| bound != &relative);
+        let source_id = if namespaced {
+            named_source
         } else {
-            format!(
-                "{POST_SAMPLING_SOURCE_ID}:{}",
-                relative_source(codex_home, logs_path)
-            )
+            POST_SAMPLING_SOURCE_ID.to_owned()
         };
-        let namespace = (index > 0).then(|| relative_source(codex_home, logs_path));
+        let namespace = namespaced.then_some(relative);
         let report = ingest_post_sampling_source(
             store,
             codex_home,
@@ -101,6 +378,7 @@ pub fn ingest_post_sampling(
             logs_path,
             &source_id,
             namespace.as_deref(),
+            now,
         )?;
         merge_report(&mut combined, report);
     }
@@ -114,23 +392,101 @@ fn ingest_post_sampling_source(
     logs_path: &Path,
     source_id: &str,
     namespace: Option<&str>,
+    now: DateTime<Utc>,
 ) -> Result<SamplingImportReport> {
-    let last_log_id = store
-        .get_cursor(machine_id, source_id)?
+    let saved = store.get_cursor(machine_id, source_id)?;
+    let saved_state = saved
+        .as_ref()
+        .and_then(|cursor| cursor.parser_state_json.as_deref())
+        .and_then(|state| serde_json::from_str::<Value>(state).ok());
+    let physical = physical_file_identity(logs_path, &logs_path.metadata()?)?;
+    let physical_replaced = saved_state
+        .as_ref()
+        .and_then(|state| state.get("physicalIdentity"))
+        .and_then(Value::as_str)
+        .is_some_and(|previous| previous != physical);
+    let previous_id = saved
+        .as_ref()
         .map(|cursor| cursor.byte_offset)
         .unwrap_or_default();
+    let previous_anchor = saved_state
+        .as_ref()
+        .and_then(|state| state.get("anchorKey"))
+        .and_then(Value::as_str);
+    let safe_before = now - chrono::Duration::seconds(5);
+    let tolerance = chrono::Duration::nanoseconds(MATCH_TOLERANCE_NANOS);
+    // Closing anchor A needs candidate neighbors through A+d and the reverse
+    // anchor neighborhood through A+2d. Look-ahead rows are not committed yet.
+    let context_before = safe_before + tolerance * 2;
+    let (observations, replaced) = read_observations(
+        logs_path,
+        previous_id,
+        context_before,
+        machine_id,
+        previous_anchor,
+        physical_replaced,
+    )?;
+    let mut generation = saved_state
+        .as_ref()
+        .and_then(|state| state.get("generation"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let effective_namespace = if replaced {
+        generation = generation
+            .checked_add(1)
+            .ok_or_else(|| anyhow!("sampling source generation exhausted"))?;
+        Some(format!(
+            "{}:generation-{generation}",
+            namespace.unwrap_or("primary")
+        ))
+    } else {
+        saved_state
+            .as_ref()
+            .and_then(|state| state.get("eventNamespace"))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| namespace.map(str::to_owned))
+    };
+    let namespace = effective_namespace.as_deref();
+    let last_log_id = if replaced { 0 } else { previous_id };
     let bootstrap = last_log_id == 0;
-    let safe_before = Utc::now() - chrono::Duration::seconds(5);
-    let observations = read_observations(logs_path, last_log_id, safe_before)?;
+    if physical_file_identity(logs_path, &logs_path.metadata()?)? != physical {
+        return Err(anyhow!(
+            "sampling source changed during read; retry without advancing its cursor"
+        ));
+    }
+    if replaced
+        && observations
+            .iter()
+            .any(|observation| observation.receipt_key.is_none())
+    {
+        return Err(anyhow!(
+            "replaced sampling source lacks receipt identity; continuity audit required"
+        ));
+    }
     if observations.is_empty() {
         return Ok(SamplingImportReport::default());
     }
-    let first_observed_at = observations.first().map(|value| value.observed_at);
-    let last_observed_at = observations.last().map(|value| value.observed_at);
     let max_log_id = observations
+        .iter()
+        .take_while(|value| value.observed_at <= safe_before)
         .last()
         .map(|value| value.log_id)
         .unwrap_or(last_log_id);
+    let first_observed_at = observations
+        .iter()
+        .filter(|value| value.log_id <= max_log_id)
+        .map(|value| value.observed_at)
+        .min();
+    let last_observed_at = observations
+        .iter()
+        .filter(|value| value.log_id <= max_log_id)
+        .map(|value| value.observed_at)
+        .max();
+    let anchor_keys: BTreeMap<_, _> = observations
+        .iter()
+        .map(|observation| (observation.log_id, observation.anchor_key.clone()))
+        .collect();
     let state_path = logs_path
         .parent()
         .map(|parent| parent.join("state_5.sqlite"))
@@ -147,19 +503,36 @@ fn ingest_post_sampling_source(
     }
 
     let mut report = SamplingImportReport {
-        observations: by_thread.values().map(|values| values.len() as u64).sum(),
+        observations: by_thread
+            .values()
+            .flat_map(|values| values.iter())
+            .filter(|value| value.log_id <= max_log_id)
+            .count() as u64,
         first_observed_at,
         last_observed_at,
         ..SamplingImportReport::default()
     };
     let mut events = Vec::<UsageEvent>::with_capacity(report.observations as usize);
     let mut candidate_cursors = Vec::<(FileCursor, bool)>::new();
-    for (thread_id, observations) in by_thread {
+    for (thread_id, mut observations) in by_thread {
+        // Candidate search uses a monotonic timestamp pointer, but log IDs may
+        // arrive out of timestamp order. Commit order is restored by log ID below.
+        observations.sort_by_key(|observation| (observation.observed_at, observation.log_id));
         let thread = thread_index.get(&thread_id).cloned().unwrap_or_default();
+        let candidate_horizon = observations
+            .iter()
+            .map(|value| value.observed_at)
+            .max()
+            .map(|at| (at + tolerance).min(safe_before + tolerance))
+            .unwrap_or(safe_before);
+        let mut rollout_identity = None;
+        let cursor_slot = candidate_cursors.len();
+        let mut join_state = None;
         let mut candidates = match thread.rollout_path.as_deref() {
             Some(path) if path.is_file() => {
                 let candidate_id = candidate_source_id(&thread_id, namespace);
                 let metadata = path.metadata()?;
+                rollout_identity = Some(physical_file_identity(path, &metadata)?);
                 let candidate_identity = format!(
                     "sampling-rollout:{thread_id}:{}",
                     physical_file_identity(path, &metadata)?
@@ -169,22 +542,83 @@ fn ingest_post_sampling_source(
                     cursor.file_identity == candidate_identity
                         && cursor.byte_offset <= metadata.len()
                 });
-                let stored_offset = if bootstrap {
-                    0
-                } else if can_resume {
+                let stored_offset = if can_resume {
                     existing
                         .as_ref()
                         .map(|cursor| cursor.byte_offset)
                         .unwrap_or_default()
+                } else if bootstrap {
+                    0
                 } else {
                     metadata.len().saturating_sub(NEW_THREAD_TAIL_BYTES)
                 };
-                let (candidates, next_offset) = read_usage_candidates(
+                let mut counter = if can_resume {
+                    existing
+                        .as_ref()
+                        .and_then(|cursor| cursor.parser_state_json.as_deref())
+                        .and_then(|value| {
+                            serde_json::from_str::<CandidateCounterCheckpoint>(value).ok()
+                        })
+                        .filter(|state| {
+                            matches!(state.version, 2..=4)
+                                && state
+                                    .previous_total
+                                    .is_none_or(|usage| usage.validate().is_ok())
+                                && (state.previous_total.is_none()
+                                    || (state.cumulative_seen && !state.allow_initial_sample))
+                        })
+                        .unwrap_or_else(|| CandidateCounterCheckpoint::new(stored_offset))
+                } else {
+                    CandidateCounterCheckpoint::new(stored_offset)
+                };
+                // Version 2 had numeric state only. Preserve its baseline but
+                // do not pretend its unknown stream/replay phase was live.
+                if counter.version < 4 {
+                    // Old cursors did not preserve competing neighbors. Do not
+                    // certify associations inside that unreviewed overlap.
+                    counter.closed_through = counter.last_token_at.map(|at| at + tolerance);
+                }
+                counter.version = 4;
+                let before_snapshot = CandidateFileSnapshot::from_metadata(&metadata)?;
+                if can_resume
+                    && counter
+                        .file_snapshot
+                        .as_ref()
+                        .is_some_and(|old| !old.accepts_append(&before_snapshot))
+                {
+                    return Err(anyhow!(
+                        "rollout changed in-place or shrank; association cursor review required"
+                    ));
+                }
+                if !counter.canonical_header_checked {
+                    if counter.boundary.canonical_at.is_none() {
+                        counter.boundary.canonical_at =
+                            read_canonical_header(path, &thread_id, &mut report.bytes_read)?;
+                    }
+                    counter.canonical_header_checked = true;
+                }
+                let (new_candidates, next_offset) = read_usage_candidates(
                     path,
                     stored_offset,
                     &mut report.bytes_read,
-                    safe_before,
+                    candidate_horizon,
+                    &mut counter,
+                    &thread_id,
+                    thread.parent_thread_id.is_some(),
                 )?;
+                let after_metadata = path.metadata()?;
+                let after_snapshot = CandidateFileSnapshot::from_metadata(&after_metadata)?;
+                if physical_file_identity(path, &after_metadata)?
+                    != physical_file_identity(path, &metadata)?
+                    || !before_snapshot.accepts_append(&after_snapshot)
+                {
+                    return Err(anyhow!(
+                        "rollout changed during association read; no cursor was committed"
+                    ));
+                }
+                counter.file_snapshot = Some(after_snapshot);
+                let mut candidates = std::mem::take(&mut counter.candidate_tail);
+                candidates.extend(new_candidates);
                 let must_reset = existing.as_ref().is_some_and(|cursor| {
                     cursor.file_identity != candidate_identity || next_offset < cursor.byte_offset
                 });
@@ -195,13 +629,12 @@ fn ingest_post_sampling_source(
                         file_identity: candidate_identity,
                         byte_offset: next_offset,
                         line_number: next_offset,
-                        parser_state_json: Some(
-                            r#"{"source":"rollout_token_candidates","version":1}"#.to_owned(),
-                        ),
+                        parser_state_json: None,
                         updated_at: Utc::now(),
                     },
                     must_reset,
                 ));
+                join_state = Some(counter);
                 candidates
             }
             _ => {
@@ -210,42 +643,113 @@ fn ingest_post_sampling_source(
             }
         };
         candidates.sort_by_key(|candidate| candidate.observed_at);
-        let mut start = 0_usize;
-        for observation in observations {
-            let observed_nanos = timestamp_nanos(observation.observed_at);
-            while start < candidates.len()
-                && timestamp_nanos(candidates[start].observed_at)
-                    < observed_nanos.saturating_sub(MATCH_TOLERANCE_NANOS)
-            {
-                start += 1;
+        let mut context: Vec<_> = join_state
+            .as_ref()
+            .into_iter()
+            .flat_map(|state| state.anchor_tail.iter())
+            .map(|value| (value.at, None))
+            .collect();
+        context.extend(
+            observations
+                .iter()
+                .enumerate()
+                .map(|(index, value)| (value.observed_at, Some(index))),
+        );
+        context.sort_by_key(|(at, _)| *at);
+        let context_matches = mutual_matches(
+            &context
+                .iter()
+                .map(|(at, _)| timestamp_nanos(*at))
+                .collect::<Vec<_>>(),
+            &candidates
+                .iter()
+                .map(|value| timestamp_nanos(value.observed_at))
+                .collect::<Vec<_>>(),
+        );
+        let mut matches = vec![Nearest::Missing; observations.len()];
+        for ((_, index), association) in context.into_iter().zip(context_matches) {
+            if let Some(index) = index {
+                matches[index] = association;
             }
-            let mut best: Option<(i64, usize)> = None;
-            for (index, candidate) in candidates.iter().enumerate().skip(start) {
-                let candidate_nanos = timestamp_nanos(candidate.observed_at);
-                if candidate_nanos > observed_nanos.saturating_add(MATCH_TOLERANCE_NANOS) {
-                    break;
-                }
-                if candidate.used {
-                    continue;
-                }
-                let delta = candidate_nanos.abs_diff(observed_nanos) as i64;
-                if best.is_none_or(|(best_delta, _)| delta < best_delta) {
-                    best = Some((delta, index));
-                }
+        }
+        let previous_closed = join_state.as_ref().and_then(|state| state.closed_through);
+        let finalized_at = observations
+            .iter()
+            .filter(|value| value.log_id <= max_log_id)
+            .map(|value| value.observed_at)
+            .chain(previous_closed)
+            .max();
+        let retain_at = finalized_at.unwrap_or_else(|| {
+            observations
+                .first()
+                .expect("nonempty thread cohort")
+                .observed_at
+        });
+        if let Some(state) = &mut join_state {
+            state
+                .anchor_tail
+                .retain(|value| Some(value.at) == finalized_at);
+            state.anchor_tail.extend(
+                observations
+                    .iter()
+                    .filter(|value| {
+                        value.log_id <= max_log_id && Some(value.observed_at) == finalized_at
+                    })
+                    .map(|value| AnchorContext {
+                        at: value.observed_at,
+                    }),
+            );
+            // Two copies of the latest finalized timestamp preserve all
+            // reverse-neighbor competition, including duplicate-time ties.
+            state.anchor_tail.truncate(2);
+        }
+        for (observation, association) in observations.into_iter().zip(matches) {
+            if observation.log_id > max_log_id {
+                continue;
             }
-            let (usage, quality, reason) = if let Some((_, index)) = best {
-                candidates[index].used = true;
+            let late = previous_closed.is_some_and(|at| observation.observed_at <= at);
+            let claimed = matches!(association,Nearest::Unique(index) if candidates[index].claimed);
+            let invalid =
+                matches!(association, Nearest::Unique(index) if candidates[index].usage.is_none());
+            let matched = match association {
+                Nearest::Unique(index) if !invalid && !late && !claimed => Some(index),
+                _ => None,
+            };
+            let (usage, quality, reason) = if let Some(index) = matched {
                 report.matched = report.matched.saturating_add(1);
-                (candidates[index].usage, DataQuality::Confirmed, None)
+                (
+                    candidates[index].usage.expect("validated candidate"),
+                    DataQuality::Confirmed,
+                    None,
+                )
             } else {
                 report.unmatched = report.unmatched.saturating_add(1);
                 (
                     TokenUsage::default(),
                     DataQuality::Unknown,
-                    Some("post_sampling_without_nearby_last_token_usage".to_owned()),
+                    Some(
+                        if late {
+                            "post_sampling_late_observation_outside_closed_window"
+                        } else if claimed {
+                            "post_sampling_candidate_already_associated"
+                        } else if invalid {
+                            match association {
+                                Nearest::Unique(index) => candidates[index]
+                                    .unavailable_reason
+                                    .as_deref()
+                                    .unwrap_or("post_sampling_invalid_nearby_last_token_usage"),
+                                _ => unreachable!(),
+                            }
+                        } else if association == Nearest::Ambiguous {
+                            "post_sampling_ambiguous_nearby_last_token_usage"
+                        } else {
+                            "post_sampling_without_nearby_last_token_usage"
+                        }
+                        .to_owned(),
+                    ),
                 )
             };
-            events.push(event_from_observation(
+            let mut event = event_from_observation(
                 observation,
                 &thread_id,
                 &thread,
@@ -256,57 +760,83 @@ fn ingest_post_sampling_source(
                 &account_epochs,
                 source_id,
                 namespace,
-            ));
+            );
+            if generation > 0 {
+                event.provenance.file_identity = format!(
+                    "{}:sampling-generation-{generation}",
+                    event.provenance.file_identity
+                );
+            }
+            if let Some(index) = matched {
+                candidates[index].claimed = true;
+                event.provenance.source_record_key = rollout_identity.as_deref().map(|identity| {
+                    crate::reconstruction::source_record_key(
+                        machine_id,
+                        identity,
+                        &thread_id,
+                        candidates[index].byte_offset,
+                        &candidates[index].record_digest,
+                    )
+                });
+                event.provenance.candidate_rollout_event_id =
+                    rollout_identity.as_deref().map(|identity| {
+                        crate::reconstruction::stable_event_id(
+                            machine_id,
+                            identity,
+                            &thread_id,
+                            candidates[index].byte_offset,
+                        )
+                    });
+            }
+            events.push(event);
+        }
+        if let Some(mut state) = join_state {
+            state.candidate_tail = candidates
+                .into_iter()
+                .filter(|candidate| {
+                    finalized_at.map_or(candidate.observed_at >= retain_at - tolerance, |at| {
+                        candidate.observed_at > at
+                    })
+                })
+                .collect();
+            if state.candidate_tail.len() > MAX_JOIN_WINDOW_RECORDS
+                || state.anchor_tail.len() > MAX_JOIN_WINDOW_RECORDS
+            {
+                return Err(anyhow!(
+                    "sampling association window exceeds capacity; no cursors were committed"
+                ));
+            }
+            state.closed_through = finalized_at;
+            candidate_cursors[cursor_slot].0.parser_state_json =
+                Some(serde_json::to_string(&state)?);
         }
     }
     events.sort_by_key(|event| event.provenance.line_number);
 
-    let file_identity = format!(
-        "logs2:{}",
-        logs_path
-            .metadata()
-            .map(|metadata| metadata.len())
-            .unwrap_or_default()
-    );
-    for batch in events.chunks(1_000) {
-        let batch_end = batch
-            .last()
-            .map(|event| event.provenance.line_number)
-            .unwrap_or(max_log_id);
-        let outcome = store.upsert_verified_events_and_cursor(
-            batch,
+    let file_identity = format!("logs2-physical:{physical}");
+    let outcome = store.upsert_sampling_events_and_cursors(
+            &events,
             &FileCursor {
                 machine_id: machine_id.to_owned(),
                 source_id: source_id.to_owned(),
                 file_identity: file_identity.clone(),
-                byte_offset: batch_end,
-                line_number: batch_end,
+                byte_offset: max_log_id,
+                line_number: max_log_id,
                 parser_state_json: Some(
-                    r#"{"source":"logs_2_post_sampling","version":1}"#.to_owned(),
+                    serde_json::json!({"source":"logs_2_post_sampling","version":4,
+                        "associationPolicy":"durable_mutual_window_v3",
+                        "counterPolicy":"shared_numeric_counter_v1",
+                        "boundaryPolicy":"shared_stream_boundary_v1",
+                        "relativePath":relative_source(codex_home,logs_path),"physicalIdentity":physical,
+                        "anchorKey":anchor_keys.get(&max_log_id),
+                        "generation":generation,"eventNamespace":namespace})
+                    .to_string(),
                 ),
                 updated_at: Utc::now(),
             },
+            &candidate_cursors,
         )?;
-        observe_batch(&mut report, outcome);
-    }
-    if events.is_empty() {
-        store.advance_cursor(&FileCursor {
-            machine_id: machine_id.to_owned(),
-            source_id: source_id.to_owned(),
-            file_identity,
-            byte_offset: max_log_id,
-            line_number: max_log_id,
-            parser_state_json: Some(r#"{"source":"logs_2_post_sampling","version":1}"#.to_owned()),
-            updated_at: Utc::now(),
-        })?;
-    }
-    for (cursor, must_reset) in candidate_cursors {
-        if must_reset {
-            store.reset_cursor(&cursor)?;
-        } else {
-            store.advance_cursor(&cursor)?;
-        }
-    }
+    observe_batch(&mut report, outcome);
     Ok(report)
 }
 
@@ -334,46 +864,148 @@ fn read_observations(
     path: &Path,
     after_id: u64,
     safe_before: DateTime<Utc>,
-) -> Result<Vec<Observation>> {
+    machine_id: &str,
+    previous_anchor: Option<&str>,
+    physical_replaced: bool,
+) -> Result<(Vec<Observation>, bool)> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
     )?;
     connection.pragma_update(None, "query_only", "ON")?;
-    let mut statement = connection.prepare(
-        "SELECT id, ts, ts_nanos, thread_id, feedback_log_body
+    // The anchor and appended rows must describe the same source snapshot.
+    let transaction = connection.unchecked_transaction()?;
+    let anchor_changed = if let Some(expected) = previous_anchor {
+        let anchor = read_observation_rows(
+            &transaction,
+            after_id.saturating_sub(1),
+            Some(after_id),
+            DateTime::<Utc>::MAX_UTC,
+            machine_id,
+        )?;
+        anchor.first().is_none_or(|row| row.anchor_key != expected)
+    } else {
+        false // Legacy cursors have no retrospective continuity proof.
+    };
+    let replaced = physical_replaced || anchor_changed;
+    let rows = read_observation_rows(
+        &transaction,
+        if replaced { 0 } else { after_id },
+        None,
+        safe_before,
+        machine_id,
+    )?;
+    transaction.commit()?;
+    Ok((rows, replaced))
+}
+
+fn read_observation_rows(
+    connection: &Connection,
+    after_id: u64,
+    through_id: Option<u64>,
+    safe_before: DateTime<Utc>,
+    machine_id: &str,
+) -> Result<Vec<Observation>> {
+    let columns = connection
+        .prepare("PRAGMA table_info(logs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let process_column = if columns.iter().any(|column| column == "process_uuid") {
+        "process_uuid"
+    } else {
+        "NULL"
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT id, ts, ts_nanos, thread_id, feedback_log_body, {process_column}
          FROM logs
          WHERE id > ?1
-           AND ts <= ?2
+           AND id <= ?2
            AND target = 'codex_core::session::turn'
            AND instr(feedback_log_body, ' post sampling token usage ') > 0
            AND thread_id IS NOT NULL
-         ORDER BY id",
-    )?;
+         ORDER BY id"
+    ))?;
     let rows = statement.query_map(
         params![
             i64::try_from(after_id).unwrap_or(i64::MAX),
-            safe_before.timestamp()
+            through_id
+                .and_then(|id| i64::try_from(id).ok())
+                .unwrap_or(i64::MAX)
         ],
         |row| {
             let id: i64 = row.get(0)?;
             let seconds: i64 = row.get(1)?;
             let nanos: i64 = row.get(2)?;
             let body: String = row.get(4)?;
-            Ok(Observation {
-                log_id: u64::try_from(id).unwrap_or_default(),
-                observed_at: DateTime::<Utc>::from_timestamp(
-                    seconds,
-                    nanos.clamp(0, 999_999_999) as u32,
+            let thread_id: String = row.get(3)?;
+            let process: Option<String> = row.get(5)?;
+            let observed_at = if (0..1_000_000_000).contains(&nanos) {
+                DateTime::<Utc>::from_timestamp(seconds, nanos as u32)
+            } else {
+                None
+            }
+            .ok_or_else(|| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Integer,
+                    Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "invalid sampling timestamp; source cursor must not advance",
+                    )),
                 )
-                .unwrap_or_else(Utc::now),
-                thread_id: row.get(3)?,
+            })?;
+            Ok(Observation {
+                // This checkpoint digest is not a cross-source receipt. Even
+                // weak sources can detect mutation, but cannot authorize replay.
+                anchor_key: hex::encode(Sha256::digest(
+                    serde_json::to_vec(&(id, seconds, nanos, &thread_id, &body, &process))
+                        .expect("source scalar tuple is serializable"),
+                )),
+                receipt_key: source_receipt_key(
+                    machine_id,
+                    process.as_deref(),
+                    id,
+                    seconds,
+                    nanos,
+                    &thread_id,
+                    &body,
+                ),
+                log_id: u64::try_from(id).unwrap_or_default(),
+                observed_at,
+                thread_id,
                 turn_id: extract_field(&body, "turn.id="),
                 model: extract_field(&body, " model="),
             })
         },
     )?;
-    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    let mut ready = Vec::new();
+    for row in rows {
+        let observation = row?;
+        // Filtering timestamps in SQL can skip a lower row ID and permanently
+        // lose it after a later (but older-timestamped) row advances the cursor.
+        if observation.observed_at > safe_before {
+            break;
+        }
+        ready.push(observation);
+    }
+    Ok(ready)
+}
+
+fn source_receipt_key(
+    machine: &str,
+    process: Option<&str>,
+    id: i64,
+    seconds: i64,
+    nanos: i64,
+    thread: &str,
+    body: &str,
+) -> Option<String> {
+    let process = process.map(str::trim).filter(|value| !value.is_empty())?;
+    let bytes = serde_json::to_vec(&(machine, process, id, seconds, nanos, thread, body)).ok()?;
+    Some(format!(
+        "sampling-receipt-v1:{}",
+        hex::encode(Sha256::digest(bytes))
+    ))
 }
 
 fn load_thread_index(path: &Path) -> Result<HashMap<String, ThreadInfo>> {
@@ -501,12 +1133,74 @@ fn load_account_epochs(store: &LedgerStore, machine_id: &str) -> Result<Vec<Acco
     Ok(epochs)
 }
 
+/// One bounded header read when upgrading a numeric-only cursor. It recovers
+/// the creation timestamp, not a live/replay phase, and is never a full rescan.
+fn read_canonical_header(
+    path: &Path,
+    thread_id: &str,
+    bytes_read: &mut u64,
+) -> Result<Option<DateTime<Utc>>> {
+    let mut reader = BufReader::new(File::open(path)?.take(64 * 1024));
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        let count = reader.read_until(b'\n', &mut line)?;
+        *bytes_read = bytes_read.saturating_add(count as u64);
+        if count == 0 || !line.ends_with(b"\n") {
+            return Ok(None);
+        }
+        let raw = line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&line);
+        let Ok(record) = serde_json::from_slice::<Value>(raw) else {
+            continue;
+        };
+        if record.get("type").and_then(Value::as_str) == Some("session_meta")
+            && record.pointer("/payload/id").and_then(Value::as_str) == Some(thread_id)
+        {
+            return Ok(record_timestamp(&record));
+        }
+    }
+}
+
 fn read_usage_candidates(
     path: &Path,
     start_offset: u64,
     bytes_read: &mut u64,
     safe_before: DateTime<Utc>,
+    counter: &mut CandidateCounterCheckpoint,
+    thread_id: &str,
+    is_child: bool,
 ) -> Result<(Vec<UsageCandidate>, u64)> {
+    read_usage_candidates_bounded(
+        path,
+        start_offset,
+        bytes_read,
+        CandidateReadWindow {
+            safe_before,
+            max_bytes: None,
+            max_candidates: None,
+        },
+        counter,
+        thread_id,
+        is_child,
+    )
+}
+
+struct CandidateReadWindow {
+    safe_before: DateTime<Utc>,
+    max_bytes: Option<u64>,
+    max_candidates: Option<usize>,
+}
+
+fn read_usage_candidates_bounded(
+    path: &Path,
+    start_offset: u64,
+    bytes_read: &mut u64,
+    window: CandidateReadWindow,
+    counter: &mut CandidateCounterCheckpoint,
+    thread_id: &str,
+    is_child: bool,
+) -> Result<(Vec<UsageCandidate>, u64)> {
+    let safe_before = window.safe_before;
     let mut file = File::open(path).with_context(|| format!("open rollout {}", path.display()))?;
     let file_len = file.metadata()?.len();
     let start_offset = start_offset.min(file_len);
@@ -526,12 +1220,24 @@ fn read_usage_candidates(
     }
     let mut candidates = Vec::new();
     let mut durable_offset = reader.stream_position()?;
-    let safe_before = safe_before.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
     let mut line = String::new();
     loop {
         let line_start = reader.stream_position()?;
         line.clear();
-        let count = reader.read_line(&mut line)?;
+        let count = if let Some(max_bytes) = window.max_bytes {
+            let remaining = max_bytes.saturating_sub(line_start);
+            if remaining == 0 {
+                if line_start == file_len {
+                    break;
+                }
+                return Err(anyhow!("candidate byte budget exhausted"));
+            }
+            Read::by_ref(&mut reader)
+                .take(remaining)
+                .read_line(&mut line)?
+        } else {
+            reader.read_line(&mut line)?
+        };
         if count == 0 {
             break;
         }
@@ -539,21 +1245,53 @@ fn read_usage_candidates(
             durable_offset = line_start;
             break;
         }
-        if extract_json_timestamp(&line).is_some_and(|timestamp| timestamp > safe_before.as_str()) {
+        if extract_json_timestamp(&line)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|timestamp| timestamp > safe_before)
+        {
             durable_offset = line_start;
             break;
         }
         durable_offset = reader.stream_position()?;
-        if !line.contains(r#""type":"token_count""#) {
+        let record_text = if line_start == 0 {
+            line.strip_prefix('\u{feff}').unwrap_or(&line)
+        } else {
+            &line
+        };
+        if line.trim().is_empty() {
             continue;
         }
-        let value: Value = match serde_json::from_str(&line) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        let Some(usage) = value.pointer("/payload/info/last_token_usage") else {
+        if ![
+            "token_count",
+            "session_meta",
+            "task_started",
+            "turn_context",
+        ]
+        .iter()
+        .any(|kind| line.contains(kind))
+        {
+            // Validate skipped JSON without allocating/storing prompt bodies.
+            // A malformed line may have been a token record; never bridge it.
+            if serde_json::from_str::<serde::de::IgnoredAny>(record_text).is_err() {
+                counter.break_continuity();
+            }
             continue;
+        }
+        let value: Value = match serde_json::from_str(record_text) {
+            Ok(value) => value,
+            Err(_) => {
+                counter.break_continuity();
+                continue;
+            }
         };
+        if record_timestamp(&value).is_some_and(|timestamp| timestamp > safe_before) {
+            durable_offset = line_start;
+            break;
+        }
+        let (usage, unavailable_reason) = counter.observe_record(&value, thread_id, is_child);
+        if !crate::replay::is_usage_snapshot(&value) {
+            continue;
+        }
         let Some(observed_at) = value
             .get("timestamp")
             .and_then(Value::as_str)
@@ -562,27 +1300,20 @@ fn read_usage_candidates(
         else {
             continue;
         };
-        let cache_write = usage
-            .get("cache_write_input_tokens")
-            .and_then(Value::as_u64);
-        let input_tokens = usage_u64(usage, "input_tokens");
-        let usage = TokenUsage {
-            input_tokens,
-            cached_input_tokens: usage_u64(usage, "cached_input_tokens"),
-            cache_write_input_tokens: cache_write.unwrap_or_default(),
-            cache_write_observed_input_tokens: cache_write.map_or(0, |_| input_tokens),
-            output_tokens: usage_u64(usage, "output_tokens"),
-            reasoning_output_tokens: usage_u64(usage, "reasoning_output_tokens"),
-            total_tokens: usage_u64(usage, "total_tokens"),
-        };
-        if usage.validate().is_err() {
-            continue;
-        }
         candidates.push(UsageCandidate {
+            record_digest: crate::reconstruction::source_record_digest(&value),
+            byte_offset: line_start,
             observed_at,
             usage,
-            used: false,
+            unavailable_reason: unavailable_reason.map(str::to_owned),
+            claimed: false,
         });
+        if window
+            .max_candidates
+            .is_some_and(|limit| candidates.len() > limit)
+        {
+            return Err(anyhow!("candidate count budget exhausted"));
+        }
     }
     let next_offset = durable_offset;
     *bytes_read = bytes_read.saturating_add(next_offset.saturating_sub(start_offset));
@@ -651,6 +1382,10 @@ fn event_from_observation(
         quality,
         quality_reason,
         provenance: EventProvenance {
+            source_turn_id: observation.turn_id.clone(),
+            candidate_rollout_event_id: None,
+            sampling_receipt_key: observation.receipt_key,
+            source_record_key: None,
             machine_id: machine_id.to_owned(),
             source_id: source_id.to_owned(),
             rollout_id: thread_id.to_owned(),
@@ -689,17 +1424,12 @@ fn extract_field(body: &str, marker: &str) -> Option<String> {
     (end > 0).then(|| tail[..end].trim_matches('"').to_owned())
 }
 
-fn usage_u64(value: &Value, field: &str) -> u64 {
-    value.get(field).and_then(Value::as_u64).unwrap_or_default()
+fn parse_candidate_usage(value: &Value) -> Option<TokenUsage> {
+    crate::replay::parse_usage(value).filter(|usage| usage.validate().is_ok())
 }
 
-fn timestamp_nanos(value: DateTime<Utc>) -> i64 {
-    value.timestamp_nanos_opt().unwrap_or_else(|| {
-        value
-            .timestamp()
-            .saturating_mul(1_000_000_000)
-            .saturating_add(i64::from(value.timestamp_subsec_nanos()))
-    })
+fn timestamp_nanos(value: DateTime<Utc>) -> i128 {
+    i128::from(value.timestamp()) * 1_000_000_000 + i128::from(value.timestamp_subsec_nanos())
 }
 
 fn observe_batch(report: &mut SamplingImportReport, outcome: BatchOutcome) {
@@ -749,6 +1479,1002 @@ mod tests {
     use super::*;
     use crate::store::AggregateFilter;
 
+    #[test]
+    fn oversized_join_window_does_not_commit_a_partial_cohort() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let before = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "window-overflow");
+        {
+            let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+            for offset in 1..=MAX_JOIN_WINDOW_RECORDS + 1 {
+                writeln!(
+                    append,
+                    "{}",
+                    token_line(base + chrono::Duration::microseconds(offset as i64), 100)
+                )
+                .unwrap();
+            }
+        }
+        let error = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5200),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("window exceeds capacity"));
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            before.byte_offset
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+    }
+
+    #[test]
+    fn lookahead_anchor_prevents_an_earlier_anchor_stealing_its_candidate() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "earlier-anchor");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(150),
+            "closer-lookahead-anchor",
+        );
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(90), 700)
+        )
+        .unwrap();
+        let first = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5100),
+        )
+        .unwrap();
+        assert_eq!((first.matched, first.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let second = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5300),
+        )
+        .unwrap();
+        assert_eq!(
+            (second.matched, second.unmatched, second.bytes_read),
+            (1, 0, 0)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            950
+        );
+    }
+
+    #[test]
+    fn later_arrivals_cannot_reuse_a_claimed_record_or_rewrite_closed_order() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "first-anchor");
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(100), 100)
+        )
+        .unwrap();
+        assert_eq!(
+            ingest_post_sampling_at(
+                &mut store,
+                temporary.path(),
+                "machine",
+                base + chrono::Duration::milliseconds(5100)
+            )
+            .unwrap()
+            .matched,
+            1
+        );
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(110),
+            "late-closer-anchor",
+        );
+        let next = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5300),
+        )
+        .unwrap();
+        assert_eq!((next.matched, next.unmatched), (0, 1));
+        let reason: String = store
+            .connection()
+            .query_row(
+                "SELECT quality_reason FROM usage_events WHERE event_id='logs2-post-sampling:3'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reason, "post_sampling_candidate_already_associated");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(50),
+            "out-of-order-anchor",
+        );
+        let next = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5500),
+        )
+        .unwrap();
+        assert_eq!((next.matched, next.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+    }
+
+    #[test]
+    fn same_size_source_change_cannot_reuse_the_durable_candidate_window() {
+        let (temporary, _old, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "first");
+        insert_log(&logs, base + chrono::Duration::milliseconds(200), "pending");
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}\n{}",
+            token_line(base, 100),
+            token_line(base + chrono::Duration::milliseconds(140), 150)
+        )
+        .unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5150),
+        )
+        .unwrap();
+        let before = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let original = fs::read_to_string(&rollout).unwrap();
+        let changed = original.replace("\"total_tokens\":150", "\"total_tokens\":151");
+        assert_ne!(original, changed);
+        assert_eq!(original.len(), changed.len());
+        fs::write(&rollout, changed).unwrap();
+        File::options()
+            .write(true)
+            .open(&rollout)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(
+                std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(100),
+            ))
+            .unwrap();
+        assert!(
+            ingest_post_sampling_at(
+                &mut store,
+                temporary.path(),
+                "machine",
+                base + chrono::Duration::milliseconds(5400)
+            )
+            .is_err()
+        );
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            before.byte_offset
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+    }
+
+    #[test]
+    fn candidate_read_ahead_survives_the_next_poll_and_restart() {
+        let (temporary, _old_store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(20);
+        let ledger = temporary.path().join("join-window.sqlite3");
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::seconds(4),
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "boundary-first");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(200),
+            "boundary-second",
+        );
+        {
+            let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+            writeln!(
+                append,
+                "{}\n{}",
+                token_line(base, 100),
+                token_line(base + chrono::Duration::milliseconds(140), 150)
+            )
+            .unwrap();
+        }
+        let first = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5150),
+        )
+        .unwrap();
+        assert_eq!(first.matched, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+        drop(store);
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        let second = ingest_post_sampling_at(
+            &mut store,
+            temporary.path(),
+            "machine",
+            base + chrono::Duration::milliseconds(5400),
+        )
+        .unwrap();
+        assert_eq!((second.matched, second.unmatched), (1, 0));
+        assert_eq!(
+            second.bytes_read, 0,
+            "the matching candidate must come from the durable window, not a file rescan"
+        );
+        let expected = TokenUsage {
+            input_tokens: 460,
+            cached_input_tokens: 380,
+            output_tokens: 40,
+            reasoning_output_tokens: 12,
+            total_tokens: 500,
+            ..TokenUsage::default()
+        };
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected
+        );
+        for dimension in [
+            crate::store::AggregateDimension::Account,
+            crate::store::AggregateDimension::Project,
+            crate::store::AggregateDimension::Model,
+            crate::store::AggregateDimension::Thread,
+            crate::store::AggregateDimension::Day,
+        ] {
+            let buckets = store
+                .aggregate_exact_time_series(
+                    crate::store::TimeGrain::Day,
+                    Some(dimension),
+                    &AggregateFilter::default(),
+                    "Asia/Shanghai",
+                )
+                .unwrap();
+            let expected = serde_json::to_value(expected).unwrap();
+            for field in [
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "cache_write_observed_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+                "total_tokens",
+            ] {
+                let sum: u64 = buckets
+                    .iter()
+                    .map(|bucket| {
+                        serde_json::to_value(bucket.usage).unwrap()[field]
+                            .as_u64()
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                assert_eq!(
+                    sum,
+                    expected[field].as_u64().unwrap_or(0),
+                    "{dimension:?}/{field}"
+                );
+            }
+        }
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            500
+        );
+    }
+
+    #[test]
+    fn undated_usage_advances_only_the_baseline_not_the_next_dated_amount() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("undated.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(1);
+        let mut first: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        let mut missing = first.clone();
+        missing.as_object_mut().unwrap().remove("timestamp");
+        missing["payload"]["info"]["total_token_usage"] = serde_json::json!({"input_tokens":190,"cached_input_tokens":170,
+            "output_tokens":10,"reasoning_output_tokens":3,"total_tokens":200});
+        let mut next = missing.clone();
+        next["timestamp"] = serde_json::json!((at + chrono::Duration::seconds(1)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            next["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                next["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        fs::write(
+            &path,
+            format!(
+                "\u{feff}{}\n{first}\n{missing}\n{next}\n",
+                serde_json::json!({"type":"session_meta","payload":{"id":"root"}})
+            ),
+        )
+        .unwrap();
+        let mut state = CandidateCounterCheckpoint::new(0);
+        let (records, _) =
+            read_usage_candidates(&path, 0, &mut 0, Utc::now(), &mut state, "root", false).unwrap();
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].usage.unwrap().total_tokens, 100);
+        assert_eq!(records[1].usage.unwrap().total_tokens, 50);
+    }
+
+    #[test]
+    fn rollout_adapters_share_missing_and_cache_alias_semantics() {
+        let at = Utc::now();
+        let line: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        let full = line["payload"]["info"]["last_token_usage"].clone();
+        let mut numeric_strings = full.clone();
+        for value in numeric_strings.as_object_mut().unwrap().values_mut() {
+            *value = serde_json::json!(value.as_u64().unwrap().to_string());
+        }
+        assert_eq!(
+            parse_candidate_usage(&numeric_strings),
+            parse_candidate_usage(&full)
+        );
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            let mut partial = full.clone();
+            partial.as_object_mut().unwrap().remove(field);
+            let parsed = crate::replay::parse_token_sample(
+                &serde_json::json!({"payload":{"info":{"last_token_usage":partial}}}),
+            );
+            assert_eq!(parsed.last, None, "{field} must not be manufactured");
+        }
+        for alias in [
+            "cache_write_input_tokens",
+            "cache_write_tokens",
+            "input_cache_write_tokens",
+        ] {
+            let mut sample = full.clone();
+            sample[alias] = serde_json::json!(5);
+            let parsed = parse_candidate_usage(&sample).unwrap();
+            assert_eq!(parsed.cache_write_input_tokens, 5);
+            assert_eq!(parsed.cache_write_observed_input_tokens, 90);
+            sample[alias] = Value::Null;
+            let parsed = crate::replay::parse_token_sample(
+                &serde_json::json!({"payload":{"info":{"last_token_usage":sample}}}),
+            );
+            assert_eq!(parsed.last.unwrap().cache_write_observed_input_tokens, 0);
+        }
+        let mut conflict = full;
+        conflict["cache_write_input_tokens"] = serde_json::json!(5);
+        conflict["cache_write_tokens"] = serde_json::json!(6);
+        assert!(parse_candidate_usage(&conflict).is_none());
+    }
+
+    #[test]
+    fn bounded_header_recovery_does_not_assume_a_live_stream() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("legacy.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(1);
+        fs::write(&path,format!("{}\n",
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"legacy"}}))).unwrap();
+        let mut state = CandidateCounterCheckpoint::new(500);
+        let mut bytes = 0;
+        state.boundary.canonical_at = read_canonical_header(&path, "legacy", &mut bytes).unwrap();
+        assert_eq!(state.boundary.canonical_at, Some(at));
+        assert!(state.boundary.foreign_replay);
+        let start = serde_json::json!({"type":"event_msg","payload":{"type":"task_started",
+            "turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":at.timestamp()}});
+        state.observe_record(&start, "legacy", false);
+        assert_eq!(state.boundary.phase, StreamPhase::Live);
+        fs::write(&path, vec![b'x'; 100_000]).unwrap();
+        bytes = 0;
+        assert_eq!(
+            read_canonical_header(&path, "legacy", &mut bytes).unwrap(),
+            None
+        );
+        assert_eq!(bytes, 64 * 1024);
+    }
+
+    #[test]
+    fn numeric_only_checkpoint_requires_a_proven_stream_resume() {
+        let at = Utc::now();
+        let mut value: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        let mut state: CandidateCounterCheckpoint = serde_json::from_value(serde_json::json!({
+            "version":2,"previous_total":value["payload"]["info"]["last_token_usage"],
+            "cumulative_seen":true,"allow_initial_sample":false
+        }))
+        .unwrap();
+        let thread = "019b76da-a800-7000-8000-000000000000";
+        value["payload"]["info"]["total_token_usage"] = serde_json::json!({
+            "input_tokens":140,"cached_input_tokens":120,"output_tokens":10,
+            "reasoning_output_tokens":3,"total_tokens":150
+        });
+        assert!(state.observe_record(&value, thread, true).0.is_none());
+        let fake = serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"f1234567-89ab-4cde-8abc-0123456789ab"}});
+        state.observe_record(&fake, thread, true);
+        assert!(state.observe_record(&value, thread, true).0.is_none());
+        let own = serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"019b76da-a900-7000-8000-000000000000"}});
+        state.observe_record(&own, thread, true);
+        // Unknown pre-resume observations advance only the baseline. They
+        // cannot be assigned to the first identifiable post-resume request.
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            value["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                value["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 10
+            );
+        }
+        assert_eq!(
+            state
+                .observe_record(&value, thread, true)
+                .0
+                .unwrap()
+                .total_tokens,
+            10
+        );
+    }
+
+    #[test]
+    fn future_or_partial_boundary_records_do_not_advance_parser_state() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("root.jsonl");
+        let now = Utc::now();
+        let meta = serde_json::json!({"timestamp":(now-chrono::Duration::seconds(60)).to_rfc3339(),"type":"session_meta","payload":{"id":"root"}});
+        let future = serde_json::json!({"timestamp":(now+chrono::Duration::seconds(60)).to_rfc3339(),"type":"session_meta","payload":{"id":"parent"}}).to_string().replace("\":", "\": ");
+        fs::write(&path, format!("{meta}\n{future}\n")).unwrap();
+        let mut state = CandidateCounterCheckpoint::new(0);
+        let mut bytes = 0;
+        let (records, offset) =
+            read_usage_candidates(&path, 0, &mut bytes, now, &mut state, "root", false).unwrap();
+        assert!(records.is_empty());
+        assert_eq!(offset, meta.to_string().len() as u64 + 1);
+        assert_eq!(state.boundary.phase, StreamPhase::Live);
+        assert!(!state.boundary.foreign_replay);
+        fs::write(&path, format!("{meta}\n{future}")).unwrap();
+        let (_, next) = read_usage_candidates(
+            &path,
+            offset,
+            &mut bytes,
+            now + chrono::Duration::seconds(120),
+            &mut state,
+            "root",
+            false,
+        )
+        .unwrap();
+        assert_eq!(next, offset);
+        assert!(!state.boundary.foreign_replay);
+    }
+
+    #[test]
+    fn inherited_candidates_remain_blocked_after_gap_and_parser_restart() {
+        let temporary = tempdir().unwrap();
+        let path = temporary.path().join("child.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(2);
+        let mut inherited: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        inherited["payload"]["info"]["total_token_usage"] =
+            inherited["payload"]["info"]["last_token_usage"].clone();
+        fs::write(&path, format!("{}\n{}\n{inherited}\n",
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"child"}}),
+            serde_json::json!({"timestamp":at.to_rfc3339(),"type":"session_meta","payload":{"id":"parent"}}),
+        )).unwrap();
+        let mut counter = CandidateCounterCheckpoint::new(0);
+        let mut bytes = 0;
+        let (first, offset) = read_usage_candidates(
+            &path,
+            0,
+            &mut bytes,
+            Utc::now(),
+            &mut counter,
+            "child",
+            true,
+        )
+        .unwrap();
+        assert_eq!(first.len(), 1);
+        assert!(
+            first[0].usage.is_none(),
+            "copied ancestor quantity is not a child sample"
+        );
+        counter = serde_json::from_str(&serde_json::to_string(&counter).unwrap()).unwrap();
+        let later = at + chrono::Duration::seconds(10);
+        inherited["timestamp"] = serde_json::json!(later.to_rfc3339());
+        inherited["payload"]["info"]["total_token_usage"]["input_tokens"] = serde_json::json!(190);
+        inherited["payload"]["info"]["total_token_usage"]["cached_input_tokens"] =
+            serde_json::json!(170);
+        inherited["payload"]["info"]["total_token_usage"]["total_tokens"] = serde_json::json!(200);
+        let mut own = inherited.clone();
+        own["timestamp"] =
+            serde_json::json!((later + chrono::Duration::milliseconds(100)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            own["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                own["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        {
+            let mut append = OpenOptions::new().append(true).open(&path).unwrap();
+            writeln!(append,"{}\n{inherited}\n{}\n{own}",
+                serde_json::json!({"type":"event_msg","payload":{"type":"task_started","turn_id":"f1234567-89ab-4cde-8abc-0123456789ab","started_at":1}}),
+                serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":later.timestamp()}}),
+            ).unwrap();
+        }
+        let (next, _) = read_usage_candidates(
+            &path,
+            offset,
+            &mut bytes,
+            Utc::now(),
+            &mut counter,
+            "child",
+            true,
+        )
+        .unwrap();
+        assert_eq!(next.len(), 2);
+        assert!(next[0].usage.is_none());
+        assert_eq!(next[1].usage.unwrap().total_tokens, 50);
+    }
+
+    #[test]
+    fn counter_gaps_and_legacy_cursor_do_not_invent_continuity() {
+        let at = Utc::now();
+        let mut line: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        let mut state = CandidateCounterCheckpoint::new(500);
+        assert!(
+            state.normalize(&line).0.is_none(),
+            "tail without a baseline is not a legacy whole stream"
+        );
+        line["payload"]["info"]["total_token_usage"] =
+            line["payload"]["info"]["last_token_usage"].clone();
+        assert!(
+            state.normalize(&line).0.is_none(),
+            "first cumulative value establishes only a baseline"
+        );
+        line["payload"]["info"]["total_token_usage"] = Value::Null;
+        assert!(
+            state.normalize(&line).0.is_none(),
+            "malformed total cannot fall back to a valid last"
+        );
+        line["payload"]["info"]["total_token_usage"] =
+            line["payload"]["info"]["last_token_usage"].clone();
+        assert!(
+            state.normalize(&line).0.is_none(),
+            "must not bridge a broken interval"
+        );
+        assert_eq!(
+            state.normalize(&line).1,
+            Some("post_sampling_counter_unchanged")
+        );
+    }
+
+    #[test]
+    fn sampling_counter_cursor_failure_rolls_back_events_and_log_cursor() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let prior_log = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let prior_candidate = store
+            .get_cursor("machine", "sampling-rollout:thread-1")
+            .unwrap()
+            .unwrap();
+        let next_at = at + chrono::Duration::seconds(10);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 100)
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, next_at, "atomic-counter");
+        store.connection().execute_batch("CREATE TEMP TRIGGER fail_candidate BEFORE UPDATE ON file_cursors
+            WHEN NEW.source_id='sampling-rollout:thread-1' BEGIN SELECT RAISE(ABORT, 'synthetic cursor failure'); END;").unwrap();
+        assert!(ingest_post_sampling(&mut store, temporary.path(), "machine").is_err());
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            prior_log.byte_offset
+        );
+        let candidate = store
+            .get_cursor("machine", "sampling-rollout:thread-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.byte_offset, prior_candidate.byte_offset);
+        assert_eq!(
+            candidate.parser_state_json,
+            prior_candidate.parser_state_json
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let count: i64 = store
+            .connection()
+            .query_row(
+                "SELECT COUNT(*) FROM usage_events WHERE event_id='logs2-post-sampling:2'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+        store
+            .connection()
+            .execute_batch("DROP TRIGGER fail_candidate")
+            .unwrap();
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            350
+        );
+        assert_eq!(
+            ingest_post_sampling(&mut store, temporary.path(), "machine")
+                .unwrap()
+                .bytes_read,
+            0
+        );
+    }
+
+    #[test]
+    fn repeated_counters_and_stale_last_usage_do_not_add_new_consumption() {
+        let (temporary, _old_store, at, rollout) = copied_source_fixture();
+        let ledger = temporary.path().join("normalized.sqlite3");
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let base = at + chrono::Duration::seconds(10);
+        let mut first: Value = serde_json::from_str(&token_line(base, 100)).unwrap();
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        let mut repeat = first.clone();
+        repeat["timestamp"] =
+            serde_json::json!((base + chrono::Duration::milliseconds(10)).to_rfc3339());
+        {
+            let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+            writeln!(append, "{first}\n{repeat}").unwrap();
+        }
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base + chrono::Duration::milliseconds(11), "repeat");
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((report.matched, report.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        drop(store);
+
+        // Restart must restore the previous cumulative snapshot. A stale last
+        // value of 900 cannot override the actual 50-token counter increment.
+        let mut store = LedgerStore::open(&ledger).unwrap();
+        let next_at = base + chrono::Duration::seconds(1);
+        let mut next: Value = serde_json::from_str(&token_line(next_at, 900)).unwrap();
+        next["payload"]["info"]["total_token_usage"] = serde_json::json!({
+            "input_tokens":130,"cached_input_tokens":90,"output_tokens":20,
+            "reasoning_output_tokens":6,"total_tokens":150
+        });
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{next}"
+        )
+        .unwrap();
+        insert_log(&logs, next_at, "increment");
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((report.matched, report.unmatched), (1, 0));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            300
+        );
+
+        next["timestamp"] =
+            serde_json::json!((next_at + chrono::Duration::seconds(1)).to_rfc3339());
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{next}"
+        )
+        .unwrap();
+        insert_log(
+            &logs,
+            next_at + chrono::Duration::seconds(1),
+            "repeat-after-restart",
+        );
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((report.matched, report.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            300
+        );
+        let idle = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((idle.observations, idle.bytes_read), (0, 0));
+    }
+
+    #[test]
+    fn missing_or_malformed_usage_is_not_a_confirmed_zero() {
+        assert!(parse_candidate_usage(&Value::Null).is_none());
+        assert!(parse_candidate_usage(&serde_json::json!({})).is_none());
+        let good = serde_json::json!({"input_tokens":0,"cached_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0,"total_tokens":0});
+        assert_eq!(parse_candidate_usage(&good), Some(TokenUsage::default()));
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            let mut bad = good.clone();
+            bad.as_object_mut().unwrap().remove(field);
+            assert!(parse_candidate_usage(&bad).is_none());
+            bad = good.clone();
+            bad[field] = serde_json::json!(-1);
+            assert!(parse_candidate_usage(&bad).is_none());
+        }
+        let mut bad = good;
+        bad["cache_write_input_tokens"] = serde_json::json!("invalid");
+        assert!(parse_candidate_usage(&bad).is_none());
+    }
+
+    #[test]
+    fn invalid_nearest_snapshot_does_not_fall_back_to_an_older_amount() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(30);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(append, "{}", token_line(base, 900)).unwrap();
+        let mut bad: Value =
+            serde_json::from_str(&token_line(base + chrono::Duration::milliseconds(10), 100))
+                .unwrap();
+        bad["payload"]["info"]["last_token_usage"]["total_tokens"] = serde_json::json!(999);
+        writeln!(append, "{bad}").unwrap();
+        drop(append);
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(11),
+            "invalid-neighbor",
+        );
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((report.matched, report.unmatched), (0, 1));
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let quality: String = store
+            .connection()
+            .query_row(
+                "SELECT quality FROM retained_request_evidence WHERE turn_id='invalid-neighbor'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(quality, "unknown");
+    }
+
+    #[test]
+    fn matching_is_mutual_and_never_uses_a_farther_candidate_after_consumption() {
+        let ms = 1_000_000;
+        assert_eq!(
+            mutual_matches(&[0, 20 * ms], &[15 * ms, 150 * ms]),
+            vec![Nearest::Ambiguous, Nearest::Unique(0)]
+        );
+        assert_eq!(
+            mutual_matches(&[0, 10 * ms], &[5 * ms]),
+            vec![Nearest::Ambiguous, Nearest::Ambiguous]
+        );
+        assert_eq!(
+            mutual_matches(&[0, 0], &[0]),
+            vec![Nearest::Ambiguous, Nearest::Ambiguous]
+        );
+        assert_eq!(mutual_matches(&[0], &[0, 0]), vec![Nearest::Ambiguous]);
+        assert_eq!(mutual_matches(&[0], &[250 * ms]), vec![Nearest::Unique(0)]);
+        assert_eq!(
+            mutual_matches(&[0], &[250 * ms + 1]),
+            vec![Nearest::Missing]
+        );
+        assert_eq!(nearest(&[i128::MAX], i128::MIN), Nearest::Missing);
+        assert_eq!(nearest(&[], 0), Nearest::Missing);
+        let distant = "2400-01-01T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        assert_eq!(
+            nearest(
+                &[timestamp_nanos(distant + chrono::Duration::seconds(1))],
+                timestamp_nanos(distant)
+            ),
+            Nearest::Missing
+        );
+        assert_eq!(
+            nearest(
+                &[timestamp_nanos(
+                    distant + chrono::Duration::milliseconds(250)
+                )],
+                timestamp_nanos(distant)
+            ),
+            Nearest::Unique(0)
+        );
+    }
+
+    #[test]
+    fn ambiguous_anchor_does_not_import_an_unrelated_amount_or_a_context_counter() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let base = at + chrono::Duration::seconds(30);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(
+            append,
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(15), 300)
+        )
+        .unwrap();
+        writeln!(
+            append,
+            "{}",
+            token_line(base + chrono::Duration::milliseconds(150), 900)
+        )
+        .unwrap();
+        drop(append);
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, base, "earlier-anchor");
+        insert_log(
+            &logs,
+            base + chrono::Duration::milliseconds(20),
+            "nearer-anchor",
+        );
+        logs.execute("UPDATE logs SET feedback_log_body=replace(feedback_log_body,'total_usage_tokens=100','total_usage_tokens=9000000000000') WHERE id>1",[]).unwrap();
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!(
+            (report.observations, report.matched, report.unmatched),
+            (2, 1, 1)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            550
+        );
+        let rows:Vec<(Option<String>,String,i64)>=store.connection().prepare("SELECT turn_id,quality,total_tokens FROM retained_request_evidence WHERE turn_id IN ('earlier-anchor','nearer-anchor') ORDER BY turn_id")
+            .unwrap().query_map([],|row|Ok((row.get(0)?,row.get(1)?,row.get(2)?))).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (Some("earlier-anchor".into()), "unknown".into(), 0),
+                (Some("nearer-anchor".into()), "confirmed".into(), 300)
+            ]
+        );
+        let unknown_link:i64=store.connection().query_row("SELECT COUNT(*) FROM sampling_candidate_links l JOIN retained_request_evidence r USING(event_id) WHERE r.turn_id='earlier-anchor'",[],|r|r.get(0)).unwrap();
+        assert_eq!(unknown_link, 0);
+        let next = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((next.observations, next.bytes_read), (0, 0));
+    }
+
     fn token_line(at: DateTime<Utc>, total: u64) -> String {
         let input = total - 10;
         serde_json::json!({
@@ -784,6 +2510,139 @@ mod tests {
                 ],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn maturity_watermark_keeps_out_of_order_rows_pending() {
+        let (temporary, _store, at, _rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&connection, at + chrono::Duration::seconds(10), "pending");
+        insert_log(
+            &connection,
+            at + chrono::Duration::seconds(2),
+            "later-id-older-time",
+        );
+        let rows = read_observation_rows(
+            &connection,
+            0,
+            None,
+            at + chrono::Duration::seconds(5),
+            "machine",
+        )
+        .unwrap();
+        assert_eq!(rows.iter().map(|row| row.log_id).collect::<Vec<_>>(), [1]);
+        let resumed = read_observation_rows(
+            &connection,
+            1,
+            None,
+            at + chrono::Duration::seconds(11),
+            "machine",
+        )
+        .unwrap();
+        assert_eq!(
+            resumed.iter().map(|row| row.log_id).collect::<Vec<_>>(),
+            [2, 3]
+        );
+    }
+
+    #[test]
+    fn mature_rows_with_reversed_timestamps_match_without_skipping_candidates() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        for (seconds, tokens) in [(6, 180), (4, 200)] {
+            let time = at + chrono::Duration::seconds(seconds);
+            writeln!(
+                OpenOptions::new().append(true).open(&rollout).unwrap(),
+                "{}",
+                token_line(time, tokens)
+            )
+            .unwrap();
+            insert_log(&connection, time, &format!("out-of-order-{seconds}"));
+        }
+        let report = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!(report.matched, 2);
+        assert_eq!(report.unmatched, 0);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            630
+        );
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .byte_offset,
+            3
+        );
+    }
+
+    #[test]
+    fn invalid_appended_timestamp_keeps_committed_cursor_and_usage() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let valid_at = at + chrono::Duration::seconds(5);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(valid_at, 180)
+        )
+        .unwrap();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&connection, valid_at, "valid-before-invalid");
+        insert_log(
+            &connection,
+            at + chrono::Duration::seconds(6),
+            "invalid-appended",
+        );
+        connection
+            .execute("UPDATE logs SET ts_nanos=-1 WHERE id=3", [])
+            .unwrap();
+        assert!(ingest_post_sampling(&mut store, temporary.path(), "machine").is_err());
+        let preserved = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(preserved, checkpoint);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+    }
+
+    #[test]
+    fn source_timestamp_is_exact_and_invalid_time_does_not_become_now() {
+        let (temporary, _store, at, _rollout) = copied_source_fixture();
+        let connection = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        let rows = read_observation_rows(
+            &connection,
+            0,
+            None,
+            at - chrono::Duration::nanoseconds(1),
+            "machine",
+        )
+        .unwrap();
+        assert!(rows.is_empty());
+        for (seconds, nanos) in [
+            (at.timestamp(), -1),
+            (at.timestamp(), 1_000_000_000),
+            (i64::MIN, 0),
+        ] {
+            connection
+                .execute("UPDATE logs SET ts=?1,ts_nanos=?2", params![seconds, nanos])
+                .unwrap();
+            assert!(read_observation_rows(&connection, 0, None, Utc::now(), "machine").is_err());
+        }
     }
 
     #[test]
@@ -895,6 +2754,783 @@ mod tests {
                 .usage
                 .total_tokens,
             700
+        );
+        let ambiguous_at = Utc::now() - chrono::Duration::seconds(10);
+        let mut append = OpenOptions::new().append(true).open(&rollout).unwrap();
+        writeln!(append, "{}", token_line(ambiguous_at, 500)).unwrap();
+        writeln!(append, "{}", token_line(ambiguous_at, 900)).unwrap();
+        insert_log(&logs, ambiguous_at, "ambiguous-turn");
+        let ambiguous = ingest_post_sampling(&mut store, codex_home, "machine").unwrap();
+        assert_eq!(
+            (
+                ambiguous.observations,
+                ambiguous.matched,
+                ambiguous.unmatched
+            ),
+            (1, 0, 1)
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            700
+        );
+        let reason: String = store
+            .connection()
+            .query_row(
+                "SELECT quality_reason FROM usage_events WHERE quality='unknown'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reason, "post_sampling_ambiguous_nearby_last_token_usage");
+        let linked: i64 = store.connection().query_row(
+            "SELECT COUNT(*) FROM sampling_candidate_links WHERE method='unique_nearest_timestamp'",
+            [], |row| row.get(0)
+        ).unwrap();
+        assert_eq!(
+            linked, 3,
+            "the ambiguous fourth observation must not get a candidate link"
+        );
+    }
+
+    #[test]
+    fn receipt_keys_need_process_identity_and_distinguish_requests() {
+        let key =
+            source_receipt_key("machine", Some("process"), 1, 100, 5, "thread", "body").unwrap();
+        assert_eq!(
+            Some(key.clone()),
+            source_receipt_key("machine", Some("process"), 1, 100, 5, "thread", "body")
+        );
+        assert_ne!(
+            Some(key.clone()),
+            source_receipt_key("machine", Some("process"), 2, 100, 5, "thread", "body")
+        );
+        assert_ne!(
+            Some(key),
+            source_receipt_key(
+                "machine",
+                Some("other-process"),
+                1,
+                100,
+                5,
+                "thread",
+                "body"
+            )
+        );
+        assert!(source_receipt_key("machine", None, 1, 100, 5, "thread", "body").is_none());
+    }
+
+    fn copied_source_fixture() -> (tempfile::TempDir, LedgerStore, DateTime<Utc>, PathBuf) {
+        let temporary = tempdir().unwrap();
+        let home = temporary.path();
+        let rollout = home.join("rollout.jsonl");
+        let at = Utc::now() - chrono::Duration::minutes(2);
+        fs::write(&rollout, format!("{}\n", token_line(at, 100))).unwrap();
+        {
+            let state = Connection::open(home.join("state_5.sqlite")).unwrap();
+            state.execute_batch(
+                "CREATE TABLE projects(id TEXT PRIMARY KEY,name TEXT NOT NULL);
+                 CREATE TABLE project_roots(project_id TEXT,path TEXT,position INTEGER);
+                 CREATE TABLE threads(id TEXT PRIMARY KEY,rollout_path TEXT,source TEXT,model TEXT,cwd TEXT,project_id TEXT);
+                 INSERT INTO projects VALUES ('project','Synthetic');"
+            ).unwrap();
+            state.execute("INSERT INTO threads VALUES ('thread-1',?1,'vscode','gpt-5.6-sol','/work','project')",
+                [rollout.to_string_lossy().as_ref()]).unwrap();
+            let logs = Connection::open(home.join("logs_2.sqlite")).unwrap();
+            logs.execute_batch(
+                "CREATE TABLE logs(id INTEGER PRIMARY KEY AUTOINCREMENT,ts INTEGER,ts_nanos INTEGER,
+                 level TEXT,target TEXT,feedback_log_body TEXT,thread_id TEXT,process_uuid TEXT,estimated_bytes INTEGER);"
+            ).unwrap();
+            insert_log(&logs, at, "shared-turn");
+        }
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            100
+        );
+        fs::create_dir(home.join("sqlite")).unwrap();
+        fs::copy(
+            home.join("logs_2.sqlite"),
+            home.join("sqlite/logs_2.sqlite"),
+        )
+        .unwrap();
+        fs::copy(
+            home.join("state_5.sqlite"),
+            home.join("sqlite/state_5.sqlite"),
+        )
+        .unwrap();
+        ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            100,
+            "a copied source must not become a second model call"
+        );
+        let next_at = at + chrono::Duration::seconds(1);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 150)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(home.join("sqlite/logs_2.sqlite")).unwrap();
+            insert_log(&migrated, next_at, "new-migrated-turn");
+        }
+        let report = ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(report.inserted_events, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let idle = ingest_post_sampling(&mut store, home, "machine").unwrap();
+        assert_eq!(idle.observations, 0);
+        assert_eq!(idle.bytes_read, 0);
+        (temporary, store, at, rollout)
+    }
+
+    #[test]
+    fn sampling_and_reconstruction_share_the_same_source_record_evidence() {
+        let (temporary, _old_store, at, old_rollout) = copied_source_fixture();
+        let rollout = temporary.path().join("sessions/rollout.jsonl");
+        fs::create_dir_all(rollout.parent().unwrap()).unwrap();
+        fs::rename(old_rollout, &rollout).unwrap();
+        for state in ["state_5.sqlite", "sqlite/state_5.sqlite"] {
+            let state = Connection::open(temporary.path().join(state)).unwrap();
+            state
+                .execute_batch(
+                    "ALTER TABLE threads ADD COLUMN title TEXT NOT NULL DEFAULT 'Synthetic';
+                ALTER TABLE threads ADD COLUMN created_at INTEGER NOT NULL DEFAULT 1788220800;
+                ALTER TABLE threads ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 1788220800;
+                ALTER TABLE threads ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE threads ADD COLUMN has_user_event INTEGER NOT NULL DEFAULT 1;
+                ALTER TABLE threads ADD COLUMN git_origin_url TEXT;",
+                )
+                .unwrap();
+            state
+                .execute(
+                    "UPDATE threads SET rollout_path=?1",
+                    [rollout.to_string_lossy().as_ref()],
+                )
+                .unwrap();
+        }
+        let mut first: Value = serde_json::from_str(&token_line(at, 100)).unwrap();
+        first["payload"]["info"]["total_token_usage"] =
+            first["payload"]["info"]["last_token_usage"].clone();
+        // The retained file starts after an older counter prefix. Both sources
+        // must still pair only the identifiable sample, not the initial total.
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            first["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                first["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 1000
+            );
+        }
+        let mut second: Value =
+            serde_json::from_str(&token_line(at + chrono::Duration::seconds(1), 150)).unwrap();
+        second["payload"]["info"]["total_token_usage"] = serde_json::json!({
+            "input_tokens":1230,"cached_input_tokens":1190,"output_tokens":20,"reasoning_output_tokens":6,"total_tokens":1250
+        });
+        // Numeric lineage must agree even when the last-usage snapshot is stale.
+        let stale: Value = serde_json::from_str(&token_line(at, 900)).unwrap();
+        second["payload"]["info"]["last_token_usage"] =
+            stale["payload"]["info"]["last_token_usage"].clone();
+        let inherited_usage = serde_json::json!({"input_tokens":1000,"cached_input_tokens":1000,
+            "output_tokens":0,"reasoning_output_tokens":0,"total_tokens":1000});
+        let inherited = serde_json::json!({"timestamp":(at-chrono::Duration::milliseconds(500)).to_rfc3339(),
+            "type":"event_msg","payload":{"type":"token_count","info":{
+                "total_token_usage":inherited_usage,"last_token_usage":inherited_usage}}});
+        let quota_only = serde_json::json!({"timestamp":(at+chrono::Duration::seconds(1)).to_rfc3339(),
+            "type":"event_msg","payload":{"type":"token_count","info":null,
+                "rate_limits":{"primary":{"used_percent":10}}}});
+        fs::write(&rollout, format!("{}\n{}\n{inherited}\n{}\n{}\n{}\n{quota_only}\n{}\n",
+            serde_json::json!({"timestamp":(at-chrono::Duration::seconds(1)).to_rfc3339(),"type":"session_meta","payload":{"id":"thread-1"}}),
+            serde_json::json!({"type":"session_meta","payload":{"id":"ancestor"}}),
+            serde_json::json!({"type":"event_msg","payload":{"type":"task_started","started_at":at.timestamp()}}),
+            serde_json::json!({"type":"turn_context","payload":{"model":"gpt-5.6-sol"}}), first, second)).unwrap();
+        let ledger_path = temporary.path().join("ledger.sqlite3");
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        crate::runtime::sync_native_catalog(&mut store, temporary.path()).unwrap();
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let reconstructed = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(reconstructed.inserted_events, 2, "{reconstructed:?}");
+        let matched: i64 = store.connection().query_row(
+            "SELECT COUNT(*) FROM (SELECT record_key FROM source_record_evidence GROUP BY record_key HAVING COUNT(DISTINCT evidence_source)=2)",
+            [], |row| row.get(0)).unwrap();
+        assert_eq!(matched, 2);
+        let shadow = store
+            .shadow_source_union("thread-1", at, at + chrono::Duration::seconds(10), 100)
+            .unwrap();
+        assert!(
+            shadow.complete_for_supplied_records,
+            "{:?}",
+            shadow.unresolved
+        );
+        assert_eq!(shadow.shared_records_collapsed, 2);
+        assert_eq!(shadow.usage.unwrap().total_tokens, 250);
+        drop(store);
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        let idle_sampling = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let idle_reconstruction = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(idle_sampling.observations, 0);
+        assert_eq!(idle_sampling.bytes_read, 0);
+        assert_eq!(idle_reconstruction.inserted_events, 0);
+        assert_eq!(idle_reconstruction.bytes_read, 0);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let third_at = at + chrono::Duration::seconds(2);
+        let mut third: Value = serde_json::from_str(&token_line(third_at, 180)).unwrap();
+        let mut cumulative = second["payload"]["info"]["total_token_usage"].clone();
+        for field in [
+            "input_tokens",
+            "cached_input_tokens",
+            "output_tokens",
+            "reasoning_output_tokens",
+            "total_tokens",
+        ] {
+            cumulative[field] = serde_json::json!(
+                cumulative[field].as_u64().unwrap()
+                    + third["payload"]["info"]["last_token_usage"][field]
+                        .as_u64()
+                        .unwrap()
+            );
+        }
+        third["payload"]["info"]["total_token_usage"] = cumulative;
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{third}"
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, third_at, "after-ledger-reopen");
+        drop(logs);
+        let appended = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        let rebuilt = crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        assert_eq!(appended.inserted_events, 1);
+        assert_eq!(rebuilt.inserted_events, 1);
+        let shadow = store
+            .shadow_source_union("thread-1", at, at + chrono::Duration::seconds(10), 100)
+            .unwrap();
+        assert!(
+            shadow.complete_for_supplied_records,
+            "{:?}",
+            shadow.unresolved
+        );
+        assert_eq!(shadow.shared_records_collapsed, 3);
+        assert_eq!(shadow.usage.unwrap().total_tokens, 430);
+        let expected = shadow.usage.unwrap();
+        for dimension in [
+            crate::store::AggregateDimension::Account,
+            crate::store::AggregateDimension::Project,
+            crate::store::AggregateDimension::Model,
+            crate::store::AggregateDimension::Thread,
+            crate::store::AggregateDimension::Day,
+        ] {
+            let buckets = store
+                .aggregate_exact_time_series(
+                    crate::store::TimeGrain::Day,
+                    Some(dimension),
+                    &AggregateFilter::default(),
+                    "Asia/Shanghai",
+                )
+                .unwrap();
+            let expected = serde_json::to_value(expected).unwrap();
+            for field in [
+                "input_tokens",
+                "cached_input_tokens",
+                "cache_write_input_tokens",
+                "cache_write_observed_input_tokens",
+                "output_tokens",
+                "reasoning_output_tokens",
+                "total_tokens",
+            ] {
+                let sum: u64 = buckets
+                    .iter()
+                    .map(|bucket| {
+                        serde_json::to_value(bucket.usage).unwrap()[field]
+                            .as_u64()
+                            .unwrap_or(0)
+                    })
+                    .sum();
+                assert_eq!(
+                    sum,
+                    expected[field].as_u64().unwrap_or(0),
+                    "{dimension:?}/{field}"
+                );
+            }
+        }
+        // A malformed record without any token keyword must still break both
+        // adapters' continuity. The next valid timestamp establishes a baseline.
+        let baseline_at = third_at + chrono::Duration::seconds(1);
+        let mut after_gap = third.clone();
+        after_gap["timestamp"] = serde_json::json!(baseline_at.to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            after_gap["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                after_gap["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 100
+            );
+        }
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "broken-json\n{after_gap}"
+        )
+        .unwrap();
+        let logs = Connection::open(temporary.path().join("logs_2.sqlite")).unwrap();
+        insert_log(&logs, baseline_at, "gap-baseline");
+        let sample = ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        assert_eq!((sample.matched, sample.unmatched), (0, 1));
+        assert_eq!(
+            crate::reconstruction::ingest_reconstruction_batch(
+                &mut store,
+                temporary.path(),
+                "machine",
+                8
+            )
+            .unwrap()
+            .inserted_events,
+            0
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected
+        );
+        drop(store);
+        let mut store = LedgerStore::open(&ledger_path).unwrap();
+        after_gap["timestamp"] =
+            serde_json::json!((baseline_at + chrono::Duration::seconds(1)).to_rfc3339());
+        for field in ["input_tokens", "cached_input_tokens", "total_tokens"] {
+            after_gap["payload"]["info"]["total_token_usage"][field] = serde_json::json!(
+                after_gap["payload"]["info"]["total_token_usage"][field]
+                    .as_u64()
+                    .unwrap()
+                    + 50
+            );
+        }
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{after_gap}"
+        )
+        .unwrap();
+        insert_log(
+            &logs,
+            baseline_at + chrono::Duration::seconds(1),
+            "after-gap",
+        );
+        ingest_post_sampling(&mut store, temporary.path(), "machine").unwrap();
+        crate::reconstruction::ingest_reconstruction_batch(
+            &mut store,
+            temporary.path(),
+            "machine",
+            8,
+        )
+        .unwrap();
+        let mut expected_after = expected;
+        expected_after.input_tokens += 50;
+        expected_after.cached_input_tokens += 50;
+        expected_after.total_tokens += 50;
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage,
+            expected_after
+        );
+        for dimension in [
+            crate::store::AggregateDimension::Account,
+            crate::store::AggregateDimension::Model,
+            crate::store::AggregateDimension::Project,
+            crate::store::AggregateDimension::Thread,
+            crate::store::AggregateDimension::Day,
+        ] {
+            let buckets = store
+                .aggregate_exact_time_series(
+                    crate::store::TimeGrain::Day,
+                    Some(dimension),
+                    &AggregateFilter::default(),
+                    "Asia/Shanghai",
+                )
+                .unwrap();
+            assert_eq!(
+                buckets
+                    .iter()
+                    .map(|bucket| bucket.usage.total_tokens)
+                    .sum::<u64>(),
+                480,
+                "{dimension:?}"
+            );
+        }
+        assert_eq!(
+            ingest_post_sampling(&mut store, temporary.path(), "machine")
+                .unwrap()
+                .bytes_read,
+            0
+        );
+        let digest = crate::reconstruction::source_record_digest(&first);
+        second = first.clone();
+        second["timestamp"] = serde_json::json!("2020-01-01T00:00:00Z");
+        assert_ne!(digest, crate::reconstruction::source_record_digest(&second));
+        let key = crate::reconstruction::source_record_key("machine", "file", "thread", 1, &digest);
+        assert_ne!(
+            key,
+            crate::reconstruction::source_record_key("machine", "file", "thread", 2, &digest)
+        );
+    }
+
+    #[test]
+    fn copied_log_sources_must_not_duplicate_sampling() {
+        let _fixture = copied_source_fixture();
+    }
+
+    #[test]
+    fn migrated_source_keeps_its_cursor_after_primary_is_removed() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary_at = at + chrono::Duration::seconds(3);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(primary_at, 200)
+        )
+        .unwrap();
+        {
+            let primary = Connection::open(root.join("logs_2.sqlite")).unwrap();
+            primary
+                .execute("UPDATE sqlite_sequence SET seq=99 WHERE name='logs'", [])
+                .unwrap();
+            insert_log(&primary, primary_at, "primary-high-watermark");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            450
+        );
+        fs::rename(root.join("logs_2.sqlite"), root.join("paused-logs.sqlite")).unwrap();
+        let next_at = at + chrono::Duration::seconds(4);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(root.join("sqlite/logs_2.sqlite")).unwrap();
+            insert_log(&migrated, next_at, "migrated-after-removal");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            630
+        );
+    }
+
+    #[test]
+    fn initially_migrated_source_keeps_binding_when_primary_appears() {
+        let (temporary, _previous_store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        fs::rename(
+            root.join("logs_2.sqlite"),
+            root.join("paused-primary.sqlite"),
+        )
+        .unwrap();
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        fs::rename(
+            root.join("paused-primary.sqlite"),
+            root.join("logs_2.sqlite"),
+        )
+        .unwrap();
+        let next_at = at + chrono::Duration::seconds(3);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 200)
+        )
+        .unwrap();
+        {
+            let primary = Connection::open(root.join("logs_2.sqlite")).unwrap();
+            insert_log(&primary, next_at, "new-primary-request");
+        }
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            450
+        );
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
+        );
+    }
+
+    #[test]
+    fn same_file_log_reset_must_not_skip_reused_row_ids() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary = root.join("logs_2.sqlite");
+        let identity = physical_file_identity(&primary, &primary.metadata().unwrap()).unwrap();
+        let old_checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        {
+            let reset = Connection::open(&primary).unwrap();
+            reset
+                .execute_batch(
+                    "DELETE FROM logs; UPDATE sqlite_sequence SET seq=0 WHERE name='logs';",
+                )
+                .unwrap();
+            assert_eq!(
+                ingest_post_sampling(&mut store, root, "machine")
+                    .unwrap()
+                    .observations,
+                0
+            );
+            assert_eq!(
+                store
+                    .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                    .unwrap()
+                    .unwrap()
+                    .parser_state_json,
+                old_checkpoint.parser_state_json
+            );
+            insert_log(&reset, next_at, "shared-turn");
+        }
+        assert_eq!(
+            physical_file_identity(&primary, &primary.metadata().unwrap()).unwrap(),
+            identity
+        );
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
+        );
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let state: Value =
+            serde_json::from_str(checkpoint.parser_state_json.as_deref().unwrap()).unwrap();
+        assert_eq!(state["version"], 4);
+        assert_eq!(state["generation"], 1);
+        assert_eq!(state["anchorKey"].as_str().unwrap().len(), 64);
+        Connection::open(&primary)
+            .unwrap()
+            .execute("UPDATE logs SET process_uuid=NULL", [])
+            .unwrap();
+        assert!(ingest_post_sampling(&mut store, root, "machine").is_err());
+        assert_eq!(
+            store
+                .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+                .unwrap()
+                .unwrap()
+                .parser_state_json,
+            checkpoint.parser_state_json
+        );
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+    }
+
+    #[test]
+    fn removed_anchor_replays_remaining_receipts_without_recounting() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 210)
+        )
+        .unwrap();
+        {
+            let migrated = Connection::open(root.join("sqlite/logs_2.sqlite")).unwrap();
+            migrated.execute("DELETE FROM logs WHERE id=2", []).unwrap();
+            insert_log(&migrated, next_at, "after-pruned-anchor");
+        }
+        let report = ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(report.observations, 2);
+        assert_eq!(report.unchanged_events, 1);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            460
+        );
+        let idle = ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(idle.observations, 0);
+        assert_eq!(idle.bytes_read, 0);
+    }
+
+    #[test]
+    fn physical_log_replacement_replays_copies_once_and_accepts_reset_ids() {
+        let (temporary, mut store, at, rollout) = copied_source_fixture();
+        let root = temporary.path();
+        let primary = root.join("logs_2.sqlite");
+        let replacement = root.join("replacement.sqlite");
+        fs::copy(&primary, &replacement).unwrap();
+        fs::rename(&primary, root.join("old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            250
+        );
+        let next_at = at + chrono::Duration::seconds(6);
+        writeln!(
+            OpenOptions::new().append(true).open(&rollout).unwrap(),
+            "{}",
+            token_line(next_at, 180)
+        )
+        .unwrap();
+        fs::copy(&primary, &replacement).unwrap();
+        {
+            let reset = Connection::open(&replacement).unwrap();
+            reset
+                .execute_batch(
+                    "DELETE FROM logs; UPDATE sqlite_sequence SET seq=0 WHERE name='logs';",
+                )
+                .unwrap();
+            insert_log(&reset, next_at, "shared-turn");
+        }
+        fs::rename(&primary, root.join("second-old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        ingest_post_sampling(&mut store, root, "machine").unwrap();
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
+        );
+        let checkpoint = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        let state: Value =
+            serde_json::from_str(checkpoint.parser_state_json.as_deref().unwrap()).unwrap();
+        assert_eq!(state["generation"], 2);
+        assert_eq!(checkpoint.byte_offset, 1);
+        assert_eq!(
+            ingest_post_sampling(&mut store, root, "machine")
+                .unwrap()
+                .observations,
+            0
+        );
+        fs::copy(&primary, &replacement).unwrap();
+        Connection::open(&replacement)
+            .unwrap()
+            .execute("UPDATE logs SET process_uuid=NULL", [])
+            .unwrap();
+        fs::rename(&primary, root.join("third-old-primary.sqlite")).unwrap();
+        fs::rename(&replacement, &primary).unwrap();
+        assert!(ingest_post_sampling(&mut store, root, "machine").is_err());
+        let preserved = store
+            .get_cursor("machine", POST_SAMPLING_SOURCE_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(preserved.parser_state_json, checkpoint.parser_state_json);
+        assert_eq!(
+            store
+                .aggregate_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            430
         );
     }
 

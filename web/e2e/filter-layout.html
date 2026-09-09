@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Filter layout acceptance — synthetic data only</title>
+<style>
+body { margin: 16px; font: 14px system-ui; background: #f4f4f2; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+button, select { font: inherit; padding: 8px; }
+#result { white-space: pre-wrap; }
+#viewport { overflow: auto; max-width: 100%; }
+iframe { border: 1px solid #bbb; background: white; display: block; }
+</style>
+<header>
+  <strong>Filter layout acceptance · synthetic data only</strong>
+  <label>Width <select id="width"><option>560</option><option>700</option><option>900</option><option selected>1280</option><option>1440</option></select></label>
+  <label>CSS zoom <select id="zoom"><option>0.8</option><option selected>1</option><option>1.6</option></select></label>
+  <label>Language <select id="language"><option value="en">English</option><option value="zh-CN">中文</option></select></label>
+  <button id="inspect">Inspect current layout</button>
+  <button id="matrix">Run 30-case matrix</button>
+</header>
+<p>This development-only harness uses the real dashboard in an iframe. CSS zoom is not native WKWebView zoom acceptance. No official sync is called.</p>
+<pre id="result" role="status">Loading synthetic dashboard…</pre>
+<div id="viewport"><iframe id="app" title="Synthetic dashboard under test" src="/"></iframe></div>
+<script type="module" src="./filter-layout.ts"></script>
+</html>

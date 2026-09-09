@@ -6,7 +6,7 @@ use super::*;
 use crate::identity::{AuthIdentity, ClaimSource};
 use crate::quota::normalize_rate_limit_event;
 
-fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
+pub(super) fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
     UsageEvent {
         event_id: id.to_owned(),
         observed_at: Utc.with_ymd_and_hms(2026, 8, 31, 1, 0, 0).unwrap(),
@@ -35,6 +35,10 @@ fn event(id: &str, quality: DataQuality, offset: u64) -> UsageEvent {
         quality,
         quality_reason: None,
         provenance: EventProvenance {
+            source_turn_id: None,
+            candidate_rollout_event_id: None,
+            sampling_receipt_key: None,
+            source_record_key: None,
             machine_id: "machine".to_owned(),
             source_id: "rollout-path".to_owned(),
             rollout_id: "rollout".to_owned(),
@@ -57,6 +61,27 @@ fn cursor(offset: u64) -> FileCursor {
     }
 }
 
+// Older synthetic migration fixtures lower user_version on a current schema.
+// Remove only the future candidate projection before those test-only downgrades.
+fn remove_future_union_fixture(connection: &Connection) {
+    let triggers = connection.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'measurement_union_*'")
+        .unwrap().query_map([], |row| row.get::<_,String>(0)).unwrap()
+        .collect::<Result<Vec<_>,_>>().unwrap();
+    for name in triggers {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{name}\";"))
+            .unwrap();
+    }
+    connection
+        .execute_batch(
+            "DROP TABLE usage_query_policy;
+        DROP TABLE measurement_union_selected;
+        DROP TABLE measurement_union_groups; DROP TABLE measurement_union_dirty;
+        DROP TABLE measurement_union_backfill; DROP TABLE measurement_union_counts;",
+        )
+        .unwrap();
+}
+
 #[test]
 fn opens_wal_database_and_runs_migrations() {
     let directory = tempdir().unwrap();
@@ -67,6 +92,672 @@ fn opens_wal_database_and_runs_migrations() {
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
     assert_eq!(mode.to_ascii_lowercase(), "wal");
+}
+
+#[test]
+fn genuine_schema_24_upgrade_preserves_raw_and_rollup_dimensions() {
+    let directory = tempdir().unwrap();
+    let seed_path = directory.path().join("synthetic-seed.sqlite");
+    {
+        let mut seed = LedgerStore::open(&seed_path).unwrap();
+        seed.upsert_event(&event("legacy-seed", DataQuality::Confirmed, 10))
+            .unwrap();
+        seed.checkpoint_wal().unwrap();
+    }
+    let path = directory.path().join("genuine-schema24.sqlite");
+    {
+        let mut legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
+        migrations::create_legacy_schema(&mut legacy, 24).unwrap();
+        let new_tables: i64 = legacy
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'retained_request_%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(new_tables, 0);
+        legacy
+            .execute(
+                "ATTACH DATABASE ?1 AS seed",
+                params![seed_path.to_string_lossy()],
+            )
+            .unwrap();
+        legacy
+            .execute_batch(
+                "INSERT INTO usage_events SELECT * FROM seed.usage_events; DETACH DATABASE seed;",
+            )
+            .unwrap();
+        let version: i64 = legacy
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 24);
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    let expected = event("unused", DataQuality::Confirmed, 0).usage;
+    let raw = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    let rollup = store
+        .aggregate_rollup_usage(&AggregateFilter::default())
+        .unwrap();
+    assert_eq!(raw.usage, expected);
+    assert_eq!(raw, rollup);
+    let invented: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_evidence",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        invented, 0,
+        "migration must not invent missing request history"
+    );
+}
+
+#[test]
+fn request_backfill_resumes_without_restarting_or_changing_rollups() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("request-backfill.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 30).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
+            union_main_preview: false,
+        };
+        for index in 0..3 {
+            store
+                .upsert_event(&event(
+                    &format!("backfill-{index}"),
+                    DataQuality::Confirmed,
+                    index * 10,
+                ))
+                .unwrap();
+        }
+        store
+            .connection
+            .execute_batch(
+                "DELETE FROM retained_request_evidence;
+             DELETE FROM retained_request_origins;
+             DELETE FROM retained_request_assignments;",
+            )
+            .unwrap();
+    }
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER fail_second_backfill BEFORE INSERT ON retained_request_evidence
+             WHEN NEW.event_id='backfill-1'
+             BEGIN SELECT RAISE(ABORT,'synthetic mid-batch failure'); END;",
+            )
+            .unwrap();
+        assert!(store.backfill_request_evidence_chunk(2).is_err());
+        let rolled_back: (i64, i64, i64, i64) = store
+            .connection
+            .query_row(
+                "SELECT (SELECT last_rowid FROM request_backfill_state WHERE id=1),
+                    (SELECT COUNT(*) FROM retained_request_evidence),
+                    (SELECT COUNT(*) FROM retained_request_origins),
+                    (SELECT COUNT(*) FROM retained_request_assignments)",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(rolled_back, (0, 0, 0, 0));
+        store
+            .connection
+            .execute_batch("DROP TRIGGER fail_second_backfill;")
+            .unwrap();
+        assert!(!store.backfill_request_evidence_chunk(1).unwrap());
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    assert!(!store.backfill_request_evidence_chunk(1).unwrap());
+    assert!(!store.request_evidence_backfill_complete().unwrap());
+    assert!(store.backfill_request_evidence_chunk(1).unwrap());
+    assert!(store.request_evidence_backfill_complete().unwrap());
+    let before = store.connection.total_changes();
+    assert!(store.backfill_request_evidence_chunk(1).unwrap());
+    assert_eq!(store.connection.total_changes(), before);
+    let kept: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*),SUM(total_tokens) FROM retained_request_evidence",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(kept, (3, 360));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+}
+
+#[test]
+fn schema_32_does_not_invent_receipts_for_legacy_events() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema31.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 31).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
+            union_main_preview: false,
+        };
+        store
+            .upsert_event(&event("legacy-no-receipt", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let receipts: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM sampling_source_receipts", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(receipts, 0);
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
+fn receipt_owner_dedup_preserves_distinct_requests_and_rejects_conflicting_copies() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut primary = event("receipt-primary", DataQuality::Confirmed, 10);
+    primary.provenance.sampling_receipt_key = Some("receipt-one".into());
+    store
+        .upsert_verified_events_and_cursor(&[primary.clone()], &cursor(10))
+        .unwrap();
+    let mut copy = primary.clone();
+    let mut weaker = primary.clone();
+    weaker.quality = DataQuality::Unknown;
+    weaker.usage = TokenUsage::default();
+    assert_eq!(
+        store.upsert_event(&weaker).unwrap(),
+        UpsertOutcome::Unchanged
+    );
+    copy.event_id = "receipt-copy".into();
+    copy.provenance.source_id = "copied-source".into();
+    let duplicate = store
+        .upsert_verified_events_and_cursor(&[copy.clone()], &cursor(20))
+        .unwrap();
+    assert_eq!((duplicate.inserted, duplicate.unchanged), (0, 1));
+    let mut independent = event("receipt-independent", DataQuality::Confirmed, 30);
+    independent.provenance.sampling_receipt_key = Some("receipt-two".into());
+    store
+        .upsert_verified_events_and_cursor(&[independent], &cursor(30))
+        .unwrap();
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+    copy.usage.input_tokens += 1;
+    copy.usage.total_tokens += 1;
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    assert_eq!(
+        store.upsert_event(&primary).unwrap(),
+        UpsertOutcome::Unchanged
+    );
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+    assert!(matches!(
+        store.upsert_verified_events_and_cursor(&[copy], &cursor(40)),
+        Err(StoreError::SamplingReceiptConflict(_))
+    ));
+    assert_eq!(
+        store
+            .get_cursor("machine", "rollout-path")
+            .unwrap()
+            .unwrap()
+            .byte_offset,
+        30
+    );
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+}
+
+#[test]
+fn receipt_copy_can_resolve_an_unknown_raw_owner_without_a_second_request() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut unknown = event("unknown-owner", DataQuality::Unknown, 10);
+    unknown.usage = TokenUsage::default();
+    unknown.provenance.sampling_receipt_key = Some("resolvable-receipt".into());
+    store.upsert_event(&unknown).unwrap();
+    let mut resolved = event("resolved-copy", DataQuality::Confirmed, 20);
+    resolved.provenance.sampling_receipt_key = unknown.provenance.sampling_receipt_key;
+    let outcome = store.upsert_event(&resolved).unwrap();
+    assert_eq!(outcome, UpsertOutcome::Updated);
+    let usage = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    assert_eq!((usage.event_count, usage.usage.total_tokens), (1, 120));
+}
+
+#[test]
+fn source_record_evidence_preserves_hash_counts_and_rejects_conflicts() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut fact = event("measured", DataQuality::Confirmed, 10);
+    let before_hash = event_hash(&fact).unwrap();
+    store.upsert_event(&fact).unwrap();
+    fact.provenance.source_record_key = Some("synthetic-record".into());
+    assert_eq!(event_hash(&fact).unwrap(), before_hash);
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    let mut rebuilt = fact.clone();
+    rebuilt.event_id = "rebuilt".into();
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: rebuilt,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM source_record_evidence WHERE record_key='synthetic-record'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    fact.provenance.source_record_key = Some("different-record".into());
+    assert!(matches!(
+        store.upsert_event(&fact),
+        Err(StoreError::SourceRecordConflict(_))
+    ));
+    assert_eq!(store.connection.query_row("SELECT record_key FROM source_record_evidence WHERE evidence_source='sampling' AND event_id='measured'", [], |row| row.get::<_,String>(0)).unwrap(), "synthetic-record");
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
+fn schema_35_adds_global_time_seek_without_changing_exact_usage() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema34.sqlite3");
+    let time = event("a", DataQuality::Confirmed, 1).observed_at;
+    let filter = AggregateFilter {
+        start_inclusive: Some(time),
+        end_exclusive: Some(time + ChronoDuration::seconds(1)),
+        ..AggregateFilter::default()
+    };
+    let before;
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 34).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
+            union_main_preview: false,
+        };
+        store
+            .upsert_event(&event("a", DataQuality::Confirmed, 1))
+            .unwrap();
+        before = store
+            .aggregate_exact_time_series(
+                TimeGrain::Hour,
+                Some(AggregateDimension::Model),
+                &filter,
+                "Asia/Shanghai",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    let after = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            Some(AggregateDimension::Model),
+            &filter,
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[0].usage, before[0].usage);
+    assert_eq!(after[0].event_count, before[0].event_count);
+    let plan=store.connection.prepare("EXPLAIN QUERY PLAN SELECT event_id FROM retained_request_evidence WHERE effective_at>=?1 AND effective_at<?2").unwrap()
+        .query_map(params![timestamp(time),timestamp(time+ChronoDuration::seconds(1))],|row|row.get::<_,String>(3)).unwrap().collect::<Result<Vec<_>,_>>().unwrap().join(" ");
+    assert!(
+        plan.contains("SEARCH") && plan.contains("retained_request_effective_time_idx"),
+        "{plan}"
+    );
+    assert!(!plan.contains("SCAN"), "{plan}");
+}
+
+#[test]
+fn schema_34_upgrade_does_not_invent_source_record_proofs() {
+    let temporary = tempdir().unwrap();
+    let path = temporary.path().join("schema33.sqlite3");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 33).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
+            union_main_preview: false,
+        };
+        store
+            .upsert_event(&event("legacy", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store
+            .connection
+            .query_row("SELECT COUNT(*) FROM source_record_evidence", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .aggregate_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
+fn schema_33_does_not_silently_choose_among_legacy_duplicate_receipts() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema32.sqlite");
+    {
+        let mut connection = Connection::open(&path).unwrap();
+        migrations::create_legacy_schema(&mut connection, 32).unwrap();
+        let mut store = LedgerStore {
+            connection,
+            exact_series_memo: Default::default(),
+            union_diagnostic_preview: false,
+            union_main_preview: false,
+        };
+        for (index, id) in ["legacy-a", "legacy-b", "legacy-single"]
+            .into_iter()
+            .enumerate()
+        {
+            store
+                .upsert_event(&event(id, DataQuality::Confirmed, index as u64 * 10))
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "INSERT INTO sampling_source_receipts VALUES (?1,?2)",
+                    params![
+                        id,
+                        if index < 2 {
+                            "shared-legacy"
+                        } else {
+                            "unique-legacy"
+                        }
+                    ],
+                )
+                .unwrap();
+        }
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    let owners: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM sampling_receipt_owners", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(owners, 1);
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+    let mut incoming = event("new-copy", DataQuality::Confirmed, 40);
+    incoming.provenance.sampling_receipt_key = Some("shared-legacy".into());
+    assert!(matches!(
+        store.upsert_event(&incoming),
+        Err(StoreError::SamplingReceiptConflict(_))
+    ));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        360
+    );
+}
+
+#[test]
+fn effective_projection_updates_only_dirty_keys_and_survives_restart() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("incremental.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        for (index, name) in ["active", "untouched"].into_iter().enumerate() {
+            let mut fact = event(name, DataQuality::Confirmed, index as u64 * 10);
+            fact.thread_id = Some(name.into());
+            store.upsert_event(&fact).unwrap();
+        }
+        store.refresh_effective_source_selection().unwrap();
+        // A full-table rebuild would hit this guard.
+        store
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER untouched_projection_guard
+             BEFORE DELETE ON effective_thread_day_source
+             WHEN OLD.thread_key = 'untouched'
+             BEGIN SELECT RAISE(ABORT, 'unmodified key was rebuilt'); END;
+             UPDATE daily_usage_rollups SET input_tokens = 200, total_tokens = 220
+             WHERE thread_key = 'active';",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let selected: i64 = store
+        .connection
+        .query_row(
+            "SELECT sampling_tokens FROM effective_thread_day_source WHERE thread_key = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(selected, 220);
+    let changes = store.connection.total_changes();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(store.connection.total_changes(), changes);
+    store
+        .connection
+        .execute_batch(
+            "UPDATE daily_usage_rollups SET local_day = '2026-09-01' WHERE thread_key = 'active';",
+        )
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let day: String = store
+        .connection
+        .query_row(
+            "SELECT local_day FROM effective_thread_day_source WHERE thread_key = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(day, "2026-09-01");
+    store
+        .connection
+        .execute_batch("DELETE FROM daily_usage_rollups WHERE thread_key = 'active';")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let remaining: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM effective_thread_day_source",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(remaining, 1);
+}
+
+#[test]
+fn schema_25_upgrade_seeds_existing_keys_without_changing_facts() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema24.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store
+            .upsert_event(&event("retained", DataQuality::Confirmed, 10))
+            .unwrap();
+        store.refresh_effective_source_selection().unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TRIGGER effective_sampling_keys_insert;
+             DROP TRIGGER effective_sampling_keys_update;
+             DROP TRIGGER effective_sampling_keys_delete;
+             DROP TRIGGER effective_reconstruction_keys_insert;
+             DROP TRIGGER effective_reconstruction_keys_update;
+             DROP TRIGGER effective_reconstruction_keys_delete;
+             DROP TABLE effective_source_dirty_keys;
+             DELETE FROM schema_migrations WHERE version = 25;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 24;",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    let queued: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM effective_source_dirty_keys",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(queued, 1);
+    store.refresh_effective_source_selection().unwrap();
+    let totals: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT SUM(total_tokens) FROM daily_usage_rollups),
+                (SELECT SUM(sampling_tokens) FROM effective_thread_day_source)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(totals, (120, 120));
+}
+
+#[test]
+fn incremental_source_selection_retains_policy_and_retries_atomically() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("sample", DataQuality::Confirmed, 10))
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    store
+        .connection
+        .execute_batch(
+            "INSERT INTO reconstruction_daily_rollups
+         VALUES ('2026-08-31', 'thread', 'a', 'p', 'm', 1, 200, 40, 10, 200, 20, 5, 220);
+         CREATE TRIGGER fail_projection BEFORE INSERT ON effective_thread_day_source
+         BEGIN SELECT RAISE(ABORT, 'synthetic interrupted refresh'); END;",
+        )
+        .unwrap();
+    assert!(store.refresh_effective_source_selection().is_err());
+    let state: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT sampling_tokens FROM effective_thread_day_source),
+                (SELECT COUNT(*) FROM effective_source_dirty_keys)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (120, 1));
+    store
+        .connection
+        .execute_batch("DROP TRIGGER fail_projection;")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    let source = || -> String {
+        store
+            .connection
+            .query_row(
+                "SELECT evidence_source FROM effective_thread_day_source",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(source(), "reconstruction");
+    store
+        .connection
+        .execute_batch(
+            "UPDATE reconstruction_daily_rollups SET input_tokens = 100, total_tokens = 120;",
+        )
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(source(), "sampling");
+    store
+        .connection
+        .execute_batch("DELETE FROM reconstruction_daily_rollups;")
+        .unwrap();
+    store.refresh_effective_source_selection().unwrap();
+    assert_eq!(source(), "sampling");
 }
 
 #[test]
@@ -169,12 +860,13 @@ fn schema_24_refuses_preexisting_invalid_confirmed_rollups() {
     let path = directory.path().join("invalid-rollup.sqlite");
     {
         let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .connection()
             .execute_batch(
                 "DROP TRIGGER daily_usage_rollups_confirmed_usage_insert_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_update_guard;
-                 PRAGMA user_version = 23;
+                 DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
                  INSERT INTO daily_usage_rollups(
                      local_day, thread_key, account_key, project_key, model_key, quality,
                      event_count, input_tokens, cached_input_tokens,
@@ -203,6 +895,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
     let path = directory.path().join("legacy-coverage.sqlite");
     {
         let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
         store
             .connection()
             .execute_batch(
@@ -210,7 +903,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
                  DROP TRIGGER reconstruction_usage_update_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_insert_guard;
                  DROP TRIGGER daily_usage_rollups_confirmed_usage_update_guard;
-                 PRAGMA user_version = 23;
+                 DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version= 23;
                  INSERT INTO reconstruction_usage_events(
                      event_id, event_hash, observed_at, source_timestamp, thread_id,
                      parent_thread_id, model, cwd, account_fingerprint, account_confidence,
@@ -231,7 +924,7 @@ fn schema_24_repairs_legacy_reconstruction_coverage_without_changing_tokens() {
     }
 
     let store = LedgerStore::open(&path).unwrap();
-    assert_eq!(store.schema_version().unwrap(), 24);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
     let repaired: (i64, i64, i64) = store
         .connection()
         .query_row(
@@ -349,9 +1042,168 @@ fn upgrades_v15_to_cache_write_buckets_without_changing_old_totals() {
 }
 
 #[test]
+fn hash_audit_explains_projection_rehashes_and_backfill_preserves_existing_observations() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (offset, id) in [(1, "a"), (2, "b")] {
+        store
+            .upsert_event(&event(id, DataQuality::Confirmed, offset))
+            .unwrap();
+    }
+    store
+        .connection
+        .execute(
+            "UPDATE usage_events SET project_id='projected' WHERE event_id='a'",
+            [],
+        )
+        .unwrap();
+    let projected = store.get_event("a").unwrap().unwrap();
+    let rehashed = event_hash(&projected).unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE retained_request_evidence SET event_hash=?1 WHERE event_id='a'",
+            [&rehashed],
+        )
+        .unwrap();
+    let changes = store.connection.total_changes();
+    let first = store.audit_retained_hashes(0, 1).unwrap();
+    assert_eq!(first.compared_rows, 1);
+    assert_eq!(first.mismatched_hashes, 1);
+    assert_eq!(first.current_serialization_matches_raw, 0);
+    assert_eq!(first.current_serialization_matches_retained, 1);
+    assert!(!first.repair_authorized);
+    let second = store
+        .audit_retained_hashes(first.next_after_rowid.unwrap(), 1)
+        .unwrap();
+    assert_eq!(second.compared_rows, 1);
+    assert_eq!(second.mismatched_hashes, 0);
+    assert!(second.next_after_rowid.is_none());
+    assert_eq!(store.connection.total_changes(), changes);
+    assert!(store.audit_retained_hashes(-1, 1).is_err());
+    assert!(store.audit_retained_hashes(0, 1001).is_err());
+    store
+        .connection
+        .execute_batch(
+            "DELETE FROM retained_request_origins;
+        UPDATE retained_request_assignments SET project_id='reviewed-assignment';
+        UPDATE request_backfill_state SET last_rowid=0,target_rowid=2,complete=0;",
+        )
+        .unwrap();
+    while !store.backfill_request_evidence_chunk(100).unwrap() {}
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT event_hash FROM retained_request_evidence WHERE event_id='a'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        rehashed
+    );
+    assert_eq!(
+        store
+            .connection
+            .query_row(
+                "SELECT project_id FROM retained_request_assignments WHERE event_id='a'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "reviewed-assignment"
+    );
+}
+
+#[test]
+fn request_backfill_preserves_raw_identity_hash_after_metadata_projection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("projected", DataQuality::Confirmed, 1))
+        .unwrap();
+    let original_hash: String = store
+        .connection
+        .query_row("SELECT event_hash FROM usage_events", [], |row| row.get(0))
+        .unwrap();
+    // Model the existing direct SQL project projection and an older ledger
+    // whose retained details have not yet been backfilled.
+    store.connection.execute_batch("UPDATE usage_events SET project_id='new-project',project_name='New';
+        DELETE FROM retained_request_evidence; DELETE FROM retained_request_origins; DELETE FROM retained_request_assignments;
+        UPDATE request_backfill_state SET last_rowid=0,target_rowid=1,complete=0;").unwrap();
+    let current = store.get_event("projected").unwrap().unwrap();
+    assert_ne!(event_hash(&current).unwrap(), original_hash);
+    while !store.backfill_request_evidence_chunk(100).unwrap() {}
+    let kept_hash: String = store
+        .connection
+        .query_row(
+            "SELECT event_hash FROM retained_request_evidence",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        kept_hash, original_hash,
+        "backfill must preserve the stored identity hash, not hash today's projection"
+    );
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    assert_eq!(
+        store
+            .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn compaction_reports_retained_conflicts_without_weakening_or_consuming_evidence() {
+    for mismatch in [
+        "event_hash='different'",
+        "cached_input_tokens=cached_input_tokens+1",
+    ] {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        store
+            .upsert_event(&event("conflict", DataQuality::Confirmed, 1))
+            .unwrap();
+        while !store.backfill_rollup_chunk(100).unwrap().complete {}
+        store.verify_rollup_before_compaction().unwrap();
+        store
+            .connection
+            .execute(
+                &format!("UPDATE retained_request_evidence SET {mismatch}"),
+                [],
+            )
+            .unwrap();
+        let before = store.ledger_table_counts().unwrap();
+        let result = store.compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100);
+        assert!(matches!(result, Err(StoreError::RetainedEvidenceMismatch)));
+        assert_eq!(store.ledger_table_counts().unwrap(), before);
+        assert_eq!(
+            store
+                .aggregate_rollup_usage(&AggregateFilter::default())
+                .unwrap()
+                .usage
+                .total_tokens,
+            120
+        );
+        assert_eq!(
+            store
+                .connection
+                .query_row("SELECT suppress_delete FROM rollup_control", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+}
+
+#[test]
 fn event_upsert_is_replay_safe_and_cursor_is_transactional() {
     let mut store = LedgerStore::open_in_memory().unwrap();
-    let original = event("event-1", DataQuality::Confirmed, 10);
+    let mut original = event("event-1", DataQuality::Confirmed, 10);
+    // This tests mutable raw upserts, not immutable expired-event retention.
+    original.observed_at = Utc::now();
     let result = store
         .upsert_events_and_cursor(std::slice::from_ref(&original), &cursor(20))
         .unwrap();
@@ -497,7 +1349,39 @@ fn verified_rollup_survives_compaction_and_old_event_replay() {
     store.verify_rollup_before_compaction().unwrap();
     let before_compaction = store.aggregate_rollup_usage(&all).unwrap();
     let cutoff = Utc.with_ymd_and_hms(2026, 8, 20, 0, 0, 0).unwrap();
+    store
+        .connection
+        .execute_batch(
+            "UPDATE retained_request_evidence SET total_tokens=121 WHERE event_id='old-1';",
+        )
+        .unwrap();
+    assert!(store.compact_raw_events_chunk(cutoff, 100).is_err());
+    assert_eq!(store.aggregate_usage(&all).unwrap().event_count, 2);
+    store
+        .connection
+        .execute_batch(
+            "UPDATE retained_request_evidence SET total_tokens=120 WHERE event_id='old-1';",
+        )
+        .unwrap();
     assert_eq!(store.compact_raw_events_chunk(cutoff, 100).unwrap(), 2);
+    let kept: (i64, i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*), SUM(total_tokens), COUNT(turn_id) FROM retained_request_evidence",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(kept, (2, 240, 0));
+    let origins: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_origins WHERE machine_id='machine'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(origins, 2);
     assert_eq!(store.aggregate_usage(&all).unwrap().event_count, 0);
     assert_eq!(
         store.aggregate_rollup_usage(&all).unwrap(),
@@ -528,6 +1412,1422 @@ fn verified_rollup_survives_compaction_and_old_event_replay() {
             .byte_offset,
         30
     );
+}
+
+#[test]
+fn retained_request_evidence_covers_direct_old_ingest_and_atomic_failure() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut old = event("historic-request", DataQuality::Confirmed, 10);
+    old.source_timestamp = Some(Utc::now() - ChronoDuration::days(365));
+    store
+        .upsert_events_and_cursor(&[old.clone()], &cursor(10))
+        .unwrap();
+    let kept: (i64, i64) = store.connection.query_row(
+        "SELECT input_tokens, output_tokens FROM retained_request_evidence WHERE event_id='historic-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(kept, (100, 20));
+    old.provenance.source_turn_id = Some("late-explicit-turn".into());
+    let replay = store
+        .upsert_events_and_cursor(&[old.clone()], &cursor(20))
+        .unwrap();
+    assert_eq!(replay.unchanged, 1);
+    assert_eq!(replay.inserted, 0);
+    let retained: (String, i64) = store.connection.query_row(
+        "SELECT turn_id, total_tokens FROM retained_request_evidence WHERE event_id='historic-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(retained, ("late-explicit-turn".into(), 120));
+    old.provenance.source_turn_id = Some("conflicting-explicit-turn".into());
+    assert!(matches!(
+        store.upsert_events_and_cursor(&[old], &cursor(25)),
+        Err(StoreError::TurnEvidenceConflict(_))
+    ));
+    store
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER fail_retained BEFORE INSERT ON retained_request_evidence
+         BEGIN SELECT RAISE(ABORT, 'synthetic retained write failure'); END;",
+        )
+        .unwrap();
+    let mut next = event("failed-request", DataQuality::Confirmed, 30);
+    next.source_timestamp = Some(Utc::now() - ChronoDuration::days(365));
+    assert!(
+        store
+            .upsert_events_and_cursor(&[next], &cursor(30))
+            .is_err()
+    );
+    assert_eq!(
+        store
+            .get_cursor("machine", "rollout-path")
+            .unwrap()
+            .unwrap()
+            .byte_offset,
+        20
+    );
+    let count: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM compacted_event_keys", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn retained_request_pages_keep_equal_time_rows_and_half_open_boundaries() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 8, 31, 1, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+    for (index, id) in ["a", "b", "c", "outside", "other-thread"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut fact = event(id, DataQuality::Confirmed, index as u64 * 10);
+        fact.source_timestamp = Some(if id == "outside" { end } else { start });
+        if id == "b" {
+            fact.account_fingerprint = None;
+            fact.account_confidence = AttributionConfidence::Unknown;
+            fact.project.confidence = AttributionConfidence::Inferred;
+        }
+        if id == "other-thread" {
+            fact.thread_id = Some("other".into());
+        }
+        store.upsert_event(&fact).unwrap();
+    }
+    let first = store
+        .retained_request_page("thread", start, end, None, 2)
+        .unwrap();
+    assert_eq!(
+        first
+            .observations
+            .iter()
+            .map(|row| row.cursor.event_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert!(first.observations.iter().all(|row| row.turn_id.is_none()));
+    assert_eq!(first.observations[0].quality, DataQuality::Confirmed);
+    assert_eq!(
+        first.observations[0].observed_account_confidence,
+        AttributionConfidence::Verified
+    );
+    assert_eq!(first.observations[1].observed_account, None);
+    assert_eq!(
+        first.observations[1].observed_account_confidence,
+        AttributionConfidence::Unknown
+    );
+    assert_eq!(
+        first.observations[1].observed_project_confidence,
+        AttributionConfidence::Inferred
+    );
+    let last = store
+        .retained_request_page("thread", start, end, first.next.as_ref(), 2)
+        .unwrap();
+    assert_eq!(last.observations.len(), 1);
+    assert_eq!(last.observations[0].cursor.event_id, "c");
+    assert!(last.next.is_none());
+    assert_eq!(
+        first
+            .observations
+            .iter()
+            .chain(&last.observations)
+            .map(|row| row.usage.total_tokens)
+            .sum::<u64>(),
+        360
+    );
+    assert!(
+        store
+            .retained_request_page("thread", end, start, None, 2)
+            .is_err()
+    );
+    assert!(
+        store
+            .retained_request_page("thread", start, end, None, 0)
+            .is_err()
+    );
+    assert!(
+        store
+            .retained_request_page("", start, end, None, 10)
+            .is_err()
+    );
+    let invalid = RetainedRequestCursor {
+        effective_at: "not-a-time".into(),
+        event_id: "a".into(),
+    };
+    assert!(
+        store
+            .retained_request_page("thread", start, end, Some(&invalid), 10)
+            .is_err()
+    );
+}
+
+#[test]
+fn explicit_turn_enrichment_preserves_legacy_hash_and_request_identity() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut fact = event("turn-request", DataQuality::Confirmed, 10);
+    let legacy_hash = event_hash(&fact).unwrap();
+    store.upsert_event(&fact).unwrap();
+    store.connection.execute(
+        "UPDATE retained_request_assignments SET project_id='revised-project' WHERE event_id='turn-request'", []
+    ).unwrap();
+    fact.provenance.source_turn_id = Some("explicit-turn".into());
+    fact.provenance.candidate_rollout_event_id = Some("reconstruction:synthetic".into());
+    fact.provenance.sampling_receipt_key = Some("synthetic-receipt-one".into());
+    assert_eq!(event_hash(&fact).unwrap(), legacy_hash);
+    assert_eq!(store.upsert_event(&fact).unwrap(), UpsertOutcome::Unchanged);
+    let turn: String = store
+        .connection
+        .query_row(
+            "SELECT turn_id FROM retained_request_evidence WHERE event_id='turn-request'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(turn, "explicit-turn");
+    let assignment: String = store
+        .connection
+        .query_row(
+            "SELECT project_id FROM retained_request_assignments WHERE event_id='turn-request'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        assignment, "revised-project",
+        "metadata-only replay must not reset current assignment"
+    );
+    let mut another = fact.clone();
+    another.event_id = "second-request-same-turn".into();
+    another.provenance.sampling_receipt_key = Some("synthetic-receipt-two".into());
+    another.provenance.byte_offset = 20;
+    store.upsert_event(&another).unwrap();
+    let count: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_evidence WHERE turn_id='explicit-turn'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+    fact.provenance.source_turn_id = Some("conflicting-turn".into());
+    assert!(matches!(
+        store.upsert_event(&fact),
+        Err(StoreError::TurnEvidenceConflict(_))
+    ));
+}
+
+#[test]
+fn schema_27_adds_candidate_links_without_relabeling_existing_evidence() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema26.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store
+            .upsert_event(&event("unlinked", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE sampling_candidate_links;
+             DELETE FROM schema_migrations WHERE version=27;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=26;",
+            )
+            .unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let state: (i64, i64) = store
+        .connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM sampling_candidate_links),
+                (SELECT SUM(total_tokens) FROM retained_request_evidence)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (0, 120));
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn exact_series_memo_is_scoped_and_never_survives_a_snapshot() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("memo.sqlite3");
+    let mut writer = LedgerStore::open(&path).unwrap();
+    let first = event("a", DataQuality::Confirmed, 1);
+    let mut second = event("b", DataQuality::Confirmed, 2);
+    second.model = Some("model-b".into());
+    second.account_fingerprint = Some("account-b".into());
+    second.project.project_id = Some("project-b".into());
+    second.usage.input_tokens = 160;
+    second.usage.total_tokens = 180;
+    writer.upsert_event(&first).unwrap();
+    writer.upsert_event(&second).unwrap();
+    let reader = LedgerStore::open(&path).unwrap();
+    let base = AggregateFilter::default();
+    reader
+        .with_usage_snapshot(|store| {
+            let query = |filter: &AggregateFilter| {
+                store.aggregate_exact_time_series(TimeGrain::Hour, None, filter, "UTC")
+            };
+            let original = query(&base)?;
+            assert_eq!(original[0].usage.total_tokens, 300);
+            assert_eq!(query(&base)?, original);
+            assert_eq!(store.exact_series_memo.borrow().as_ref().unwrap().hits, 1);
+            for (filter, expected) in [
+                (
+                    AggregateFilter {
+                        account_fingerprint: Some("account-b".into()),
+                        ..base.clone()
+                    },
+                    180,
+                ),
+                (
+                    AggregateFilter {
+                        project_id: Some("project-b".into()),
+                        ..base.clone()
+                    },
+                    180,
+                ),
+                (
+                    AggregateFilter {
+                        model: first.model.clone(),
+                        ..base.clone()
+                    },
+                    120,
+                ),
+                (
+                    AggregateFilter {
+                        quality: Some(DataQuality::Unknown),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+                (
+                    AggregateFilter {
+                        start_inclusive: Some(first.observed_at + ChronoDuration::seconds(1)),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+                (
+                    AggregateFilter {
+                        end_exclusive: Some(first.observed_at),
+                        ..base.clone()
+                    },
+                    0,
+                ),
+            ] {
+                assert_eq!(
+                    query(&filter)?
+                        .iter()
+                        .map(|row| row.usage.total_tokens)
+                        .sum::<u64>(),
+                    expected
+                );
+            }
+            let localized =
+                store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "Asia/Shanghai")?;
+            assert_ne!(localized[0].time_key, original[0].time_key);
+            assert_eq!(
+                store
+                    .aggregate_exact_time_series(
+                        TimeGrain::Hour,
+                        Some(AggregateDimension::Model),
+                        &base,
+                        "UTC"
+                    )?
+                    .len(),
+                2
+            );
+            assert!(
+                !store.aggregate_exact_time_series(TimeGrain::Day, None, &base, "UTC")?[0]
+                    .time_key
+                    .contains('T')
+            );
+            writer.upsert_event(&event("later", DataQuality::Confirmed, 3))?;
+            assert_eq!(query(&base)?, original);
+            Ok(())
+        })
+        .unwrap();
+    assert!(reader.exact_series_memo.borrow().is_none());
+    reader
+        .with_usage_snapshot(|store| {
+            let rows = store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "UTC")?;
+            assert_eq!(rows[0].usage.total_tokens, 420);
+            Ok(())
+        })
+        .unwrap();
+    let failed: StoreResult<()> = reader.with_usage_snapshot(|store| {
+        store.aggregate_exact_time_series(TimeGrain::Hour, None, &base, "UTC")?;
+        Err(StoreError::InvalidRequestQuery("synthetic failure"))
+    });
+    assert!(failed.is_err());
+    assert!(reader.exact_series_memo.borrow().is_none());
+    assert!(reader.connection.is_autocommit());
+}
+
+#[test]
+fn usage_snapshot_excludes_concurrent_wal_commits_and_releases_after_error() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("snapshot.sqlite3");
+    let mut writer = LedgerStore::open(&path).unwrap();
+    writer
+        .upsert_event(&event("before", DataQuality::Confirmed, 10))
+        .unwrap();
+    writer.set_user_confirmed_account_count(Some(1)).unwrap();
+    let reader = LedgerStore::open(&path).unwrap();
+    reader
+        .with_usage_snapshot(|snapshot| {
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                120
+            );
+            writer.upsert_event(&event("concurrent", DataQuality::Confirmed, 20))?;
+            writer.set_user_confirmed_account_count(Some(2))?;
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                120
+            );
+            assert_eq!(snapshot.user_confirmed_account_count()?, Some(1));
+            Ok(())
+        })
+        .unwrap();
+    assert!(reader.connection.is_autocommit());
+    reader
+        .with_usage_snapshot(|snapshot| {
+            assert_eq!(
+                snapshot
+                    .aggregate_rollup_usage(&AggregateFilter::default())?
+                    .usage
+                    .total_tokens,
+                240
+            );
+            assert_eq!(snapshot.user_confirmed_account_count()?, Some(2));
+            Ok(())
+        })
+        .unwrap();
+    let failed: StoreResult<()> =
+        reader.with_usage_snapshot(|_| Err(StoreError::InvalidRequestQuery("synthetic failure")));
+    assert!(failed.is_err());
+    assert!(reader.connection.is_autocommit());
+    assert_eq!(
+        reader
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        240
+    );
+}
+
+#[test]
+fn shadow_union_limits_counterpart_fanout_without_hiding_conflicts() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut seed = event("seed", DataQuality::Confirmed, 1);
+    seed.provenance.source_record_key = Some("fanout".into());
+    store.upsert_event(&seed).unwrap();
+    for index in 0..3 {
+        let mut peer = seed.clone();
+        peer.event_id = format!("peer-{index}");
+        peer.provenance.source_id = format!("synthetic-copy-{index}");
+        peer.thread_id = Some("different-thread".into());
+        peer.source_timestamp = Some(seed.observed_at + ChronoDuration::days(1));
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: peer,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let writes = store.connection.total_changes();
+    assert!(matches!(
+        store.shadow_source_union(
+            "thread",
+            seed.observed_at,
+            seed.observed_at + ChronoDuration::seconds(1),
+            3
+        ),
+        Err(StoreError::UnionLimit)
+    ));
+    let report = store
+        .shadow_source_union(
+            "thread",
+            seed.observed_at,
+            seed.observed_at + ChronoDuration::seconds(1),
+            4,
+        )
+        .unwrap();
+    assert_eq!(report.input_records, 4);
+    assert_eq!(report.unresolved.len(), 1);
+    assert!(report.usage.is_none());
+    assert_eq!(store.connection.total_changes(), writes);
+}
+
+#[test]
+fn shadow_union_closes_counterparts_before_window_and_dimension_selection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut source = event("sample", DataQuality::Confirmed, 1);
+    source.provenance.source_record_key = Some("shared-record".into());
+    store.upsert_event(&source).unwrap();
+    let mut target = source.clone();
+    target.event_id = "rebuilt".into();
+    target.source_timestamp = Some(source.observed_at + ChronoDuration::milliseconds(100));
+    target.account_fingerprint = Some("different-account".into());
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: target,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    let writes = store.connection.total_changes();
+    let report = store
+        .shadow_source_union(
+            "thread",
+            source.observed_at,
+            source.observed_at + ChronoDuration::milliseconds(50),
+            10,
+        )
+        .unwrap();
+    assert_eq!(report.input_records, 2);
+    assert_eq!(
+        report.unresolved[0].reason,
+        crate::source_union::UnresolvedReason::ConflictingDimensions
+    );
+    assert!(report.usage.is_none());
+    assert_eq!(store.connection.total_changes(), writes);
+}
+
+#[test]
+fn partial_overlap_exposes_loss_in_current_thread_day_max_policy() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    // Ground truth is three distinct synthetic requests A=100, B=200, C=300.
+    // The retained side has A/B; reconstruction has B/C. Only B is shared.
+    let make = |id: &str, amount: u64, offset: u64| {
+        let mut record = event(id, DataQuality::Confirmed, offset);
+        record.provenance.source_record_key = Some(format!("synthetic-record-{offset}"));
+        record.usage = TokenUsage {
+            input_tokens: amount,
+            total_tokens: amount,
+            cache_write_observed_input_tokens: amount,
+            ..TokenUsage::default()
+        };
+        record.source_timestamp = Some(record.observed_at + ChronoDuration::minutes(offset as i64));
+        record
+    };
+    let mut a = make("sample-a", 100, 1);
+    a.model = Some("model-only-in-sampling".into());
+    let mut b = make("sample-b", 200, 2);
+    b.provenance.candidate_rollout_event_id = Some("reconstructed-b".into());
+    store.upsert_event(&a).unwrap();
+    store.upsert_event(&b).unwrap();
+    let mut rebuilt_b = b.clone();
+    rebuilt_b.event_id = "reconstructed-b".into();
+    let c = make("reconstructed-c", 300, 3);
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    for record in [rebuilt_b, c] {
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: record,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+    }
+    transaction.commit().unwrap();
+    let writes = store.connection.total_changes();
+    let at = a.source_timestamp.unwrap();
+    let shadow = store
+        .shadow_source_union("thread", at, at + ChronoDuration::hours(1), 10)
+        .unwrap();
+    assert!(shadow.complete_for_supplied_records);
+    assert!(!shadow.history_complete);
+    assert_eq!(shadow.usage.unwrap().total_tokens, 600);
+    assert_eq!(shadow.shared_records_collapsed, 1);
+    assert_eq!(shadow.selected.len(), 3);
+    let aggregates = shadow.aggregates.as_ref().unwrap();
+    assert_eq!(aggregates.records, 3);
+    for dimension in [
+        &aggregates.by_account,
+        &aggregates.by_model,
+        &aggregates.by_project,
+        &aggregates.by_thread,
+        &aggregates.by_day,
+    ] {
+        let mut total = TokenUsage::default();
+        for bucket in dimension {
+            checked_add_usage(&mut total, bucket.usage).unwrap();
+        }
+        assert_eq!(total, shadow.usage.unwrap());
+    }
+    assert_eq!(
+        aggregates
+            .by_model
+            .iter()
+            .find(|bucket| bucket.key == a.model)
+            .unwrap()
+            .usage
+            .total_tokens,
+        100
+    );
+    assert_eq!(
+        shadow
+            .selected
+            .iter()
+            .filter(|record| record.model == a.model)
+            .map(|record| record.usage.unwrap().total_tokens)
+            .sum::<u64>(),
+        100
+    );
+    assert!(matches!(
+        store.shadow_source_union("thread", at, at + ChronoDuration::hours(1), 3),
+        Err(StoreError::UnionLimit)
+    ));
+    assert_eq!(store.connection.total_changes(), writes);
+    let audit = store
+        .audit_candidate_page(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: at,
+                end: at + ChronoDuration::seconds(1),
+                account: Some("acct-fp"),
+                model: a.model.as_deref(),
+            },
+            None,
+            10,
+        )
+        .unwrap();
+    assert_eq!(audit.rows.len(), 1);
+    assert_eq!(audit.rows[0].confirmed_usage.unwrap().total_tokens, 100);
+    assert_eq!(
+        audit.rows[0].retained_side_selected_by_day_policy,
+        Some(false)
+    );
+    assert_eq!(audit.groups[0].confirmed_usage.unwrap().total_tokens, 100);
+    assert_eq!(audit.day_policy_contexts.len(), 1);
+    let policy = &audit.day_policy_contexts[0];
+    assert_eq!(policy.scope, "full_storage_day_all_accounts_and_models");
+    assert_eq!((policy.sampling_records, policy.sampling_tokens), (2, 300));
+    assert_eq!(
+        (policy.reconstruction_records, policy.reconstruction_tokens),
+        (2, 500)
+    );
+    assert_eq!(
+        policy.selected_source,
+        Some(DayPolicySource::Reconstruction)
+    );
+    assert_eq!(store.connection.total_changes(), writes);
+    let total = store
+        .aggregate_rollup_usage(&AggregateFilter::default())
+        .unwrap()
+        .usage
+        .total_tokens;
+    let model_total = store
+        .aggregate_rollup_usage(&AggregateFilter {
+            model: a.model.clone(),
+            ..AggregateFilter::default()
+        })
+        .unwrap()
+        .usage
+        .total_tokens;
+    println!(
+        "partial-overlap counterexample: current={total}, known_fixture_truth=600, sampling_only_model={model_total}, known_model_truth=100"
+    );
+    // This captures the existing defect, not an assertion that max is correct.
+    assert_eq!(total, 500);
+    assert_ne!(total, 600);
+    assert_eq!(model_total, 0);
+    assert_eq!(
+        store.request_candidate_overlap("sample-b").unwrap(),
+        CandidateOverlapStatus::ConsistentCandidate
+    );
+    assert_eq!(
+        store.request_candidate_overlap("sample-a").unwrap(),
+        CandidateOverlapStatus::NotLinked
+    );
+    let staged = store.stage_source_union_batch(100, 100, 100).unwrap();
+    assert!(staged.projection_ready);
+    assert_eq!((staged.selected_groups, staged.unresolved_groups), (3, 0));
+    let staged_totals: (i64, i64) = store.connection.query_row(
+        "SELECT SUM(total_tokens),SUM(CASE WHEN model='model-only-in-sampling' THEN total_tokens ELSE 0 END)
+         FROM measurement_union_selected", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+    assert_eq!(staged_totals, (600, 100));
+}
+
+#[test]
+fn candidate_comparison_explains_dimensions_time_and_unknowns() {
+    type Mutation = fn(&mut UsageEvent);
+    let mutations: &[(CandidateMismatch, Mutation)] = &[
+        (CandidateMismatch::Input, |e| {
+            e.usage.input_tokens += 1;
+            e.usage.total_tokens += 1;
+        }),
+        (CandidateMismatch::CacheRead, |e| {
+            e.usage.cached_input_tokens += 1
+        }),
+        (CandidateMismatch::CacheWrite, |e| {
+            e.usage.cache_write_input_tokens += 1
+        }),
+        (CandidateMismatch::CacheWriteCoverage, |e| {
+            e.usage.cache_write_observed_input_tokens -= 1
+        }),
+        (CandidateMismatch::Output, |e| {
+            e.usage.output_tokens += 1;
+            e.usage.total_tokens += 1;
+        }),
+        (CandidateMismatch::Reasoning, |e| {
+            e.usage.reasoning_output_tokens += 1
+        }),
+        (CandidateMismatch::Thread, |e| {
+            e.thread_id = Some("different-thread".into())
+        }),
+        (CandidateMismatch::Model, |e| {
+            e.model = Some("different-model".into())
+        }),
+        (CandidateMismatch::TimeOutsideTolerance, |e| {
+            e.source_timestamp = Some(e.observed_at + ChronoDuration::nanoseconds(250_000_001))
+        }),
+    ];
+    for (expected, mutate) in mutations {
+        let mut store = LedgerStore::open_in_memory().unwrap();
+        let mut sample = event("source", DataQuality::Confirmed, 10);
+        sample.provenance.candidate_rollout_event_id = Some("target".into());
+        store.upsert_event(&sample).unwrap();
+        let mut target = sample.clone();
+        target.event_id = "target".into();
+        mutate(&mut target);
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: target.clone(),
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+        let writes = store.connection.total_changes();
+        let comparison = store.candidate_comparison("source").unwrap().unwrap();
+        assert_eq!(comparison.status, CandidateOverlapStatus::DifferentEvidence);
+        assert!(comparison.mismatches.contains(expected), "{expected:?}");
+        assert_eq!(comparison.candidate_usage, Some(target.usage));
+        assert_eq!(comparison.linked_records, 1);
+        assert_eq!(comparison.candidate_id.as_deref(), Some("target"));
+        assert_eq!(store.connection.total_changes(), writes);
+    }
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let mut sample = event("unknown", DataQuality::Unknown, 10);
+    sample.provenance.candidate_rollout_event_id = Some("target".into());
+    store.upsert_event(&sample).unwrap();
+    let mut target = sample.clone();
+    target.event_id = "target".into();
+    target.quality = DataQuality::Confirmed;
+    target.usage.input_tokens += 1;
+    target.usage.total_tokens += 1;
+    let transaction = store.connection.unchecked_transaction().unwrap();
+    upsert_reconstruction_event_in(
+        &transaction,
+        &ReconstructionEvent {
+            event: target,
+            counter_epoch: 0,
+        },
+    )
+    .unwrap();
+    transaction.commit().unwrap();
+    let comparison = store.candidate_comparison("unknown").unwrap().unwrap();
+    assert_eq!(
+        comparison.mismatches,
+        [CandidateMismatch::SourceUnconfirmed]
+    );
+    store.connection.execute("UPDATE reconstruction_usage_events SET source_timestamp='invalid' WHERE event_id='target'", []).unwrap();
+    let invalid_time = store.candidate_comparison("unknown").unwrap().unwrap();
+    assert_eq!(
+        invalid_time.status,
+        CandidateOverlapStatus::UnverifiableTime
+    );
+    assert!(
+        invalid_time
+            .mismatches
+            .contains(&CandidateMismatch::UnverifiableTime)
+    );
+    assert!(invalid_time.candidate_minus_source_nanoseconds.is_none());
+}
+
+#[test]
+fn candidate_audit_pages_classify_without_recounting_or_writes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for (index, (id, quality, target)) in [
+        ("a", DataQuality::Confirmed, Some("target-a")),
+        ("b", DataQuality::Confirmed, Some("missing")),
+        ("c", DataQuality::Unknown, None),
+        ("d", DataQuality::Confirmed, None),
+        ("e", DataQuality::Confirmed, Some("target-e")),
+        ("f", DataQuality::Confirmed, Some("shared")),
+        ("g", DataQuality::Confirmed, Some("shared")),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut sample = event(id, quality, 10 * (index as u64 + 1));
+        sample.provenance.candidate_rollout_event_id = target.map(str::to_owned);
+        store.upsert_event(&sample).unwrap();
+        if matches!(id, "a" | "e" | "f") {
+            let mut rebuilt = sample.clone();
+            rebuilt.event_id = target.unwrap().to_owned();
+            if id == "e" {
+                rebuilt.usage.input_tokens += 1;
+                rebuilt.usage.total_tokens += 1;
+            }
+            let transaction = store.connection.unchecked_transaction().unwrap();
+            upsert_reconstruction_event_in(
+                &transaction,
+                &ReconstructionEvent {
+                    event: rebuilt,
+                    counter_epoch: 0,
+                },
+            )
+            .unwrap();
+            transaction.commit().unwrap();
+        }
+    }
+    let mut excluded = event("other-model", DataQuality::Confirmed, 90);
+    excluded.model = Some("other".into());
+    store.upsert_event(&excluded).unwrap();
+    let start = Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap();
+    let scope = || RetainedRequestScope {
+        thread_id: "thread",
+        start,
+        end: start + ChronoDuration::days(1),
+        account: Some("acct-fp"),
+        model: Some("gpt-5.6-sol"),
+    };
+    let before = store.aggregate_usage(&AggregateFilter::default()).unwrap();
+    let writes = store.connection.total_changes();
+    let mut next = None;
+    let mut rows = Vec::new();
+    loop {
+        let page = store
+            .audit_candidate_page(scope(), next.as_ref(), 2)
+            .unwrap();
+        assert_eq!(
+            page.groups.iter().map(|group| group.records).sum::<u64>(),
+            page.rows.len() as u64
+        );
+        assert!(!page.history_complete && !page.request_equality_proven);
+        assert_eq!(
+            page.group_totals_scope,
+            "this_page_confirmed_observations_only"
+        );
+        rows.extend(page.rows);
+        next = page.next;
+        if next.is_none() {
+            break;
+        }
+    }
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.cursor.event_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c", "d", "e", "f", "g"]
+    );
+    assert_eq!(
+        rows.iter().map(|row| row.status).collect::<Vec<_>>(),
+        [
+            CandidateOverlapStatus::ConsistentCandidate,
+            CandidateOverlapStatus::TargetUnavailable,
+            CandidateOverlapStatus::NotLinked,
+            CandidateOverlapStatus::NotLinked,
+            CandidateOverlapStatus::DifferentEvidence,
+            CandidateOverlapStatus::SharedCandidate,
+            CandidateOverlapStatus::SharedCandidate,
+        ]
+    );
+    assert!(rows[2].confirmed_usage.is_none());
+    assert!(rows[2].retained_side_selected_by_day_policy.is_none());
+    assert_eq!(rows[0].comparison.candidate_usage_valid, Some(true));
+    assert_eq!(
+        rows[0].comparison.candidate_minus_source_nanoseconds,
+        Some(0)
+    );
+    assert_eq!(rows[1].comparison.candidate_id.as_deref(), Some("missing"));
+    assert!(rows[1].comparison.candidate_usage.is_none());
+    assert_eq!(
+        rows[4].comparison.mismatches,
+        [CandidateMismatch::Input, CandidateMismatch::Total]
+    );
+    assert_eq!(rows[5].comparison.linked_records, 2);
+    assert_eq!(rows[6].comparison.linked_records, 2);
+    assert_eq!(
+        rows.iter()
+            .filter_map(|row| row.confirmed_usage)
+            .map(|usage| usage.total_tokens)
+            .sum::<u64>(),
+        720
+    );
+    assert!(store.audit_candidate_page(scope(), None, 501).is_err());
+    assert_eq!(store.connection.total_changes(), writes);
+    assert_eq!(
+        store.aggregate_usage(&AggregateFilter::default()).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn read_only_audit_open_never_creates_or_upgrades_a_ledger() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("audit.sqlite3");
+    assert!(LedgerStore::open_read_only(&path).is_err());
+    assert!(!path.exists());
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        store
+            .upsert_event(&event("retained", DataQuality::Confirmed, 10))
+            .unwrap();
+    }
+    let before = std::fs::read(&path).unwrap();
+    {
+        let mut reader = LedgerStore::open_read_only(&path).unwrap();
+        let start = Utc.with_ymd_and_hms(2026, 8, 31, 0, 0, 0).unwrap();
+        assert_eq!(
+            reader
+                .audit_candidate_page(
+                    RetainedRequestScope {
+                        thread_id: "thread",
+                        start,
+                        end: start + ChronoDuration::days(1),
+                        account: None,
+                        model: None
+                    },
+                    None,
+                    100
+                )
+                .unwrap()
+                .rows[0]
+                .confirmed_usage
+                .unwrap()
+                .total_tokens,
+            120
+        );
+        assert!(reader.set_user_confirmed_account_count(Some(99)).is_err());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    {
+        let connection = Connection::open(&path).unwrap();
+        connection.pragma_update(None, "user_version", 24).unwrap();
+    }
+    let before_old = std::fs::read(&path).unwrap();
+    assert!(matches!(
+        LedgerStore::open_read_only(&path),
+        Err(StoreError::UnsupportedAuditSchema {
+            found: 24,
+            supported: CURRENT_SCHEMA_VERSION
+        })
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before_old);
+}
+
+#[test]
+fn candidate_overlap_checks_time_and_components_without_writes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("absent").unwrap(),
+        CandidateOverlapStatus::RequestUnavailable
+    );
+    let mut sample = event("sample-link", DataQuality::Confirmed, 10);
+    store.upsert_event(&sample).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::NotLinked
+    );
+    sample.provenance.candidate_rollout_event_id = Some("rebuilt-link".into());
+    store.upsert_event(&sample).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::TargetUnavailable
+    );
+    let mut rebuilt = sample.clone();
+    rebuilt.event_id = "rebuilt-link".into();
+    rebuilt.source_timestamp = Some(sample.observed_at + ChronoDuration::milliseconds(250));
+    {
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: rebuilt,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let changes = store.connection.total_changes();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::ConsistentCandidate
+    );
+    assert_eq!(store.connection.total_changes(), changes);
+    let mut duplicate = sample.clone();
+    duplicate.event_id = "shared-sample-link".into();
+    duplicate.provenance.byte_offset = 20;
+    store.upsert_event(&duplicate).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::SharedCandidate
+    );
+    assert_eq!(
+        store
+            .request_candidate_overlap("shared-sample-link")
+            .unwrap(),
+        CandidateOverlapStatus::SharedCandidate
+    );
+    store
+        .connection
+        .execute(
+            "DELETE FROM sampling_candidate_links WHERE event_id='shared-sample-link'",
+            [],
+        )
+        .unwrap();
+    store.connection.execute_batch(
+        "UPDATE reconstruction_usage_events SET input_tokens=101,total_tokens=121 WHERE event_id='rebuilt-link';"
+    ).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::DifferentEvidence
+    );
+    store.connection.execute_batch(
+        "UPDATE reconstruction_usage_events SET input_tokens=100,total_tokens=120,source_timestamp='2026-09-01T01:00:00.000000000Z'
+         WHERE event_id='rebuilt-link';"
+    ).unwrap();
+    assert_eq!(
+        store.request_candidate_overlap("sample-link").unwrap(),
+        CandidateOverlapStatus::DifferentEvidence
+    );
+}
+
+#[test]
+fn schema_28_indexes_existing_candidate_links_without_rewriting_them() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema27.sqlite");
+    {
+        let store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store.connection.execute_batch(
+            "INSERT INTO sampling_candidate_links VALUES ('sample','candidate','unique_nearest_timestamp');
+             DROP INDEX sampling_candidate_target_idx;
+             DELETE FROM schema_migrations WHERE version=28;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=27;"
+        ).unwrap();
+    }
+    let store = LedgerStore::open(&path).unwrap();
+    let count: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sampling_candidate_links INDEXED BY sampling_candidate_target_idx
+         WHERE reconstruction_event_id='candidate'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn schema_29_captures_existing_raw_origins_before_compaction() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema28.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store
+            .upsert_event(&event("origin-upgrade", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_origins;
+             DELETE FROM schema_migrations WHERE version=29;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=28;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let machine: String = store
+        .connection
+        .query_row(
+            "SELECT machine_id FROM retained_request_origins WHERE event_id='origin-upgrade'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(machine, "machine");
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn schema_30_captures_raw_assignments_without_inventing_compacted_history() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema29.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store
+            .upsert_event(&event("assignment-upgrade", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_assignments;
+             DELETE FROM schema_migrations WHERE version=30;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=29;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    let before: i64 = store
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM retained_request_assignments",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(before, 0);
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let assignment: (String,String) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id FROM retained_request_assignments WHERE event_id='assignment-upgrade'",
+        [], |row| Ok((row.get(0)?,row.get(1)?))
+    ).unwrap();
+    assert_eq!(assignment, ("acct-fp".into(), "project-1".into()));
+}
+
+#[test]
+fn compacted_request_assignments_follow_account_and_project_changes() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    store
+        .upsert_event(&event("assigned-request", DataQuality::Confirmed, 10))
+        .unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    store
+        .remap_account_fingerprint("acct-fp", "new-account")
+        .unwrap();
+    store
+        .connection
+        .execute(
+            "UPDATE thread_catalog SET project_id='new-project' WHERE thread_id='thread'",
+            [],
+        )
+        .unwrap();
+    store.reproject_usage_from_catalog().unwrap();
+    let assignment: (String,String) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id FROM retained_request_assignments WHERE event_id='assigned-request'",
+        [], |row| Ok((row.get(0)?, row.get(1)?))
+    ).unwrap();
+    assert_eq!(assignment, ("new-account".into(), "new-project".into()));
+    let page = store
+        .retained_request_page_for_scope(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+                account: Some("new-account"),
+                model: Some("gpt-5.6-sol"),
+            },
+            None,
+            100,
+        )
+        .unwrap();
+    assert_eq!(page.observations.len(), 1);
+    assert_eq!(
+        page.observations[0].observed_account.as_deref(),
+        Some("acct-fp")
+    );
+    let old_scope = store
+        .retained_request_page_for_scope(
+            RetainedRequestScope {
+                thread_id: "thread",
+                start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+                account: Some("acct-fp"),
+                model: None,
+            },
+            None,
+            100,
+        )
+        .unwrap();
+    assert!(old_scope.observations.is_empty());
+    let filtered = AggregateFilter {
+        account_fingerprint: Some("new-account".into()),
+        project_id: Some("new-project".into()),
+        ..AggregateFilter::default()
+    };
+    let precise = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            Some(AggregateDimension::Account),
+            &filtered,
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(precise.len(), 1);
+    assert_eq!(precise[0].usage.total_tokens, 120);
+    assert_eq!(precise[0].dimension_key.as_deref(), Some("new-account"));
+    let observed: (String,String,i64) = store.connection.query_row(
+        "SELECT account_fingerprint,project_id,total_tokens FROM retained_request_evidence WHERE event_id='assigned-request'",
+        [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))
+    ).unwrap();
+    assert_eq!(observed, ("acct-fp".into(), "project-1".into(), 120));
+    assert_eq!(
+        store
+            .aggregate_rollup_usage(&AggregateFilter::default())
+            .unwrap()
+            .usage
+            .total_tokens,
+        120
+    );
+}
+
+#[test]
+fn deep_request_page_seeks_by_compound_index() {
+    let store = LedgerStore::open_in_memory().unwrap();
+    let pages_before: i64 = store
+        .connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    store.connection.execute_batch(
+        "WITH RECURSIVE seq(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM seq WHERE n<99999)
+         INSERT INTO retained_request_evidence(
+            event_id,event_hash,effective_at,thread_id,quality,input_tokens,
+            cached_input_tokens,cache_write_input_tokens,cache_write_observed_input_tokens,
+            output_tokens,reasoning_output_tokens,total_tokens,account_confidence,project_confidence,
+            model,account_fingerprint,project_id,turn_id)
+         SELECT printf('request-%06d',n),printf('%064d',n),'2026-08-01T00:00:00.000000000Z',
+            'large-thread','confirmed',100,40,10,100,20,5,120,'unknown','unknown',
+            'synthetic-model',printf('%064d',1),'synthetic-project',printf('synthetic-turn-%06d',n/3) FROM seq;"
+    ).unwrap();
+    let cursor = RetainedRequestCursor {
+        effective_at: "2026-08-01T00:00:00.000000000Z".into(),
+        event_id: "request-099899".into(),
+    };
+    let query_started = std::time::Instant::now();
+    let page = store
+        .retained_request_page(
+            "large-thread",
+            Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 8, 2, 0, 0, 0).unwrap(),
+            Some(&cursor),
+            100,
+        )
+        .unwrap();
+    let query_elapsed = query_started.elapsed();
+    let pages_after: i64 = store
+        .connection
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    let page_size: i64 = store
+        .connection
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .unwrap();
+    eprintln!(
+        "synthetic request evidence: rows=100000, added_pages={}, page_size={}, added_bytes={}, deep_page_rows={}, query_us={}",
+        pages_after - pages_before,
+        page_size,
+        (pages_after - pages_before) * page_size,
+        page.observations.len(),
+        query_elapsed.as_micros()
+    );
+    assert_eq!(page.observations.len(), 100);
+    assert_eq!(page.observations[0].cursor.event_id, "request-099900");
+    assert!(page.next.is_none());
+    let mut statement = store
+        .connection
+        .prepare(&format!(
+            "EXPLAIN QUERY PLAN {}",
+            request_repository::request_page_sql(true)
+        ))
+        .unwrap();
+    let plan = statement
+        .query_map(
+            params![
+                "large-thread",
+                "2026-08-01T00:00:00.000000000Z",
+                "2026-08-02T00:00:00.000000000Z",
+                cursor.effective_at,
+                cursor.event_id,
+                101,
+                Option::<String>::None,
+                Option::<String>::None
+            ],
+            |row| row.get::<_, String>(3),
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+        .join("\n");
+    assert!(plan.contains("retained_request_thread_time_idx"), "{plan}");
+    assert!(plan.contains("(effective_at,event_id)>"), "{plan}");
+    assert!(
+        !plan.contains("SCAN") && !plan.contains("TEMP B-TREE"),
+        "{plan}"
+    );
+}
+
+#[test]
+fn exact_retained_evidence_respects_reconstruction_source_selection() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    let sample = event("selected-sampling", DataQuality::Confirmed, 10);
+    store.upsert_event(&sample).unwrap();
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let mut rebuilt = sample.clone();
+    rebuilt.event_id = "selected-reconstruction".into();
+    rebuilt.source_timestamp = Some(sample.observed_at);
+    rebuilt.usage.input_tokens = 200;
+    rebuilt.usage.total_tokens = 220;
+    {
+        let transaction = store.connection.unchecked_transaction().unwrap();
+        upsert_reconstruction_event_in(
+            &transaction,
+            &ReconstructionEvent {
+                event: rebuilt,
+                counter_epoch: 0,
+            },
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+    }
+    let precise = store
+        .aggregate_exact_time_series(
+            TimeGrain::Hour,
+            None,
+            &AggregateFilter::default(),
+            "Asia/Shanghai",
+        )
+        .unwrap();
+    assert_eq!(
+        precise
+            .iter()
+            .map(|row| row.usage.total_tokens)
+            .sum::<u64>(),
+        220
+    );
+    assert_eq!(precise.iter().map(|row| row.event_count).sum::<u64>(), 1);
+}
+
+#[test]
+fn retained_turns_aggregate_before_paging_and_do_not_group_missing_ids() {
+    let mut store = LedgerStore::open_in_memory().unwrap();
+    for index in 0..122 {
+        let mut fact = event(
+            &format!("request-{index:03}"),
+            if index == 120 {
+                DataQuality::Unknown
+            } else {
+                DataQuality::Confirmed
+            },
+            index * 10,
+        );
+        if index < 120 {
+            fact.provenance.source_turn_id = Some("shared-turn".into());
+        }
+        store.upsert_event(&fact).unwrap();
+    }
+    let scope = || RetainedRequestScope {
+        thread_id: "thread",
+        start: Utc.with_ymd_and_hms(2026, 8, 1, 0, 0, 0).unwrap(),
+        end: Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap(),
+        account: None,
+        model: None,
+    };
+    let first = store.retained_turn_page(scope(), 0, 1).unwrap();
+    assert_eq!(
+        first.observations[0].turn_id.as_deref(),
+        Some("shared-turn")
+    );
+    assert_eq!(first.observations[0].request_count, 120);
+    assert_eq!(first.observations[0].usage.total_tokens, 14400);
+    assert_eq!(first.next_offset, Some(1));
+    let last = store.retained_turn_page(scope(), 1, 10).unwrap();
+    assert_eq!(last.observations.len(), 2);
+    assert!(
+        last.observations
+            .iter()
+            .all(|row| row.turn_id.is_none() && row.request_count == 1)
+    );
+    assert_eq!(last.observations[0].confirmed_request_count, 0);
+    assert_eq!(last.observations[0].usage.total_tokens, 0);
+    assert_eq!(last.observations[1].usage.total_tokens, 120);
+    assert_eq!(last.next_offset, None);
+}
+
+#[test]
+fn schema_26_preserves_preupgrade_raw_details_at_compaction() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("schema25.sqlite");
+    {
+        let mut store = LedgerStore::open(&path).unwrap();
+        remove_future_union_fixture(&store.connection);
+        store
+            .upsert_event(&event("legacy-raw", DataQuality::Confirmed, 10))
+            .unwrap();
+        store
+            .connection
+            .execute_batch(
+                "DROP TABLE retained_request_evidence;
+             DELETE FROM schema_migrations WHERE version=26;
+             DROP TABLE IF EXISTS quota_boundary_versions; DROP TABLE IF EXISTS quota_boundary_state; DROP TABLE IF EXISTS quota_window_observations; DROP TABLE IF EXISTS quota_window_index_state; PRAGMA user_version=25;",
+            )
+            .unwrap();
+    }
+    let mut store = LedgerStore::open(&path).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    while !store.backfill_rollup_chunk(100).unwrap().complete {}
+    store.verify_rollup_before_compaction().unwrap();
+    store
+        .compact_raw_events_chunk(Utc::now() + ChronoDuration::days(1), 100)
+        .unwrap();
+    let total: i64 = store
+        .connection
+        .query_row(
+            "SELECT total_tokens FROM retained_request_evidence WHERE event_id='legacy-raw'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(total, 120);
 }
 
 #[test]
@@ -572,6 +2872,11 @@ fn historical_account_reassignment_preserves_compacted_totals() {
         })
         .unwrap();
     assert_eq!(attributed, before);
+    let assignment: String = store.connection.query_row(
+        "SELECT account_fingerprint FROM retained_request_assignments WHERE event_id='historical-unknown'",
+        [], |row| row.get(0)
+    ).unwrap();
+    assert_eq!(assignment, "historical-account");
 }
 
 #[test]

@@ -1,4 +1,5 @@
 import { MockLedgerApi } from './mock';
+import { ledgerResponseError } from './errors';
 import type {
   BreakdownsResponse,
   DashboardBundle,
@@ -21,6 +22,17 @@ function queryString(filters: DashboardFilters): string {
   });
   if (filters.grain !== 'auto') params.set('grain', filters.grain);
   if (filters.session !== 'all') params.set('session', filters.session);
+  if (filters.nodeOffset) params.set('nodeOffset', String(filters.nodeOffset));
+  if (filters.nodeLimit) params.set('nodeLimit', String(filters.nodeLimit));
+  if (filters.nodeSearch) params.set('nodeSearch', filters.nodeSearch);
+  if (filters.period === 'custom') {
+    if (filters.startDate) params.set('startDate', filters.startDate);
+    if (filters.endDate) params.set('endDate', filters.endDate);
+  }
+  if (filters.sessionSearch) params.set('sessionSearch', filters.sessionSearch);
+  if (filters.sessionSort) params.set('sessionSort', filters.sessionSort);
+  if (filters.sessionOffset) params.set('sessionOffset', String(filters.sessionOffset));
+  if (filters.sessionLimit) params.set('sessionLimit', String(filters.sessionLimit));
   return params.toString();
 }
 
@@ -37,8 +49,7 @@ class HttpLedgerApi implements LedgerApi {
     });
 
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`${path} returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+      throw await ledgerResponseError(response);
     }
 
     return (await response.json()) as T;
@@ -75,8 +86,7 @@ class HttpLedgerApi implements LedgerApi {
       body: JSON.stringify({ userConfirmedAccountCount: count }),
     });
     if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      throw new Error(`account registry returned HTTP ${response.status}${detail ? `: ${detail.slice(0, 160)}` : ''}`);
+      throw await ledgerResponseError(response);
     }
   }
 

@@ -5,12 +5,15 @@
 
 mod account_history;
 pub mod api;
+mod counter;
 mod identity;
 // Retained parser entry points support synthetic diagnostics and future source
 // adapters even when the production CLI uses the narrower sampling path.
 #[allow(dead_code)]
 mod ingest;
+mod official_scope;
 mod official_usage;
+pub use official_scope::OfficialUsageScope;
 mod project;
 mod quota;
 mod reconstruction;
@@ -21,7 +24,9 @@ mod replay;
 #[allow(dead_code)]
 mod runtime;
 mod sampling;
+mod source_union;
 mod store;
+mod stream_boundary;
 mod types;
 
 pub use store::{
@@ -36,17 +41,28 @@ pub use types::{
 #[doc(hidden)]
 pub mod cli_support {
     pub use crate::account_history::sync_account_history;
-    pub use crate::official_usage::fetch_official_account_usage;
     pub use crate::reconstruction::{
-        ingest_reconstruction_batch, ingest_reconstruction_batch_for_project,
+        audit_inherited_prefix, audit_reconstruction_file, audit_reconstruction_prefix,
+        draft_reconstruction_batch, ingest_reconstruction_batch,
+        ingest_reconstruction_batch_for_project, reconcile_history_batch,
+        run_history_reconciliation, verify_correction_against_ledger, verify_correction_manifest,
+        write_correction_manifest,
     };
     pub use crate::runtime::{
         AccountBinding, compact_expired_raw_events, discover_rollouts, ingest_quota_tails,
         load_or_create_hmac_key, load_or_create_machine_id, observe_auth, prepare_fast_ledger,
         prepare_store, sync_native_catalog,
     };
-    pub use crate::sampling::{POST_SAMPLING_SOURCE_ID, ingest_post_sampling};
+    pub use crate::sampling::{
+        LegacySamplingAuditOptions, POST_SAMPLING_SOURCE_ID, audit_legacy_sampling,
+        ingest_post_sampling,
+    };
     pub use crate::store::{
-        AggregateDimension, AggregateFilter, CollectorStatus, LedgerStore, LedgerTableCounts,
+        AggregateDimension, AggregateFilter, CollectorStatus, CorrectionPreviewFilter,
+        CorrectionPreviewGrain, LedgerStore, LedgerTableCounts, QuotaHistoryCursor,
+        QuotaHistoryPage, RetainedRequestCursor, RetainedRequestScope, SourceUnionGrain,
+        SourceUnionQuery, apply_shadow_correction, apply_shadow_correction_with_policy,
+        compare_preview_sampling, create_correction_preview, create_review_shadow,
+        link_shadow_sampling, prepare_review_transfer, read_correction_preview,
     };
 }

@@ -85,13 +85,22 @@ pub(super) fn quality_state_value(
     })
 }
 
-pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> serde_json::Value {
-    let coverage_start = earliest_event_at(store).ok().flatten();
+pub(super) fn period_value(
+    store: &LedgerStore,
+    period: &PeriodDescriptor,
+    query: &UsageQuery,
+) -> serde_json::Value {
+    let (filter, _) = filter_and_period(query, DataQuality::Confirmed);
+    let coverage_start = store
+        .earliest_scoped_rollup_day(&filter)
+        .ok()
+        .flatten()
+        .and_then(|day| parse_timestamp(&format!("{day}T00:00:00+08:00")));
     let start = period.start.or(coverage_start);
     let end = period.end.unwrap_or_else(Utc::now);
     let timezone = Tz::from_str(&period.timezone).unwrap_or(chrono_tz::Asia::Shanghai);
     let window_kind = match period.label.as_str() {
-        "today" | "week" | "month" | "weeks12" | "months12" => "calendar",
+        "today" | "week" | "month" | "year" | "custom" | "weeks12" | "months12" => "calendar",
         "rolling7" | "rolling30" => "rolling",
         _ => "lifetime",
     };
@@ -103,6 +112,8 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
         "rolling30" => "近30天",
         "weeks12" => "12周",
         "months12" => "12月",
+        "year" => "本年",
+        "custom" => "自定义",
         _ => "至今",
     };
     let definition = match period.label.as_str() {
@@ -113,31 +124,10 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
         "rolling30" => "当前时间向前 30×24 小时",
         "weeks12" => "含当前周的最近 12 个自然周",
         "months12" => "含当前月的最近 12 个自然月",
-        _ => "可信数据覆盖起点至今",
+        "year" => "本年 1 月 1 日 00:00 至今",
+        "custom" => "所选开始日至结束日（含结束当天）",
+        _ => "当前筛选范围的最早保留日期至今，不代表连续覆盖",
     };
-    let coverage_complete = period
-        .start
-        .zip(coverage_start)
-        .is_none_or(|(requested, coverage)| requested >= coverage);
-    let comparison_available = period
-        .comparison_start
-        .zip(coverage_start)
-        .is_some_and(|(comparison, coverage)| comparison >= coverage);
-    let coverage_offset = period
-        .start
-        .zip(coverage_start)
-        .map(|(requested, coverage)| {
-            let total = end
-                .signed_duration_since(requested)
-                .num_milliseconds()
-                .max(1) as f64;
-            let missing = coverage
-                .signed_duration_since(requested)
-                .num_milliseconds()
-                .clamp(0, total as i64) as f64;
-            (missing / total).clamp(0.0, 1.0)
-        })
-        .unwrap_or(0.0);
     serde_json::json!({
         "key": period.label,
         "label": label,
@@ -148,10 +138,10 @@ pub(super) fn period_value(store: &LedgerStore, period: &PeriodDescriptor) -> se
         "comparisonStart": period.comparison_start.map(|value| value.to_rfc3339()),
         "comparisonEnd": period.comparison_end.map(|value| value.to_rfc3339()),
         "coverageStart": coverage_start.map(|value| value.to_rfc3339()),
-        "coverageComplete": coverage_complete,
-        "coverageOffset": coverage_offset,
-        "coverageRatio": 1.0 - coverage_offset,
-        "comparisonAvailable": comparison_available,
+        "coverageComplete": null,
+        "coverageOffset": null,
+        "coverageRatio": null,
+        "comparisonAvailable": null,
         "partial": period.partial,
         "defaultGrain": period.default_grain,
         "windowKind": window_kind,
@@ -225,10 +215,17 @@ pub(super) fn filter_catalog(store: &LedgerStore) -> Result<serde_json::Value, S
             serde_json::json!({"id": id, "label": format!("{prefix} · {}", account_label(&id))})
         })
         .collect::<Vec<_>>();
+    let effective = AggregateFilter {
+        quality: Some(DataQuality::Confirmed),
+        ..Default::default()
+    };
     let models = store
         .aggregate_rollup_by(AggregateDimension::Model, &all)?
         .into_iter()
+        .chain(store.aggregate_rollup_by(AggregateDimension::Model, &effective)?)
         .filter_map(|bucket| bucket.key)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .map(|id| serde_json::json!({"id": id, "label": id}))
         .collect::<Vec<_>>();
     let mut projects = store
@@ -266,6 +263,7 @@ pub(super) fn filter_catalog(store: &LedgerStore) -> Result<serde_json::Value, S
             {"id": "rolling30", "label": "近30天"},
             {"id": "weeks12", "label": "12周"},
             {"id": "months12", "label": "12月"},
+            {"id": "year", "label": "本年"},
             {"id": "lifetime", "label": "至今"},
         ],
     }))

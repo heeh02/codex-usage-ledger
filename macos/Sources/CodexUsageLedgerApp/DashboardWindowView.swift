@@ -10,7 +10,8 @@ struct DashboardWindowView: View {
             Color(nsColor: .windowBackgroundColor)
                 .ignoresSafeArea()
 
-            LockedDashboardWebView(
+            if service.state.isReady {
+                LockedDashboardWebView(
                 url: LedgerServiceController.dashboardURL,
                 reloadToken: service.reloadToken,
                 pageZoom: service.pageZoom,
@@ -18,13 +19,17 @@ struct DashboardWindowView: View {
                 onLanguageChange: service.updateUILanguage,
                 isLoaded: $dashboardLoaded
             )
-            .opacity(service.state.isReady && dashboardLoaded ? 1 : 0)
+                .opacity(dashboardLoaded ? 1 : 0)
+            }
 
             if !service.state.isReady || !dashboardLoaded {
                 servicePlaceholder
             }
         }
         .frame(minWidth: 560, minHeight: 520)
+        .onChange(of: service.state) { state in
+            if !state.isReady { dashboardLoaded = false }
+        }
         .onAppear {
             DispatchQueue.main.async {
                 NSApplication.shared.windows
@@ -33,6 +38,13 @@ struct DashboardWindowView: View {
             }
         }
         .toolbar {
+            if LedgerLaunchProfile.isRequested {
+                ToolbarItem(placement: .principal) {
+                    Text(NativeLocalization.text("隔离验收 · 非真实账本", "Isolated preview · Not the real ledger"))
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
             ToolbarItem(placement: .navigation) {
                 Image(systemName: service.state.symbolName)
                     .font(.caption)
@@ -69,6 +81,7 @@ struct DashboardWindowView: View {
                         systemImage: service.collectionEnabled ? "stop.fill" : "play.fill"
                     )
                 }
+                .disabled(!service.canCollect)
             }
         }
     }

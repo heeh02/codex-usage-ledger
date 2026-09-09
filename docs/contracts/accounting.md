@@ -8,9 +8,8 @@ There are three non-interchangeable Token views:
    separate facts. `effective(thread, local_day)` chooses the more complete
    whole source row; it never sums both. A thread cumulative total is context,
    not a new event.
-3. The missing-account residual estimate: a derived, conservative floor built
-   only from captured account-days where both official and local evidence
-   exist. It is neither an official total nor a confirmed local identity.
+3. The unexplained account difference: a diagnostic over comparable account-days.
+   It does not establish any missing account's usage or a lower bound.
 
 ## Accounting invariants
 
@@ -42,6 +41,19 @@ There are three non-interchangeable Token views:
   prefix emits no usage. Only later positive deltas enter Reconstruction.
 - Pending Reconstruction and Unrecoverable are durable source states. Neither
   is a zero and neither may be replaced with `threads.tokens_used`.
+- Dashboard and daemon startup do not compact raw events. Explicit maintenance
+  must retain the strict retained/raw consistency checks before
+  deletion; a mismatch is not permission to overwrite evidence. See
+  [dashboard retention boundaries](../architecture/dashboard-retention-boundary.md).
+- Physical identity changes are not permission to delete reconstruction facts
+  or restart history. Retain events and checkpoints pending identity verification;
+  device-only/inode-only matches are not automatic rebinding proof. See the
+  [bounded preview and identity-review contract](../architecture/reconstruction-prefix-audit.md).
+- Without a prior counter, reconstruction must not assign the first cumulative
+  snapshot wholesale to the current timestamp. Only a valid last sample enters
+  usage; absent/invalid last samples establish a baseline without a confirmed
+  event. Any representable older counter prefix is diagnostic only, never a
+  lifetime/project total. See [initial counter boundaries](../architecture/reconstruction-replay-boundary.md).
 - Model and working directory are attributed from the nearest preceding
   `turn_context` in the same non-replayed stream.
 - Account attribution is temporal. A current `auth.json` snapshot never claims
@@ -52,7 +64,143 @@ There are three non-interchangeable Token views:
   raw facts are eligible for compaction. Compaction keeps an immutable event
   key, so replaying an old rollout is idempotent.
 
+## Incremental source projection
+
+The earliest retained date is not a continuous-collection guarantee. Period
+metadata now derives that date from the active account/project/model scope,
+and leaves local completeness, coverage ratio/offset and comparison coverage
+unknown. Local resolved metrics use complete=false (not proven) and ratio=null,
+not fabricated 100% or measured 0%. Official coverage remains independently
+evaluated from official observations. Actual continuity still requires a
+source-interval ledger; this change does not establish one.
+
+Exact boundary queries prefer raw evidence. Once raw events are absent, they
+may use retained request evidence joined to current assignments. Event-ID
+exclusion prevents summing raw and retained copies; effective queries still
+use the thread/day selected source and do not add retained sampling when
+reconstruction is selected. Rows without a retained assignment are not guessed.
+Synthetic acceptance: a ten-minute window remains 120 before and after raw
+compaction; account/project remapping is honored; selected reconstruction yields
+220 rather than 220 + 120. This query change rewrites no persisted token facts
+and does not prove complete historical detail or source-policy accuracy.
+
+Schema 25 changes only the maintenance of the effective source projection.
+Rollup inserts, updates (both old and new keys), and deletes persist a unique
+date/thread dirty key in the same write transaction. Refresh recomputes those
+keys and clears their queue atomically; unchanged keys are not rebuilt.
+Upgrade seeds existing keys once, including stale projection keys so deletion
+can be reconciled. Retained event and rollup facts are not changed. The existing
+thread/day source-selection policy remains unchanged; this optimization does
+not establish that policy's accounting accuracy or complete source coverage.
+A failed refresh retains the previous projection and queued work for retry.
+Opening the upgraded ledger with an older binary is unsupported; deployment
+must retain the pre-upgrade backup until upgrade acceptance.
+
 ## Source priority
+
+Sampling maturity is checked at full timestamp precision in log-ID order. The
+reader stops at the first not-yet-mature sampling row; it must not filter that
+row out and commit a later ID. Invalid seconds/nanoseconds fail without advancing
+the checkpoint, rather than clamping nanoseconds or substituting current time.
+Within a committed batch, observations are sorted by timestamp for candidate
+matching, then returned to log-ID order for durable cursor advancement. Report
+first/last timestamps are extrema, not assumed to follow row order. These guards
+prevent new gaps; they do not recover requests skipped by previous versions or
+prove complete clock/source coverage. A far-future row can defer later rows and
+needs operational clock diagnostics rather than silent skipping.
+
+The [local measurement union shadow](../architecture/source-union-shadow.md)
+resolves explicit source-record groups independently of the active day-max
+projection. It is a read-only diagnostic, not a new official/local total. Missing
+or conflicting evidence blocks a complete supplied-record result; source-record
+identity is not by itself proof against replay or of server inference identity.
+
+Schema 34 retains [shared local source-record evidence](../adr/0004-source-record-evidence.md)
+without changing event identities or accounting selection. A key includes the
+physical occurrence and parsed-content digest; copied interpretations of that
+record can be compared without treating time proximity as proof. Old absent
+keys are not fabricated. This does not prove independent inference usage or
+authorize merging inherited source history. Ordinary writes must also respect
+compacted event keys, preserving identical replays rather than reinserting them.
+
+The [read-only overlap audit](../architecture/source-overlap-audit.md) classifies
+bounded retained-request pages without refreshing source selection or rewriting
+history. Category amounts are page-local confirmed observations, not corrected
+accounting totals. A consistent rollout candidate is not proven request equality.
+
+An already namespaced sampling source keeps that source/cursor identity when
+another source path disappears. Source list position must not replace an
+established independent high-water mark. Legacy unnamespaced first-source
+bindings still require separate continuity validation; source ordering does
+not infer a binding for those cases.
+Newly committed sampling cursors record their actual relative source path.
+That binding preserves the first source's identity when another higher-priority
+path later appears. Existing namespaced cursors remain authoritative for their
+own paths. Unbound legacy cursors and physical replacement are not retroactively
+proven by this metadata.
+New cursors also persist physical file identity, generation and effective event
+namespace. A detected physical replacement is read from zero in a new generation
+only when observations carry stable receipt identities; copied receipts stay
+deduplicated and reused row/turn IDs do not collide with prior generations.
+Identity changes during reading or replacement without receipt identity fail
+without advancing the source cursor.
+
+Cursor metadata version 4 additionally retains a digest of the last committed
+sampling row. An indexed lookup checks this anchor and reads appended rows in
+one read-only SQLite snapshot. A changed or missing anchor starts a new source
+generation even when the physical file identity and row numbers are unchanged.
+Remaining copied receipts are not recounted; missing receipt identity prevents
+replay and preserves the checkpoint. An empty replacement leaves the previous
+checkpoint intact until observations become available. Each committed batch
+stores its own final-row anchor atomically with usage, not the end of a later
+uncommitted batch. Ordinary idle reads inspect the anchor but do not rescan
+rollouts. The anchor digest is not a cross-source receipt or an account identity.
+This detects mutations affecting the anchor, not arbitrary rewrites that leave
+that row intact. Older cursors without anchors have no retrospective continuity
+proof; missing legacy receipt identities and prior omissions still need audit.
+
+Schema 33 assigns one counting owner per tracked sampling receipt. Copies with
+matching immutable request fields and dimensions become receipt aliases without
+new usage rows; weaker unknown copies cannot replace confirmed evidence.
+A confirmed copy can resolve an unknown owner only while its raw fact is
+available for transactional rollup correction. Conflicting dimensions or
+unavailable resolution evidence fail without advancing the transaction cursor.
+Migration seeds only unambiguous single-owner receipts; preexisting duplicate
+groups and records without receipt identity require a separate audit/receipt,
+not silent deletion. This does not solve untracked legacy source overlap.
+
+Schema 32 records path-independent sampling receipt keys from machine,
+nonempty source process UUID, log-row ID, exact source timestamp, thread and
+the sampling log body. Only the digest is retained; missing process identity
+produces no key. Receipt evidence is supplemental and excluded from legacy
+event hashes. Distinct legacy event IDs may currently share a receipt key:
+this is audit evidence, not yet an automatic consolidation policy. Existing
+events receive no invented keys during migration.
+
+Schema 27 retains sampling-to-rollout candidate links using the reconstruction
+record identity derived from physical file identity and byte position. The
+method remains `unique_nearest_timestamp`, not proven request equality.
+Supplemental links do not change legacy event hashes or effective totals.
+Ambiguous matches have no link. Existing history receives no invented links.
+Before any shadow dedup decision, compare effective time and token dimensions:
+in-place source rewrites can reuse physical positions and identities.
+
+The read-only single-request candidate audit reports unavailable request,
+unlinked, unavailable target, unverifiable time, differing evidence, or consistent
+candidate. Consistency requires same thread/model, confirmed sampling quality,
+all token components equal, and timestamps within 250 milliseconds using integer
+duration comparison. It does not prove one-to-one mapping, complete coverage,
+or independent request equality, and never changes effective source selection.
+Schema 28 indexes candidate targets. Multiple sampling links to one target are
+reported as shared candidates before consistency is considered; they are not
+treated as independent one-to-one matches. The index does not rewrite evidence.
+
+Post-sampling timestamp matching must have a unique nearest unused candidate
+within its tolerance. Equally near candidates are unknown with an explicit
+ambiguity reason, not arbitrarily confirmed. This guards new ingestion only;
+it does not retroactively revise stored usage or establish shared request
+identity across sampling and reconstruction. Historical policy changes still
+require shadow validation and a migration receipt.
 
 1. Codex app-server `account/usage/read` for account lifetime and daily totals.
 2. Every retained `logs_2.sqlite` shard, including a migrated
@@ -100,7 +248,7 @@ samples and display their sample scope. They are never scaled to make their sum
 look like the official account Total.
 
 The residual estimate has a separately versioned definition,
-`missing_accounts_residual_v1`. For each captured account and local day with an
+`unexplained_account_difference_v2`. For each captured account and local day with an
 official bucket:
 
 ```text
@@ -116,13 +264,17 @@ dimension sums exactly, `total = input + output`, cached remains a subset of
 input, and reasoning remains a subset of output. A missing official day is
 excluded rather than converted to official zero.
 
-This result is a conservative floor for all still-unobserved accounts combined.
+This result is not a conservative floor for unobserved accounts. Source replay,
+timing, scope and attribution errors can also create a positive difference.
 It cannot distinguish one missing account from another, cannot be added to the
 official account KPI, and cannot relabel the underlying confirmed local facts.
 The API therefore exposes `canSplitByMissingAccount=false`, aligned and excluded
 account-day counts, exact coverage dates, allocation delta, and separate
 project/model/day breakdowns. Project or model filters select a slice of the
-estimate while leaving its all-project total available for conservation checks.
+diagnostic allocation while leaving its all-project total available for
+conservation checks. Legacy allocation fields are compatibility diagnostics,
+not project/account usage evidence; the UI must not present them as an inferred
+missing-account composition. `isConservativeFloor` is false.
 
 In an all-accounts view, official totals are authoritative only after every
 locally observed account has a successful official profile snapshot. Until
@@ -145,6 +297,22 @@ profile to remain authoritative, and an unavailable thread billing route must
 not erase or rescale the local session tree.
 
 ## Coverage and zero semantics
+
+Charts position civil bucket keys on a common calendar axis. A missing bucket
+breaks a series instead of being squeezed out or converted to zero. Comparisons
+align by calendar date offset from their declared windows, not row index;
+nonexistent month dates have no counterpart. The chart labels the grain of the
+actual displayed source: official daily buckets cannot be labeled hourly. A
+local overlay is unavailable when its grain differs from the official series.
+Container-sized drawing preserves readable axis text and keyboard inspection.
+
+The local historical start includes both confirmed Sampling and validated
+Reconstruction daily evidence. Unknown/quarantined rows cannot establish that
+start. Model choices include effective Reconstruction models even when those
+models have no retained Sampling rows. This corrects v1 metadata/catalog
+behavior without changing persisted token facts or the wire schema. A first
+evidence date alone is not proof of uninterrupted collection; scoped interval
+coverage remains an explicit follow-up in the active product goal.
 
 - Missing dates between the official profile's first and last covered day are
   materialized as covered zeroes.
@@ -196,10 +364,16 @@ replace them.
 The current cycle is keyed by account, stable server window identity and the
 server-provided reset boundary. A roughly 10,080-minute window is labeled
 weekly, but no model name is assumed to identify a quota pool. The UI reports
-local confirmed Token dimensions observed since the first trustworthy snapshot
-inside that cycle, together with sampling coverage. A Token-per-percentage-point
-ratio is an empirical correlation over that bounded local sample only; it is
-never a billing or quota conversion rate.
+local account activity observed since the first trustworthy snapshot inside that
+cycle, ending at the earlier of now or the cycle reset. Complete hours use
+durable rollups and partial hours use retained request evidence. Missing compacted
+boundary evidence can leave the sample incomplete. This activity is not pool
+usage: the source does not associate individual requests with a pool.
+
+The nullable v1 fields `localCoverageRatio` and `empiricalTokensPerUsedPercent`
+remain present but return null. Elapsed time alone does not establish collection
+coverage, and all-account activity cannot establish a pool-specific correlation.
+This semantic correction changes no persisted Token fact or quota observation.
 
 A material decrease in server-reported `usedPercent` is recorded as an observed
 reset. If it occurs at the previous scheduled boundary it is a scheduled

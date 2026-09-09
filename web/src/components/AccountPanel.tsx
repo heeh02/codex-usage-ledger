@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import type { BreakdownsResponse, OfficialUsageView, TimelineEvent } from '../api/types';
-import { compactNumber, formatDateTime } from '../lib';
+import { formatTokenMillions, formatDateTime } from '../lib';
 import { EmptyState, Panel } from './Ui';
 import { useI18n } from '../i18n';
 
@@ -21,7 +21,7 @@ export function AccountPanel({ data, official, timeline, onConfirmAccountCount }
       setSaving(false);
     }
   };
-  const periodValue = (tokens: number | null, lowerBound: boolean) => tokens === null ? t('components.account-panel.pending') : `${lowerBound ? '≥ ' : ''}${compactNumber(tokens)}`;
+  const periodValue = (tokens: number | null, lowerBound: boolean) => tokens === null ? t('components.account-panel.pending') : `${lowerBound ? '≥ ' : ''}${formatTokenMillions(tokens)}`;
   return (
     <section className="account-detail-grid">
       <Panel title={t('components.account-panel.account_usage')} eyebrow={t('components.account-panel.official_account_ledger')} meta={t('components.account-panel.isolated_by_login_account_workspace')} className="account-ledgers-panel">
@@ -44,7 +44,7 @@ export function AccountPanel({ data, official, timeline, onConfirmAccountCount }
           <button disabled={saving || accountCountDraft < official.observedAccountCount || accountCountDraft > 64} type="submit">{saving ? t('components.account-panel.saving') : t('components.account-panel.save_calibration')}</button>
         </form>
         {official.unobservedAccountCount > 0 && <div className="account-identity-warning"><strong>{official.unobservedAccountCount} {t('components.account-panel.accounts_not_yet_captured')}</strong><span>{t('components.account-panel.they_are_not_mixed_into_the_official')}</span></div>}
-        {official.provisionalIdentityCount > 0 && <div className="account-identity-warning"><strong>{official.provisionalIdentityCount} {t('components.account-panel.historical_accounts_need_calibration')}</strong><span>{compactNumber(official.provisionalLocalTokens)} {t('components.account-panel.local_tokens_are_included_as_the_all')}</span></div>}
+        {official.provisionalIdentityCount > 0 && <div className="account-identity-warning"><strong>{official.provisionalIdentityCount} {t('components.account-panel.historical_accounts_need_calibration')}</strong><span>{formatTokenMillions(official.provisionalLocalTokens)} {t('components.account-panel.local_tokens_are_included_as_the_all')}</span></div>}
         {data.officialAccounts.length ? (
           <div className="account-ledger-list">
             {data.officialAccounts.map((account) => (

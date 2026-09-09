@@ -7,7 +7,7 @@ pub(super) fn resolve_period(
     Option<DateTime<Utc>>,
     PeriodDescriptor,
 ) {
-    resolve_period_at(query, Utc::now())
+    resolve_period_at(query, query.reference_time.unwrap_or_else(Utc::now))
 }
 
 pub(super) fn resolve_period_at(
@@ -22,6 +22,34 @@ pub(super) fn resolve_period_at(
     let timezone = Tz::from_str(timezone_name).unwrap_or(chrono_tz::Asia::Shanghai);
     let now_local = now_utc.with_timezone(&timezone);
     let period_label = query.period.as_deref().unwrap_or("rolling30");
+    if period_label == "custom" {
+        let parse = |value: Option<&str>| {
+            value.and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok())
+        };
+        let start = parse(query.start_date.as_deref())
+            .and_then(|date| local_midnight_utc(date, timezone))
+            .unwrap_or(now_utc);
+        let end = parse(query.end_date.as_deref())
+            .and_then(|date| date.succ_opt())
+            .and_then(|date| local_midnight_utc(date, timezone))
+            .unwrap_or(start);
+        let period = PeriodDescriptor {
+            label: "custom".to_owned(),
+            start: Some(start),
+            end: Some(end),
+            timezone: timezone.name().to_owned(),
+            comparison_start: None,
+            comparison_end: None,
+            default_grain: if end - start > ChronoDuration::days(92) {
+                "month"
+            } else {
+                "day"
+            }
+            .to_owned(),
+            partial: end > now_utc,
+        };
+        return (Some(start), Some(end), period);
+    }
     let today = now_local.date_naive();
     let this_week = today - ChronoDuration::days(now_local.weekday().num_days_from_monday() as i64);
     let this_month = today.with_day(1).unwrap_or(today);
@@ -30,6 +58,12 @@ pub(super) fn resolve_period_at(
         "week" => (local_midnight_utc(this_week, timezone), "day", true),
         "rolling7" => (Some(now_utc - ChronoDuration::days(7)), "day", false),
         "month" => (local_midnight_utc(this_month, timezone), "day", true),
+        "year" => (
+            NaiveDate::from_ymd_opt(today.year(), 1, 1)
+                .and_then(|date| local_midnight_utc(date, timezone)),
+            "month",
+            true,
+        ),
         "rolling30" => (Some(now_utc - ChronoDuration::days(30)), "day", false),
         "weeks12" => (
             local_midnight_utc(this_week - ChronoDuration::weeks(11), timezone),
@@ -49,6 +83,8 @@ pub(super) fn resolve_period_at(
         "today" => local_midnight_utc(today - ChronoDuration::days(1), timezone),
         "week" => local_midnight_utc(this_week - ChronoDuration::weeks(1), timezone),
         "month" => local_midnight_utc(shift_month_start(this_month, -1), timezone),
+        "year" => NaiveDate::from_ymd_opt(today.year() - 1, 1, 1)
+            .and_then(|date| local_midnight_utc(date, timezone)),
         "rolling7" => start.map(|start| start - ChronoDuration::days(7)),
         "rolling30" => start.map(|start| start - ChronoDuration::days(30)),
         "weeks12" => start.map(|start| start - ChronoDuration::weeks(12)),
@@ -56,6 +92,18 @@ pub(super) fn resolve_period_at(
         _ => None,
     };
     let comparison_end = match period_label {
+        "year" => now_local
+            .with_year(today.year() - 1)
+            .or_else(|| {
+                (today.month() == 2 && today.day() == 29)
+                    .then(|| {
+                        now_local
+                            .with_day(28)
+                            .and_then(|date| date.with_year(today.year() - 1))
+                    })
+                    .flatten()
+            })
+            .map(|date| date.with_timezone(&Utc)),
         "today" | "week" | "month" => comparison_start
             .zip(elapsed)
             .map(|(previous, elapsed)| previous + elapsed)
@@ -87,7 +135,22 @@ pub(super) fn local_midnight_utc(date: NaiveDate, timezone: Tz) -> Option<DateTi
         LocalResult::Single(value) | LocalResult::Ambiguous(value, _) => {
             Some(value.with_timezone(&Utc))
         }
-        LocalResult::None => None,
+        LocalResult::None => {
+            // Some zones advance the clock at midnight. Start at the first
+            // existing instant of that civil date, never at the current time.
+            // A completely skipped civil date remains unavailable.
+            (1..1440).find_map(|minute| {
+                let candidate = local + ChronoDuration::minutes(minute);
+                timezone.from_local_datetime(&candidate).earliest()?;
+                (0..60).find_map(|second| {
+                    let boundary = candidate - ChronoDuration::seconds(59 - second);
+                    timezone
+                        .from_local_datetime(&boundary)
+                        .earliest()
+                        .map(|value| value.with_timezone(&Utc))
+                })
+            })
+        }
     }
 }
 

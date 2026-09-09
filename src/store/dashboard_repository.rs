@@ -52,8 +52,26 @@ fn dashboard_catalog_counts_from_row(
 }
 
 impl LedgerStore {
+    pub(crate) fn root_thread_members(
+        &self,
+        roots: &[String],
+    ) -> StoreResult<BTreeMap<String, Vec<String>>> {
+        let mut result = BTreeMap::<String, Vec<String>>::new();
+        let mut statement=self.connection.prepare("SELECT root_thread_id,thread_id FROM thread_root_membership WHERE root_thread_id IN (SELECT value FROM json_each(?1)) ORDER BY root_thread_id,thread_id")?;
+        let rows = statement.query_map([serde_json::to_string(roots)?], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (root, thread) = row?;
+            result.entry(root).or_default().push(thread);
+        }
+        Ok(result)
+    }
     pub(crate) fn database_path(&self) -> Option<PathBuf> {
-        self.connection.path().map(PathBuf::from)
+        self.connection
+            .path()
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
     }
 
     pub fn dashboard_revision(&self) -> StoreResult<String> {
@@ -101,14 +119,45 @@ impl LedgerStore {
     pub fn earliest_rollup_day(&self) -> StoreResult<Option<String>> {
         self.connection
             .query_row(
-                "SELECT MIN(local_day) FROM daily_usage_rollups",
+                "SELECT MIN(local_day) FROM (
+                    SELECT MIN(local_day) AS local_day FROM daily_usage_rollups
+                    WHERE quality = 'confirmed'
+                    UNION ALL
+                    SELECT MIN(local_day) AS local_day FROM reconstruction_daily_rollups
+                 )",
                 [],
                 |row| row.get(0),
             )
             .map_err(StoreError::from)
     }
 
+    pub fn earliest_scoped_rollup_day(
+        &self,
+        filter: &AggregateFilter,
+    ) -> StoreResult<Option<String>> {
+        self.refresh_effective_source_selection()?;
+        let mut scope = filter.clone();
+        scope.start_inclusive = None;
+        scope.end_exclusive = None;
+        let (where_sql, values) = build_rollup_filter(&scope);
+        Ok(self.connection.query_row(
+            &format!("SELECT MIN(local_day) FROM effective_daily_usage_rollups AS daily_usage_rollups {where_sql}"),
+            params_from_iter(values),|row|row.get(0)
+        )?)
+    }
+
     pub fn latest_confirmed_evidence_at(&self) -> StoreResult<Option<String>> {
+        if self.is_source_union_main_preview() {
+            self.refresh_effective_source_selection()?;
+            return self
+                .connection
+                .query_row(
+                    "SELECT MAX(source_timestamp) FROM effective_usage_events",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(StoreError::from);
+        }
         let raw: Option<String> = self.connection.query_row(
             "SELECT MAX(COALESCE(source_timestamp, observed_at))
              FROM usage_events WHERE quality = 'confirmed'",
@@ -182,8 +231,12 @@ impl LedgerStore {
             },
         )?;
         summary.selected_tokens = self.connection.query_row(
-            "SELECT COALESCE(SUM(reconstruction_tokens), 0)
-             FROM effective_thread_day_source WHERE evidence_source = 'reconstruction'",
+            if self.is_source_union_main_preview() {
+                "SELECT COALESCE(SUM(total_tokens),0) FROM measurement_union_selected WHERE evidence_source='reconstruction'"
+            } else {
+                "SELECT COALESCE(SUM(reconstruction_tokens), 0)
+                 FROM effective_thread_day_source WHERE evidence_source = 'reconstruction'"
+            },
             [],
             |row| u64_from_sql(row.get(0)?, 0),
         )?;
@@ -303,6 +356,15 @@ impl LedgerStore {
         project_id: Option<&str>,
         limit: usize,
     ) -> StoreResult<Vec<DashboardCatalogThread>> {
+        self.search_dashboard_catalog_roots(project_id, limit, "")
+    }
+
+    pub fn search_dashboard_catalog_roots(
+        &self,
+        project_id: Option<&str>,
+        limit: usize,
+        search: &str,
+    ) -> StoreResult<Vec<DashboardCatalogThread>> {
         let mut predicates = vec!["catalog.parent_thread_id IS NULL".to_owned()];
         let mut values = Vec::new();
         if let Some(project_id) = project_id.filter(|value| *value != "all") {
@@ -316,6 +378,11 @@ impl LedgerStore {
                 predicates.push("catalog.project_id = ?".to_owned());
                 values.push(SqlValue::Text(project_id.to_owned()));
             }
+        }
+        if !search.trim().is_empty() {
+            predicates.push("(instr(lower(COALESCE(catalog.title,'')),lower(?))>0 OR instr(lower(catalog.thread_id),lower(?))>0)".into());
+            values.push(SqlValue::Text(search.trim().into()));
+            values.push(SqlValue::Text(search.trim().into()));
         }
         values.push(SqlValue::Integer(limit.clamp(1, 500) as i64));
         let sql = format!(
@@ -331,6 +398,111 @@ impl LedgerStore {
             statement.query_map(params_from_iter(values), dashboard_catalog_thread_from_row)?;
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(StoreError::from)
+    }
+
+    /// Filter and order the whole root catalog by scoped usage before limiting
+    /// rows. Page boundaries never restrict the usage denominator.
+    pub(crate) fn conversation_page(
+        &self,
+        request: &ConversationPageRequest<'_>,
+    ) -> StoreResult<(Vec<DashboardCatalogThread>, u64)> {
+        self.refresh_effective_source_selection()?;
+        let (usage_sql, mut values) = if let Some(rows) = request.ranked_usage {
+            let encoded = serde_json::to_string(
+                &rows
+                    .iter()
+                    .map(|row| {
+                        (
+                            &row.root_thread_id,
+                            row.tree.usage.total_tokens,
+                            row.tree.usage.output_tokens,
+                            row.tree.event_count,
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
+            ("SELECT json_extract(value,'$[0]') root_thread_id,json_extract(value,'$[1]') tokens,
+                json_extract(value,'$[2]') output,json_extract(value,'$[3]') requests FROM json_each(?)".to_owned(),vec![SqlValue::Text(encoded)])
+        } else {
+            let (usage_where, values) = build_rollup_filter(request.filter);
+            (format!("SELECT membership.root_thread_id,SUM(total_tokens) tokens,SUM(output_tokens) output,SUM(event_count) requests
+                FROM effective_daily_usage_rollups AS daily_usage_rollups
+                JOIN thread_root_membership membership ON membership.thread_id=daily_usage_rollups.thread_key
+                {usage_where} GROUP BY membership.root_thread_id"),values)
+        };
+        let mut predicates = vec!["catalog.parent_thread_id IS NULL".to_owned()];
+        if request.filter.account_fingerprint.is_some() || request.filter.model.is_some() {
+            predicates.push("usage.root_thread_id IS NOT NULL".to_owned());
+        }
+        if let Some(project) = request.project_id.filter(|value| *value != "all") {
+            if project == STANDALONE_CONVERSATIONS_PROJECT_ID {
+                predicates.extend([
+                    "COALESCE(catalog.depth, 0) = 0".to_owned(),
+                    "catalog.project_id IS NULL".to_owned(),
+                    "catalog.source_kind = 'state_5'".to_owned(),
+                ]);
+            } else if project == UNASSIGNED_PROJECT_ID {
+                predicates.push("0 = 1".to_owned());
+            } else {
+                predicates.push("catalog.project_id = ?".to_owned());
+                values.push(SqlValue::Text(project.to_owned()));
+            }
+        }
+        if !request.search.trim().is_empty() {
+            predicates.push("(COALESCE(catalog.title, '') LIKE ? ESCAPE '\\' OR catalog.thread_id LIKE ? ESCAPE '\\')".to_owned());
+            let search = format!(
+                "%{}%",
+                request
+                    .search
+                    .trim()
+                    .replace('\\', "\\\\")
+                    .replace('%', "\\%")
+                    .replace('_', "\\_")
+            );
+            values.extend([SqlValue::Text(search.clone()), SqlValue::Text(search)]);
+        }
+        let order = match request.sort {
+            "recent" => "catalog.updated_at DESC",
+            "output" => "COALESCE(usage.output, 0) DESC",
+            "requests" => "COALESCE(usage.requests, 0) DESC",
+            _ => "COALESCE(usage.tokens, 0) DESC",
+        };
+        let relation = format!(
+            "WITH usage AS ({usage_sql})
+             SELECT {{columns}} FROM thread_catalog catalog
+             LEFT JOIN usage ON usage.root_thread_id = catalog.thread_id
+             WHERE {}",
+            predicates.join(" AND ")
+        );
+        // A bundle already owns a consistent read snapshot. Standalone page
+        // queries still need their own count/rows snapshot.
+        let transaction = if self.connection.is_autocommit() {
+            Some(self.connection.unchecked_transaction()?)
+        } else {
+            None
+        };
+        let total: i64 = self.connection.query_row(
+            &relation.replace("{columns}", "COUNT(*)"),
+            params_from_iter(values.iter()),
+            |row| row.get(0),
+        )?;
+        let sql = format!("{} ORDER BY {order}, catalog.thread_id ASC LIMIT ? OFFSET ?", relation.replace("{columns}",
+            "catalog.thread_id, catalog.parent_thread_id, catalog.project_id, catalog.project_name, catalog.title, catalog.model,
+             catalog.agent_nickname, catalog.agent_role, catalog.agent_path, COALESCE(catalog.depth, 0), catalog.created_at,
+             catalog.updated_at, catalog.archived, catalog.has_user_event, catalog.source_kind, catalog.present_in_codex"));
+        values.push(SqlValue::Integer(request.limit.clamp(1, 100) as i64));
+        values.push(SqlValue::Integer(
+            i64::try_from(request.offset).unwrap_or(i64::MAX),
+        ));
+        let rows = self
+            .connection
+            .prepare(&sql)?
+            .query_map(params_from_iter(values), dashboard_catalog_thread_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        if let Some(transaction) = transaction {
+            transaction.commit()?;
+        }
+        Ok((rows, u64_from_sql(total, 0)?))
     }
 
     pub fn dashboard_catalog_descendants(

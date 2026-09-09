@@ -19,21 +19,7 @@ struct LockedDashboardWebView: NSViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        let safeLanguage = initialLanguage == "en" ? "en" : "zh-CN"
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: "try { window.localStorage.setItem('ledger.language', '\(safeLanguage)'); } catch (_) {}",
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        configuration.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.contentSecurityPolicyScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
+        context.coordinator.updateBootstrapLanguage(initialLanguage, in: configuration.userContentController)
         for message in DashboardBridgeMessage.allCases {
             configuration.userContentController.add(context.coordinator, name: message.rawValue)
         }
@@ -55,6 +41,7 @@ struct LockedDashboardWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.updateBootstrapLanguage(initialLanguage, in: webView.configuration.userContentController)
         if abs(webView.pageZoom - pageZoom) > 0.001 {
             webView.pageZoom = pageZoom
         }
@@ -100,6 +87,17 @@ struct LockedDashboardWebView: NSViewRepresentable {
         private var isLoaded: Binding<Bool>
         private let onLanguageChange: (String) -> Void
         private var loadedReloadToken: UUID?
+        private var languageBootstrap = DashboardLanguageBootstrap()
+
+        func updateBootstrapLanguage(_ language: String, in controller: WKUserContentController) {
+            guard let script = languageBootstrap.update(language) else { return }
+            // Replace document-start scripts before a future navigation. Keep
+            // CSP injection and message handlers intact; don't reset React state.
+            controller.removeAllUserScripts()
+            for source in [script, LockedDashboardWebView.contentSecurityPolicyScript] {
+                controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+            }
+        }
 
         init(allowedURL: URL, isLoaded: Binding<Bool>, onLanguageChange: @escaping (String) -> Void) {
             allowedScheme = allowedURL.scheme ?? "http"

@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QuotaIntervalUsageResponse",
+  "type": "object",
+  "properties": {
+    "accountId": {
+      "type": "string"
+    },
+    "chart": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QuotaIntervalChart"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverageComplete": {
+      "type": "boolean"
+    },
+    "end": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "events": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "intervalId": {
+      "type": "string"
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/QuotaIntervalUsageGroup"
+      }
+    },
+    "observedAt": {
+      "type": "string"
+    },
+    "poolAttribution": {
+      "type": "boolean"
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/QuotaIntervalUsageGroup"
+      }
+    },
+    "quotaView": {
+      "$ref": "#/$defs/QuotaHistoryView"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "start": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string"
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TokenUsage"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "scope",
+    "status",
+    "intervalId",
+    "accountId",
+    "quotaView",
+    "observedAt",
+    "start",
+    "end",
+    "coverageComplete",
+    "poolAttribution",
+    "events",
+    "usage",
+    "models",
+    "projects"
+  ],
+  "$defs": {
+    "QuotaChartBucket": {
+      "type": "object",
+      "properties": {
+        "end": {
+          "type": "string"
+        },
+        "events": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "events",
+        "usage"
+      ]
+    },
+    "QuotaChartObservation": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "usedPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "required": [
+        "at",
+        "usedPercent"
+      ]
+    },
+    "QuotaHistoryView": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "asOf": {
+          "type": "string"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "instance",
+        "revision",
+        "account",
+        "asOf"
+      ]
+    },
+    "QuotaIntervalChart": {
+      "type": "object",
+      "properties": {
+        "buckets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaChartBucket"
+          }
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuotaChartObservation"
+          }
+        },
+        "observationsTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "observations",
+        "observationsTruncated",
+        "buckets"
+      ]
+    },
+    "QuotaIntervalUsageGroup": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "events",
+        "usage"
+      ]
+    },
+    "TokenUsage": {
+      "type": "object",
+      "properties": {
+        "cacheWrite": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteCoverage": {
+          "type": "number",
+          "format": "double"
+        },
+        "cacheWriteObservedInput": {
+          "type": "number",
+          "format": "double"
+        },
+        "cached": {
+          "type": "number",
+          "format": "double"
+        },
+        "input": {
+          "type": "number",
+          "format": "double"
+        },
+        "output": {
+          "type": "number",
+          "format": "double"
+        },
+        "reasoning": {
+          "type": "number",
+          "format": "double"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        },
+        "uncached": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "input",
+        "cached",
+        "cacheWrite",
+        "cacheWriteObservedInput",
+        "cacheWriteCoverage",
+        "uncached",
+        "output",
+        "reasoning",
+        "total"
+      ]
+    }
+  }
+}

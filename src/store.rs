@@ -18,13 +18,201 @@ use crate::types::{
 };
 
 mod account_repository;
+mod candidate_comparison;
 mod core_repository;
+mod correction_preview;
+mod correction_shadow;
+pub use correction_preview::{
+    CorrectionPreviewFilter, CorrectionPreviewGrain, create_correction_preview,
+    read_correction_preview,
+};
+pub use correction_shadow::{
+    apply_shadow_correction, apply_shadow_correction_with_policy, create_review_shadow,
+    link_shadow_sampling,
+};
 mod dashboard_repository;
 mod ingest_repository;
 mod maintenance_repository;
 mod migrations;
+mod overlap_repository;
+mod preview_overlap;
 mod project_repository;
+pub use preview_overlap::compare_preview_sampling;
+mod quota_history_repository;
+mod quota_repository;
+pub use quota_history_repository::{QuotaHistoryCursor, QuotaHistoryPage};
+mod receipt_repository;
+mod review_transfer;
+pub use review_transfer::prepare_review_transfer;
+mod request_repository;
+mod snapshot_memo;
+mod union_main_preview;
+mod union_projection;
+mod union_query;
+mod union_scope;
+pub use union_query::{SourceUnionGrain, SourceUnionQuery};
+mod union_repository;
+use receipt_repository::deduplicate_sampling_receipt_in;
 mod usage_repository;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainedRequestCursor {
+    pub effective_at: String,
+    pub event_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetainedRequestObservation {
+    pub cursor: RetainedRequestCursor,
+    pub turn_id: Option<String>,
+    pub model: Option<String>,
+    pub observed_account: Option<String>,
+    pub observed_project: Option<String>,
+    pub observed_account_confidence: AttributionConfidence,
+    pub observed_project_confidence: AttributionConfidence,
+    pub quality: DataQuality,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetainedRequestPage {
+    pub observations: Vec<RetainedRequestObservation>,
+    pub next: Option<RetainedRequestCursor>,
+}
+
+pub struct RetainedTurnObservation {
+    pub group_id: String,
+    pub turn_id: Option<String>,
+    pub first_at: String,
+    pub last_at: String,
+    pub request_count: u64,
+    pub confirmed_request_count: u64,
+    pub usage: TokenUsage,
+}
+
+pub struct RetainedTurnPage {
+    pub observations: Vec<RetainedTurnObservation>,
+    pub next_offset: Option<usize>,
+}
+
+pub struct RetainedRequestScope<'a> {
+    pub thread_id: &'a str,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub account: Option<&'a str>,
+    pub model: Option<&'a str>,
+}
+
+/// Diagnostic only: a consistent candidate is not proven request equality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateOverlapStatus {
+    RequestUnavailable,
+    NotLinked,
+    TargetUnavailable,
+    UnverifiableTime,
+    DifferentEvidence,
+    ConsistentCandidate,
+    SharedCandidate,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditRow {
+    pub cursor: RetainedRequestCursor,
+    pub source_model: Option<String>,
+    pub status: CandidateOverlapStatus,
+    pub quality: DataQuality,
+    pub confirmed_usage: Option<TokenUsage>,
+    pub comparison: CandidateComparison,
+    pub policy_day: Option<String>,
+    pub retained_side_selected_by_day_policy: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DayPolicySource {
+    Sampling,
+    Reconstruction,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayPolicyContext {
+    pub policy: &'static str,
+    pub scope: &'static str,
+    pub day: String,
+    pub sampling_records: u64,
+    pub sampling_tokens: u64,
+    pub reconstruction_records: u64,
+    pub reconstruction_tokens: u64,
+    pub selected_source: Option<DayPolicySource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateMismatch {
+    SourceUnconfirmed,
+    Thread,
+    Model,
+    Input,
+    CacheRead,
+    CacheWrite,
+    CacheWriteCoverage,
+    Output,
+    Reasoning,
+    Total,
+    TimeOutsideTolerance,
+    UnverifiableTime,
+    InvalidCandidateUsage,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateComparison {
+    pub status: CandidateOverlapStatus,
+    pub candidate_id: Option<String>,
+    pub candidate_at: Option<String>,
+    pub candidate_thread_id: Option<String>,
+    pub candidate_model: Option<String>,
+    pub candidate_usage: Option<TokenUsage>,
+    pub candidate_usage_valid: Option<bool>,
+    pub linked_records: u64,
+    /// Positive means the candidate is later than the retained observation.
+    pub candidate_minus_source_nanoseconds: Option<i64>,
+    pub mismatches: Vec<CandidateMismatch>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditGroup {
+    pub status: CandidateOverlapStatus,
+    pub records: u64,
+    pub confirmed_records: u64,
+    pub confirmed_usage: Option<TokenUsage>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CandidateAuditPage {
+    pub scope: &'static str,
+    pub group_totals_scope: &'static str,
+    pub schema_version: i64,
+    pub audit_version: u32,
+    pub read_only: bool,
+    pub request_equality_proven: bool,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub selected_account: Option<String>,
+    pub selected_model: Option<String>,
+    pub rows: Vec<CandidateAuditRow>,
+    pub groups: Vec<CandidateAuditGroup>,
+    pub day_policy_contexts: Vec<DayPolicyContext>,
+    pub next: Option<RetainedRequestCursor>,
+}
 #[cfg(test)]
 use migrations::{
     CURRENT_SCHEMA_VERSION, MIGRATION_1, MIGRATION_2, MIGRATION_3, MIGRATION_4, MIGRATION_5,
@@ -32,11 +220,37 @@ use migrations::{
     MIGRATION_13, MIGRATION_14, MIGRATION_15,
 };
 pub const RAW_EVENT_RETENTION_DAYS: i64 = 7;
+pub(crate) const RECONSTRUCTION_IDENTITY_REVIEW_REQUIRED: &str =
+    "source_identity_verification_required";
 pub const STANDALONE_CONVERSATIONS_PROJECT_ID: &str = "__standalone_conversations__";
 pub const UNASSIGNED_PROJECT_ID: &str = "unassigned";
 
 #[derive(Debug, Error)]
 pub enum StoreError {
+    #[error(
+        "reconstruction policy checkpoint changed concurrently; retry without overwriting progress"
+    )]
+    ReconstructionPolicyConflict,
+    #[error(
+        "existing reconstruction history extends beyond the resume boundary; reviewed migration required"
+    )]
+    ReconstructionPolicyOverlap,
+    #[error("quota interval dimensions do not reconcile with the selected total")]
+    QuotaIntervalMismatch,
+    #[error("stored quota window projection disagrees with its immutable snapshot")]
+    QuotaWindowConflict,
+    #[error(
+        "requested timezone needs per-request time evidence unavailable in this window; choose an hour-aligned timezone or a narrower window"
+    )]
+    InsufficientTimePrecision,
+    #[error(
+        "usage snapshot could not stabilize while source selection was changing; retry the query"
+    )]
+    SnapshotUnavailable,
+    #[error(transparent)]
+    Union(#[from] crate::source_union::UnionError),
+    #[error("source union exceeds bounded observation limit; choose a smaller window")]
+    UnionLimit,
     #[error(transparent)]
     Sqlite(#[from] rusqlite::Error),
     #[error(transparent)]
@@ -52,14 +266,30 @@ pub enum StoreError {
     },
     #[error("database schema {found} is newer than supported schema {supported}")]
     SchemaTooNew { found: i64, supported: i64 },
+    #[error("read-only audit needs schema {supported}; found {found}; no migration was run")]
+    UnsupportedAuditSchema { found: i64, supported: i64 },
     #[error("invalid IANA timezone {0:?}")]
     InvalidTimezone(String),
+    #[error("invalid retained-request query: {0}")]
+    InvalidRequestQuery(&'static str),
+    #[error("conflicting explicit turn membership for event {0}")]
+    TurnEvidenceConflict(String),
+    #[error("conflicting sampling candidate link for event {0}")]
+    CandidateLinkConflict(String),
+    #[error("conflicting sampling receipt identity for event {0}")]
+    SamplingReceiptConflict(String),
+    #[error("conflicting source record evidence for event {0}")]
+    SourceRecordConflict(String),
     #[error("usage aggregate overflowed u64")]
     AggregateOverflow,
     #[error("daily rollup does not reconcile with raw event totals")]
     RollupMismatch,
     #[error("daily rollup must be verified before raw event compaction")]
     RollupNotVerified,
+    #[error(
+        "retained request evidence differs from raw facts; compaction rolled back without deleting this batch"
+    )]
+    RetainedEvidenceMismatch,
     #[error("compacted event {event_id} was replayed with different immutable usage data")]
     CompactedEventConflict { event_id: String },
     #[error("reconstruction event {event_id} was replayed with different immutable data")]
@@ -114,6 +344,20 @@ pub struct ReconstructionSourceStatus {
 pub struct ReconstructionEvent {
     pub event: UsageEvent,
     pub counter_epoch: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReconstructionAuditFact {
+    pub event_id: String,
+    pub stored_hash: Option<String>,
+    pub at: DateTime<Utc>,
+    pub thread: Option<String>,
+    pub model: Option<String>,
+    pub account: Option<String>,
+    pub project: Option<String>,
+    pub record_key: Option<String>,
+    pub usage: TokenUsage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,6 +567,16 @@ pub struct DashboardCatalogThread {
     pub present_in_codex: bool,
 }
 
+pub(crate) struct ConversationPageRequest<'a> {
+    pub ranked_usage: Option<&'a [RootUsageBucket]>,
+    pub project_id: Option<&'a str>,
+    pub filter: &'a AggregateFilter,
+    pub search: &'a str,
+    pub sort: &'a str,
+    pub offset: usize,
+    pub limit: usize,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DashboardCatalogCounts {
     pub current_sessions: usize,
@@ -372,6 +626,18 @@ pub struct LedgerTableCounts {
     pub file_cursors: u64,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetainedHashAudit {
+    pub version: u32,
+    pub compared_rows: u64,
+    pub mismatched_hashes: u64,
+    pub current_serialization_matches_raw: u64,
+    pub current_serialization_matches_retained: u64,
+    pub next_after_rowid: Option<i64>,
+    pub repair_authorized: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthTimelineRow {
     pub epoch_id: i64,
@@ -416,6 +682,9 @@ pub struct CollectorStatus {
 
 pub struct LedgerStore {
     connection: Connection,
+    exact_series_memo: std::cell::RefCell<Option<snapshot_memo::SnapshotMemo>>,
+    union_main_preview: bool,
+    union_diagnostic_preview: bool,
 }
 
 const EVENT_SELECT_COLUMNS: &str = "event_id, observed_at, source_timestamp, thread_id, \
@@ -426,7 +695,13 @@ reasoning_output_tokens, total_tokens, quality, quality_reason, machine_id, \
 source_id, rollout_id, file_identity, byte_offset, line_number";
 
 fn event_hash(event: &UsageEvent) -> StoreResult<String> {
-    let encoded = serde_json::to_vec(event)?;
+    // Supplemental source turn membership must not invalidate legacy dedup keys.
+    let mut identity = event.clone();
+    identity.provenance.source_turn_id = None;
+    identity.provenance.candidate_rollout_event_id = None;
+    identity.provenance.sampling_receipt_key = None;
+    identity.provenance.source_record_key = None;
+    let encoded = serde_json::to_vec(&identity)?;
     Ok(hex::encode(Sha256::digest(encoded)))
 }
 
@@ -435,6 +710,7 @@ fn upsert_reconstruction_event_in(
     reconstruction: &ReconstructionEvent,
 ) -> StoreResult<UpsertOutcome> {
     let event = &reconstruction.event;
+    retain_source_record_in(transaction, "reconstruction", event)?;
     event
         .usage
         .validate()
@@ -627,8 +903,27 @@ fn upsert_event_in(
             .validate()
             .map_err(StoreError::InvalidConfirmedUsage)?;
     }
+    if let Some(outcome) = deduplicate_sampling_receipt_in(transaction, event)? {
+        return Ok(outcome);
+    }
     upsert_event_thread_catalog_in(transaction, event)?;
     let new_hash = event_hash(event)?;
+    let compacted_hash: Option<String> = transaction
+        .query_row(
+            "SELECT event_hash FROM compacted_event_keys WHERE event_id=?1",
+            params![event.event_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(compacted_hash) = compacted_hash {
+        if compacted_hash != new_hash {
+            return Err(StoreError::CompactedEventConflict {
+                event_id: event.event_id.clone(),
+            });
+        }
+        retain_request_evidence_in(transaction, event, false)?;
+        return Ok(UpsertOutcome::Unchanged);
+    }
     let old_hash: Option<String> = transaction
         .query_row(
             "SELECT event_hash FROM usage_events WHERE event_id = ?1",
@@ -637,6 +932,13 @@ fn upsert_event_in(
         )
         .optional()?;
     if old_hash.as_deref() == Some(new_hash.as_str()) {
+        if event.provenance.source_turn_id.is_some()
+            || event.provenance.candidate_rollout_event_id.is_some()
+            || event.provenance.sampling_receipt_key.is_some()
+            || event.provenance.source_record_key.is_some()
+        {
+            retain_request_evidence_in(transaction, event, false)?;
+        }
         return Ok(UpsertOutcome::Unchanged);
     }
 
@@ -722,6 +1024,7 @@ fn upsert_event_in(
             sql_u64(event.provenance.line_number, "line_number")?,
         ],
     )?;
+    retain_request_evidence_in(transaction, event, true)?;
     Ok(if old_hash.is_some() {
         UpsertOutcome::Updated
     } else {
@@ -763,6 +1066,9 @@ fn upsert_compact_event_in(
     transaction: &rusqlite::Transaction<'_>,
     event: &UsageEvent,
 ) -> StoreResult<UpsertOutcome> {
+    if let Some(outcome) = deduplicate_sampling_receipt_in(transaction, event)? {
+        return Ok(outcome);
+    }
     let raw_hash: Option<String> = transaction
         .query_row(
             "SELECT event_hash FROM usage_events WHERE event_id = ?1",
@@ -784,6 +1090,13 @@ fn upsert_compact_event_in(
         .optional()?;
     if let Some(existing_hash) = compacted_hash {
         if existing_hash == new_hash {
+            if event.provenance.source_turn_id.is_some()
+                || event.provenance.candidate_rollout_event_id.is_some()
+                || event.provenance.sampling_receipt_key.is_some()
+                || event.provenance.source_record_key.is_some()
+            {
+                retain_request_evidence_in(transaction, event, false)?;
+            }
             return Ok(UpsertOutcome::Unchanged);
         }
         return Err(StoreError::CompactedEventConflict {
@@ -805,7 +1118,165 @@ fn upsert_compact_event_in(
         params![event.event_id, new_hash, timestamp(Utc::now())],
     )?;
     upsert_rollup_delta_in(transaction, event)?;
+    retain_request_evidence_in(transaction, event, true)?;
     Ok(UpsertOutcome::Inserted)
+}
+
+// Retained observations are not an additional accounting source. Attribution
+// here describes the ingest observation; reassigned totals remain rollup-owned.
+fn retain_source_record_in(
+    transaction: &rusqlite::Transaction<'_>,
+    source: &str,
+    event: &UsageEvent,
+) -> StoreResult<()> {
+    let Some(key) = event.provenance.source_record_key.as_deref() else {
+        return Ok(());
+    };
+    let existing: Option<String> = transaction.query_row(
+        "SELECT record_key FROM source_record_evidence WHERE evidence_source=?1 AND event_id=?2",
+        params![source, event.event_id], |row| row.get(0),
+    ).optional()?;
+    if existing.as_deref().is_some_and(|existing| existing != key) {
+        return Err(StoreError::SourceRecordConflict(event.event_id.clone()));
+    }
+    transaction.execute(
+        "INSERT INTO source_record_evidence(evidence_source,event_id,record_key)
+        VALUES (?1,?2,?3) ON CONFLICT(evidence_source,event_id) DO NOTHING",
+        params![source, event.event_id, key],
+    )?;
+    Ok(())
+}
+
+fn retain_request_evidence_in(
+    transaction: &rusqlite::Transaction<'_>,
+    event: &UsageEvent,
+    update_assignment: bool,
+) -> StoreResult<()> {
+    retain_source_record_in(transaction, "sampling", event)?;
+    if let Some(receipt) = event.provenance.sampling_receipt_key.as_deref() {
+        let existing: Option<String> = transaction
+            .query_row(
+                "SELECT receipt_key FROM sampling_source_receipts WHERE event_id=?1",
+                params![event.event_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing
+            .as_deref()
+            .is_some_and(|existing| existing != receipt)
+        {
+            return Err(StoreError::SamplingReceiptConflict(event.event_id.clone()));
+        }
+        transaction.execute(
+            "INSERT INTO sampling_source_receipts(event_id,receipt_key) VALUES (?1,?2)
+             ON CONFLICT(event_id) DO NOTHING",
+            params![event.event_id, receipt],
+        )?;
+    }
+    transaction.execute(
+        "INSERT INTO retained_request_assignments(event_id,account_fingerprint,project_id)
+         VALUES (?1,?2,?3) ON CONFLICT(event_id) DO UPDATE SET
+         account_fingerprint=excluded.account_fingerprint, project_id=excluded.project_id WHERE ?4",
+        params![
+            event.event_id,
+            event.account_fingerprint,
+            event.project.project_id,
+            update_assignment
+        ],
+    )?;
+    transaction.execute(
+        "INSERT INTO retained_request_origins(event_id,machine_id) VALUES (?1,?2)
+         ON CONFLICT(event_id) DO UPDATE SET machine_id=excluded.machine_id",
+        params![event.event_id, event.provenance.machine_id],
+    )?;
+    if let Some(candidate) = event.provenance.candidate_rollout_event_id.as_deref() {
+        let existing: Option<String> = transaction
+            .query_row(
+                "SELECT reconstruction_event_id FROM sampling_candidate_links WHERE event_id=?1",
+                params![event.event_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if existing
+            .as_deref()
+            .is_some_and(|existing| existing != candidate)
+        {
+            return Err(StoreError::CandidateLinkConflict(event.event_id.clone()));
+        }
+        transaction.execute(
+            "INSERT INTO sampling_candidate_links(event_id,reconstruction_event_id,method)
+             VALUES (?1,?2,'unique_nearest_timestamp') ON CONFLICT(event_id) DO NOTHING",
+            params![event.event_id, candidate],
+        )?;
+    }
+    let existing_turn: Option<String> = transaction
+        .query_row(
+            "SELECT turn_id FROM retained_request_evidence WHERE event_id=?1",
+            params![event.event_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    if let (Some(existing), Some(incoming)) = (
+        existing_turn.as_deref(),
+        event.provenance.source_turn_id.as_deref(),
+    ) && existing != incoming
+    {
+        return Err(StoreError::TurnEvidenceConflict(event.event_id.clone()));
+    }
+    transaction.execute(
+        "INSERT INTO retained_request_evidence(
+           event_id, event_hash, effective_at, thread_id, model,
+           account_fingerprint, project_id, quality, input_tokens,
+           cached_input_tokens, cache_write_input_tokens,
+           cache_write_observed_input_tokens, output_tokens,
+           reasoning_output_tokens, total_tokens, account_confidence, project_confidence, turn_id
+         ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)
+         ON CONFLICT(event_id) DO UPDATE SET
+           event_hash=excluded.event_hash, effective_at=excluded.effective_at,
+           thread_id=excluded.thread_id, model=excluded.model,
+           account_fingerprint=excluded.account_fingerprint, project_id=excluded.project_id,
+           quality=excluded.quality, input_tokens=excluded.input_tokens,
+           cached_input_tokens=excluded.cached_input_tokens,
+           cache_write_input_tokens=excluded.cache_write_input_tokens,
+           cache_write_observed_input_tokens=excluded.cache_write_observed_input_tokens,
+           output_tokens=excluded.output_tokens,
+           reasoning_output_tokens=excluded.reasoning_output_tokens,
+           total_tokens=excluded.total_tokens,
+           account_confidence=excluded.account_confidence,
+           project_confidence=excluded.project_confidence,
+           turn_id=COALESCE(excluded.turn_id, retained_request_evidence.turn_id)",
+        params![
+            event.event_id,
+            event_hash(event)?,
+            timestamp(event.source_timestamp.unwrap_or(event.observed_at)),
+            event.thread_id,
+            event.model,
+            event.account_fingerprint,
+            event.project.project_id,
+            quality_name(event.quality),
+            sql_u64(event.usage.input_tokens, "input_tokens")?,
+            sql_u64(event.usage.cached_input_tokens, "cached_input_tokens")?,
+            sql_u64(
+                event.usage.cache_write_input_tokens,
+                "cache_write_input_tokens"
+            )?,
+            sql_u64(
+                event.usage.cache_write_observed_input_tokens,
+                "cache_write_observed_input_tokens"
+            )?,
+            sql_u64(event.usage.output_tokens, "output_tokens")?,
+            sql_u64(
+                event.usage.reasoning_output_tokens,
+                "reasoning_output_tokens"
+            )?,
+            sql_u64(event.usage.total_tokens, "total_tokens")?,
+            confidence_name(event.account_confidence),
+            confidence_name(event.project.confidence),
+            event.provenance.source_turn_id,
+        ],
+    )?;
+    Ok(())
 }
 
 fn upsert_rollup_delta_in(
@@ -1337,6 +1808,10 @@ fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<UsageEvent> {
         quality: parse_quality_column(&quality, 20)?,
         quality_reason: row.get(21)?,
         provenance: EventProvenance {
+            source_turn_id: None,
+            candidate_rollout_event_id: None,
+            sampling_receipt_key: None,
+            source_record_key: None,
             machine_id: row.get(22)?,
             source_id: row.get(23)?,
             rollout_id: row.get(24)?,

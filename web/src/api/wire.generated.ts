@@ -6,9 +6,10 @@
  */
 
 export type TimeGrain = "hour" | "day" | "week" | "month";
-export type PeriodKey = "today" | "week" | "rolling7" | "month" | "rolling30" | "weeks12" | "months12" | "lifetime";
+export type PeriodKey =
+  "today" | "week" | "rolling7" | "month" | "rolling30" | "weeks12" | "months12" | "year" | "custom" | "lifetime";
 export type PeriodWindowKind = "calendar" | "rolling" | "lifetime";
-export type CollectionPhase = "idle" | "optimizing" | "compacting" | "backfill" | "syncing" | "live";
+export type CollectionPhase = "idle" | "optimizing" | "compacting" | "backfill" | "syncing" | "degraded" | "live";
 export type ExplorerProjectKind = "project" | "standalone_conversations" | "unmatched_records";
 export type ExplorerSessionKind = "session" | "orphan_subagent";
 export type QualitySeverity = "info" | "warning" | "critical";
@@ -17,7 +18,8 @@ export type SourceStatus = "fresh" | "delayed" | "offline";
 export type MachineScope = "all_devices" | "this_machine";
 export type MetricSource = "official" | "local" | "reconciled";
 export type MetricStatus = "exact" | "lower_bound" | "local_sample" | "unknown";
-export type MissingEstimateStatus = "conservative_floor" | "insufficient_coverage" | "not_applicable_to_single_account";
+export type MissingEstimateStatus =
+  "conservative_floor" | "unexplained_difference" | "insufficient_coverage" | "not_applicable_to_single_account";
 export type DataMode = "mock" | "http";
 export type DisplayTotalKind =
   "official" | "official_plus_local_tail_lower_bound" | "local_lower_bound" | "not_applicable";
@@ -121,6 +123,7 @@ export interface CollectionStatus {
   rollupItemsCompleted: number;
   rollupItemsTotal: number;
   updatedAt: string;
+  usagePolicy?: string | null;
 }
 export interface ExplorerResponse {
   generatedAt: string;
@@ -128,6 +131,7 @@ export interface ExplorerResponse {
   projects: ExplorerProject[];
   rankingWindows: ExplorerRankingWindows;
   selectedSession?: ExplorerSessionDetail | null;
+  sessionPage?: ExplorerSessionPage | null;
   sessions: ExplorerSession[];
   stats: ExplorerStats;
 }
@@ -164,9 +168,12 @@ export interface ExplorerRankingWindows {
 export interface ExplorerSessionDetail {
   createdAt: string;
   id: string;
+  localDistributions?: SessionDistributions | null;
   model: string | null;
+  nodePage?: ExplorerSessionPage | null;
   nodes: ExplorerSessionNode[];
   officialThreadUsage: OfficialThreadUsage | null;
+  ownEventCount?: number | null;
   ownSamplingTimeline: SamplingTimelinePoint[];
   ownUsage: TokenUsage;
   presentInCodex: boolean;
@@ -176,9 +183,32 @@ export interface ExplorerSessionDetail {
   samplingTimeline: SamplingTimelinePoint[];
   subagentCount: number;
   title: string;
+  treeEventCount?: number | null;
   treeUsage: TokenUsage;
   truncated: boolean;
   updatedAt: string;
+}
+export interface SessionDistributions {
+  own: SessionDistributionScope;
+  tree: SessionDistributionScope;
+}
+export interface SessionDistributionScope {
+  accounts: SessionDistributionRow[] | null;
+  models: SessionDistributionRow[] | null;
+}
+export interface SessionDistributionRow {
+  events: number;
+  id: string | null;
+  label: string;
+  usage: TokenUsage;
+}
+export interface ExplorerSessionPage {
+  hasMore: boolean;
+  limit: number;
+  offset: number;
+  search: string;
+  sort: string;
+  total: number;
 }
 export interface ExplorerSessionNode {
   agentNickname: string | null;
@@ -227,6 +257,7 @@ export interface SamplingTimelinePoint {
 }
 export interface ExplorerSession {
   active: boolean;
+  actualModels?: (string | null)[] | null;
   archived: boolean;
   createdAt: string;
   eventCount: number;
@@ -328,14 +359,14 @@ export interface QualityStateSummary {
 }
 export interface SummaryResponse {
   attributionCoverage: AttributionCoverage;
-  averagePerDay: number;
-  cacheRate: number;
+  averagePerDay: number | null;
+  cacheRate: number | null;
   comparison: SummaryComparison;
   confirmedEvents: number;
   filters: FilterCatalog;
   generatedAt: string;
   latestConfirmedAt: string | null;
-  matchRate: number;
+  matchRate: number | null;
   metrics: SummaryMetrics;
   missingAccountEstimate: MissingAccountEstimate;
   mode: DataMode;
@@ -426,7 +457,7 @@ export interface MetricCoverage {
   complete: boolean;
   knownAccountCount: number;
   missingOfficialAccountCount: number;
-  ratio: number;
+  ratio: number | null;
 }
 export interface MissingAccountEstimate {
   alignedAccountDays: number;
@@ -551,18 +582,22 @@ export interface ReconciledAccountDay {
 export interface QuotaCycle {
   accountId: string;
   accountLabel: string;
+  boundaryAfter?: string | null;
+  boundaryKind?: string | null;
   cycleEnd: string | null;
   cycleStart: string | null;
   empiricalRatioIsConversion: boolean;
   empiricalTokensPerUsedPercent: number | null;
   firstObservedAt: string;
   firstUsedPercent: number | null;
+  historyLimited?: boolean | null;
   id: string;
   label: string;
   lastObservedAt: string;
   limitId: string;
   localCoverageRatio: number | null;
   localEvents: number;
+  localObservationEnd?: string | null;
   localObservationStart: string;
   localUsage: TokenUsage;
   role: string;
@@ -595,14 +630,23 @@ export interface SummaryReconciliation {
   reason: string;
 }
 export interface TimeseriesResponse {
+  accountSeries?: ProjectSeries[] | null;
   comparisonPoints: TimeseriesComparisonPoint[];
+  dailyPoints?: TimeseriesComparisonPoint[] | null;
   generatedAt: string;
   grain: TimeGrain;
+  modelSeries?: ProjectSeries[] | null;
   official: OfficialUsageView;
   period: PeriodWindow;
   points: TimeseriesPoint[];
   projectSeries: ProjectSeries[];
   timeline: TimelineEvent[];
+}
+export interface ProjectSeries {
+  id: string;
+  label: string;
+  points: TimeseriesComparisonPoint[];
+  totalTokens: number;
 }
 export interface TimeseriesComparisonPoint {
   confirmed: TokenUsage;
@@ -617,12 +661,6 @@ export interface TimeseriesPoint {
   quarantinedEvents: number;
   unknown: TokenUsage;
   unknownEvents: number;
-}
-export interface ProjectSeries {
-  id: string;
-  label: string;
-  points: TimeseriesComparisonPoint[];
-  totalTokens: number;
 }
 export interface TimelineEvent {
   accountId: string | null;

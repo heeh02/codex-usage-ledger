@@ -34,11 +34,12 @@ final class LedgerServiceController: ObservableObject {
     private var failureAfterTermination: String?
     private var applicationIsTerminating = false
     private var diagnosticBuffer = LedgerProcessDiagnostics()
+    private var stopDeadline: Task<Void, Never>?
 
-    private init(defaults: UserDefaults = .standard) {
+    private init(defaults: UserDefaults = LedgerLaunchProfile.preferences) {
         self.defaults = defaults
         uiLanguage = defaults.string(forKey: NativeLocalization.defaultsKey) ?? NativeLocalization.language
-        collectionEnabled = defaults.bool(forKey: Self.collectionDefaultsKey)
+        collectionEnabled = !LedgerLaunchProfile.unionRequested && defaults.bool(forKey: Self.collectionDefaultsKey)
         if defaults.object(forKey: Self.pageZoomDefaultsKey) != nil {
             pageZoom = min(
                 max(defaults.double(forKey: Self.pageZoomDefaultsKey), Self.minimumPageZoom),
@@ -57,10 +58,13 @@ final class LedgerServiceController: ObservableObject {
     }
 
     var collectionMenuTitle: String {
-        collectionEnabled
+        if !canCollect { return NativeLocalization.text("只读验证 · 采集已禁用", "Read-only validation · Collection disabled") }
+        return collectionEnabled
             ? NativeLocalization.text("停止采集", "Stop collection")
             : NativeLocalization.text("开始采集…", "Start collection…")
     }
+
+    var canCollect: Bool { !LedgerLaunchProfile.unionRequested }
 
     func updateUILanguage(_ language: String) {
         guard language == "zh-CN" || language == "en", language != uiLanguage else { return }
@@ -119,6 +123,7 @@ final class LedgerServiceController: ObservableObject {
     }
 
     func toggleCollectionWithConfirmation() {
+        guard canCollect else { return }
         if collectionEnabled {
             defaults.set(false, forKey: Self.collectionDefaultsKey)
             collectionEnabled = false
@@ -130,8 +135,8 @@ final class LedgerServiceController: ObservableObject {
         alert.alertStyle = .warning
         alert.messageText = NativeLocalization.text("开始采集 Codex 用量？", "Start collecting Codex usage?")
         alert.informativeText = NativeLocalization.text(
-            "首次采集可能需要扫描约 73 GB 的本机 Codex 会话日志，耗时和磁盘读取量都可能较大。\n\n应用会把内置服务从只读看板切换到持续采集模式；Swift 外壳本身不会读取或写入 Codex 登录凭据。",
-            "The first collection may scan about 73 GB of local Codex session logs and can take significant time and disk I/O.\n\nThe bundled service switches from read-only dashboard mode to continuous collection. The Swift shell never reads or writes Codex login credentials."
+            "采集会分批读取本机 Codex 日志并保存用量证据，耗时和磁盘读取量取决于可用历史；之后按检查点继续。\n\n应用会把内置服务从看板模式切换到持续采集模式；Swift 外壳本身不会读取或写入 Codex 登录凭据。",
+            "Collection reads local Codex logs in batches and retains usage evidence. Time and disk I/O depend on available history; later runs resume from checkpoints.\n\nThe bundled service switches from dashboard mode to continuous collection. The Swift shell never reads or writes Codex login credentials."
         )
         alert.addButton(withTitle: NativeLocalization.text("开始采集", "Start collection"))
         alert.addButton(withTitle: NativeLocalization.text("取消", "Cancel"))
@@ -145,6 +150,8 @@ final class LedgerServiceController: ObservableObject {
     }
 
     func stopForApplicationExit() {
+        stopDeadline?.cancel()
+        stopDeadline = nil
         applicationIsTerminating = true
         pendingMode = nil
         expectedTermination = true
@@ -170,26 +177,34 @@ final class LedgerServiceController: ObservableObject {
     }
 
     private func transition(to mode: LedgerServiceMode) {
+        let stopInProgress: Bool
+        if case .stopping = state { stopInProgress = true } else { stopInProgress = false }
         switch LedgerServiceLifecycle.decision(
             applicationIsTerminating: applicationIsTerminating,
             processIsRunning: child?.isRunning == true,
             currentMode: childMode,
-            requestedMode: mode
+            requestedMode: mode,
+            stopInProgress: stopInProgress
         ) {
         case .ignore:
             return
+        case .updatePendingMode(let nextMode):
+            pendingMode = nextMode
+            state = .stopping(next: nextMode)
         case .stopThenLaunch(let nextMode):
             guard let child else { return }
             pendingMode = nextMode
             expectedTermination = true
             state = .stopping(next: nextMode)
-            child.terminate()
+            requestBoundedStop(child)
         case .launch(let launchMode):
             launch(launchMode)
         }
     }
 
     private func launch(_ mode: LedgerServiceMode) {
+        stopDeadline?.cancel()
+        stopDeadline = nil
         do {
             let paths = try LedgerRuntimePaths.resolve()
             try paths.validateBundledResources()
@@ -198,17 +213,8 @@ final class LedgerServiceController: ObservableObject {
             let process = Process()
             process.executableURL = paths.binary
             process.currentDirectoryURL = paths.applicationSupportDirectory
-            process.arguments = [
-                mode.rawValue,
-                "--db", paths.database.path,
-                "--listen", "127.0.0.1:47127",
-                "--web-root", paths.webRoot.path,
-            ]
-
-            var environment = ProcessInfo.processInfo.environment
-            environment["NO_COLOR"] = "1"
-            environment["RUST_LOG"] = environment["RUST_LOG"] ?? "codex_usage_ledger=info"
-            process.environment = environment
+            process.arguments = paths.serviceArguments(mode: mode)
+            process.environment = paths.serviceEnvironment(inherited: ProcessInfo.processInfo.environment)
 
             let outputPipe = Pipe()
             let errorPipe = Pipe()
@@ -261,12 +267,13 @@ final class LedgerServiceController: ObservableObject {
             request.timeoutInterval = 0.45
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
-                let identity = try? JSONDecoder().decode(HealthIdentity.self, from: data)
+                // The awaited response can belong to another listener or an
+                // earlier launch generation. Never reveal a dashboard for it.
+                guard generation == expectedGeneration,
+                      self.child === child, child.isRunning, childMode == mode else { return }
                 if let http = response as? HTTPURLResponse,
-                   (200..<300).contains(http.statusCode),
-                   identity?.service == "codex-usage-ledger",
-                   identity?.status == "ok",
-                   child.isRunning {
+                   LedgerHealthIdentity.matches(data, statusCode: http.statusCode,
+                                                expectedProcessId: child.processIdentifier) {
                     state = .running(mode)
                     reloadToken = UUID()
                     try? LedgerRuntimePaths.resolve().secureDatabasePermissionsIfPresent()
@@ -284,16 +291,31 @@ final class LedgerServiceController: ObservableObject {
         failureAfterTermination = message
         expectedTermination = true
         state = .failed(message)
-        child.terminate()
+        requestBoundedStop(child)
     }
 
-    private struct HealthIdentity: Decodable {
-        let service: String
-        let status: String
+    private func requestBoundedStop(_ process: Process) {
+        stopDeadline?.cancel()
+        let stoppingGeneration = generation
+        stopDeadline = LedgerProcessStopDeadline.stop(process, stillOwned: { [weak self] in
+            guard let self else { return false }
+            return !self.applicationIsTerminating && self.generation == stoppingGeneration
+                && self.child === process
+        }, onFailure: { [weak self] code in
+            guard let self else { return }
+            self.pendingMode = nil
+            let message = NativeLocalization.text(
+                "本地进程未能停止（错误 \(code)）；已取消模式切换。",
+                "The local process could not be stopped (error \(code)); mode switching was cancelled.")
+            self.failureAfterTermination = message
+            self.state = .failed(message)
+        })
     }
 
     private func handleTermination(of terminatedProcess: Process, generation terminatedGeneration: Int) {
         guard terminatedGeneration == generation else { return }
+        stopDeadline?.cancel()
+        stopDeadline = nil
 
         detachPipeHandlers()
         child = nil

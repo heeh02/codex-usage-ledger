@@ -11,7 +11,7 @@ use std::{
     process::{Child, ChildStdin, Command, Stdio},
     sync::mpsc::{self, Receiver},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -91,14 +91,12 @@ struct RpcEnvelope {
 
 /// Fetches the signed-in account's official token activity through Codex's
 /// stable `account/usage/read` app-server method.
-pub fn fetch_official_account_usage() -> Result<OfficialAccountUsage> {
+pub(crate) fn fetch_official_usage_at(
+    home: &Path,
+    thread_id: Option<&str>,
+) -> Result<OfficialAccountUsage> {
     let binary = discover_codex_binary().context("locate a Codex app-server binary")?;
-    fetch_with_binary(&binary, None)
-}
-
-pub fn fetch_official_thread_usage(thread_id: &str) -> Result<Option<OfficialThreadUsage>> {
-    let binary = discover_codex_binary().context("locate a Codex app-server binary")?;
-    Ok(fetch_with_binary(&binary, Some(thread_id))?.thread_usage)
+    fetch_with_binary(&binary, home, thread_id)
 }
 
 pub fn discover_codex_binary() -> Option<PathBuf> {
@@ -127,12 +125,12 @@ pub fn discover_codex_binary() -> Option<PathBuf> {
     })
 }
 
-fn fetch_with_binary(binary: &Path, thread_id: Option<&str>) -> Result<OfficialAccountUsage> {
-    let mut child = Command::new(binary)
-        .args(["app-server", "--listen", "stdio://"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+fn fetch_with_binary(
+    binary: &Path,
+    home: &Path,
+    thread_id: Option<&str>,
+) -> Result<OfficialAccountUsage> {
+    let mut child = app_server_command(binary, home)
         .spawn()
         .with_context(|| format!("start {} app-server", binary.display()))?;
 
@@ -142,10 +140,26 @@ fn fetch_with_binary(binary: &Path, thread_id: Option<&str>) -> Result<OfficialA
     result
 }
 
+fn app_server_command(binary: &Path, home: &Path) -> Command {
+    let mut command = Command::new(binary);
+    command
+        .args(["app-server", "--listen", "stdio://"])
+        .args(["-c", "cli_auth_credentials_store=\"file\""])
+        .env("CODEX_HOME", home)
+        .env_remove("CODEX_ACCESS_TOKEN")
+        .env_remove("CODEX_API_KEY")
+        .env_remove("OPENAI_API_KEY")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    command
+}
+
 fn exchange_usage_request(
     child: &mut Child,
     thread_id: Option<&str>,
 ) -> Result<OfficialAccountUsage> {
+    let deadline = Instant::now() + RESPONSE_TIMEOUT;
     let mut stdin = child
         .stdin
         .take()
@@ -182,20 +196,55 @@ fn exchange_usage_request(
             }
         }),
     )?;
-    wait_for_response(&receiver, 1)?;
+    wait_for_response(&receiver, 1, deadline)?;
     send_rpc(&mut stdin, &json!({"method": "initialized", "params": {}}))?;
+    send_rpc(
+        &mut stdin,
+        &json!({"method":"account/read","id":2,"params":{"refreshToken":false}}),
+    )?;
+    let before = account_metadata(wait_for_response(&receiver, 2, deadline)?)?;
     let params = thread_id
         .map(|thread_id| json!({"threadId": thread_id}))
         .unwrap_or(Value::Null);
     send_rpc(
         &mut stdin,
-        &json!({"method": "account/usage/read", "id": 2, "params": params}),
+        &json!({"method": "account/usage/read", "id": 3, "params": params}),
     )?;
-    let response = wait_for_response(&receiver, 2)?;
+    let response = wait_for_response(&receiver, 3, deadline)?;
     let result = response
         .result
         .context("account/usage/read returned no result")?;
-    serde_json::from_value(result).context("decode account/usage/read response")
+    let usage: OfficialAccountUsage =
+        serde_json::from_value(result).context("decode account/usage/read response")?;
+    send_rpc(
+        &mut stdin,
+        &json!({"method":"account/read","id":4,"params":{"refreshToken":false}}),
+    )?;
+    let after = account_metadata(wait_for_response(&receiver, 4, deadline)?)?;
+    if before != after {
+        bail!("app-server account changed during usage read; result discarded");
+    }
+    if let Some(requested) = thread_id
+        && usage
+            .thread_usage
+            .as_ref()
+            .is_some_and(|value| value.thread_id != requested)
+    {
+        bail!("official thread response did not match requested thread");
+    }
+    if thread_id.is_none() && usage.thread_usage.is_some() {
+        bail!("account usage request returned a thread-only response");
+    }
+    Ok(usage)
+}
+
+fn account_metadata(response: RpcEnvelope) -> Result<Value> {
+    let account = response
+        .result
+        .and_then(|value| value.get("account").cloned())
+        .filter(|value| value.get("type").and_then(Value::as_str) == Some("chatgpt"))
+        .ok_or_else(|| anyhow!("app-server has no ChatGPT account for usage read"))?;
+    Ok(account)
 }
 
 fn send_rpc(stdin: &mut ChildStdin, request: &Value) -> Result<()> {
@@ -205,10 +254,18 @@ fn send_rpc(stdin: &mut ChildStdin, request: &Value) -> Result<()> {
     Ok(())
 }
 
-fn wait_for_response(receiver: &Receiver<String>, expected_id: u64) -> Result<RpcEnvelope> {
+fn wait_for_response(
+    receiver: &Receiver<String>,
+    expected_id: u64,
+    deadline: Instant,
+) -> Result<RpcEnvelope> {
     loop {
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|value| !value.is_zero())
+            .ok_or_else(|| anyhow!("Codex app-server exchange timed out"))?;
         let line = receiver
-            .recv_timeout(RESPONSE_TIMEOUT)
+            .recv_timeout(remaining)
             .with_context(|| format!("wait for Codex app-server response {expected_id}"))?;
         let Ok(envelope) = serde_json::from_str::<RpcEnvelope>(&line) else {
             continue;
@@ -216,8 +273,8 @@ fn wait_for_response(receiver: &Receiver<String>, expected_id: u64) -> Result<Rp
         if envelope.id != Some(expected_id) {
             continue;
         }
-        if let Some(error) = &envelope.error {
-            bail!("Codex app-server request {expected_id} failed: {error}");
+        if envelope.error.is_some() {
+            bail!("Codex app-server request {expected_id} failed");
         }
         if envelope.result.is_none() {
             return Err(anyhow!("Codex app-server response {expected_id} was empty"));
@@ -235,23 +292,117 @@ mod tests {
     use super::*;
 
     #[test]
+    fn child_command_uses_explicit_home_and_does_not_inherit_alternate_auth_modes() {
+        let command =
+            app_server_command(Path::new("synthetic-codex"), Path::new("/synthetic/home"));
+        let args = command
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            args.windows(2)
+                .any(|p| p == ["-c", "cli_auth_credentials_store=\"file\""])
+        );
+        let env = command
+            .get_envs()
+            .collect::<std::collections::BTreeMap<_, _>>();
+        assert_eq!(
+            env[std::ffi::OsStr::new("CODEX_HOME")],
+            Some(std::ffi::OsStr::new("/synthetic/home"))
+        );
+        for key in ["CODEX_ACCESS_TOKEN", "CODEX_API_KEY", "OPENAI_API_KEY"] {
+            assert_eq!(env[std::ffi::OsStr::new(key)], None);
+        }
+    }
+
+    #[test]
+    fn fixed_deadline_is_not_extended_by_notifications_and_errors_are_sanitized() {
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(r#"{"method":"account/updated"}"#.into())
+            .unwrap();
+        sender.send(r#"{"id":7,"result":{}}"#.into()).unwrap();
+        assert!(wait_for_response(&receiver, 7, Instant::now()).is_err());
+        assert!(wait_for_response(&receiver, 7, Instant::now() + Duration::from_secs(1)).is_ok());
+        sender
+            .send(r#"{"id":8,"error":{"message":"SYNTHETIC_PRIVATE_DETAIL"}}"#.into())
+            .unwrap();
+        let error =
+            wait_for_response(&receiver, 8, Instant::now() + Duration::from_secs(1)).unwrap_err();
+        assert!(!error.to_string().contains("SYNTHETIC_PRIVATE_DETAIL"));
+        for account in [
+            Value::Null,
+            json!({"type":"apiKey"}),
+            json!({"type":"amazonBedrock"}),
+        ] {
+            assert!(
+                account_metadata(RpcEnvelope {
+                    id: Some(2),
+                    result: Some(json!({"account":account})),
+                    error: None
+                })
+                .is_err()
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn actual_stdio_exchange_brackets_usage_and_rejects_account_or_thread_changes() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let binary = directory.path().join("synthetic-app-server");
+        let before = json!({"type":"chatgpt","email":"synthetic@example.com","planType":"pro"});
+        for mode in ["same", "changed", "wrong-thread", "thread-in-account"] {
+            let after = if mode == "changed" {
+                json!({"type":"chatgpt","email":"other@example.com","planType":"pro"})
+            } else {
+                before.clone()
+            };
+            let usage = if mode == "wrong-thread" || mode == "thread-in-account" {
+                json!({"summary":{},"dailyUsageBuckets":[],"threadUsage":{"threadId":"wrong","estimatedUsageCreditsMicros":0,"groups":[]}})
+            } else {
+                json!({"summary":{"lifetimeTokens":120},"dailyUsageBuckets":[{"startDate":"2026-01-01","tokens":120}]})
+            };
+            let script = format!(
+                "#!/bin/sh\nwhile IFS= read -r request; do\n case \"$request\" in\n *'\"refreshToken\":true'*|*'account/login'*|*'account/logout'*) exit 9;;\n *'\"id\":1,'*) printf '%s\\n' '{{\"id\":1,\"result\":{{}}}}';;\n *'\"id\":2,'*) printf '%s\\n' '{}';;\n *'\"id\":3,'*) printf '%s\\n' '{}';;\n *'\"id\":4,'*) printf '%s\\n' '{}';;\n esac\ndone\n",
+                json!({"id":2,"result":{"account":before}}),
+                json!({"id":3,"result":usage}),
+                json!({"id":4,"result":{"account":after}})
+            );
+            std::fs::write(&binary, script).unwrap();
+            std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let result = fetch_with_binary(
+                &binary,
+                directory.path(),
+                (mode == "wrong-thread").then_some("requested"),
+            );
+            if mode == "same" {
+                assert_eq!(result.unwrap().summary.lifetime_tokens, Some(120));
+            } else {
+                assert!(result.is_err(), "{mode} was accepted");
+            }
+        }
+    }
+
+    #[test]
     fn decodes_the_official_profile_shape() {
         let usage: OfficialAccountUsage = serde_json::from_value(json!({
             "summary": {
-                "lifetimeTokens": 61_052_184_141_u64,
-                "peakDailyTokens": 4_124_570_551_u64,
-                "longestRunningTurnSec": 53_003,
-                "currentStreakDays": 11,
-                "longestStreakDays": 28
+                "lifetimeTokens": 1_200_000_000_u64,
+                "peakDailyTokens": 120_000_000_u64,
+                "longestRunningTurnSec": 600,
+                "currentStreakDays": 3,
+                "longestStreakDays": 7
             },
             "dailyUsageBuckets": [
-                {"startDate": "2026-08-28", "tokens": 3_773_478_465_u64}
+                {"startDate": "2026-01-01", "tokens": 100_000_000_u64}
             ],
             "threadUsage": null
         }))
         .unwrap();
-        assert_eq!(usage.summary.lifetime_tokens, Some(61_052_184_141));
-        assert_eq!(usage.daily_usage_buckets[0].tokens, 3_773_478_465);
+        assert_eq!(usage.summary.lifetime_tokens, Some(1_200_000_000));
+        assert_eq!(usage.daily_usage_buckets[0].tokens, 100_000_000);
     }
 
     #[test]

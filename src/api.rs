@@ -24,7 +24,7 @@ use sha2::Digest;
 use tokio::sync::RwLock;
 
 use crate::{
-    official_usage::{fetch_official_account_usage, fetch_official_thread_usage},
+    official_scope::OfficialUsageScope,
     store::{
         AggregateDimension, AggregateFilter, DashboardCatalogCounts,
         DashboardCatalogThread as CatalogThread, LedgerStore, ResidualUsageRow,
@@ -74,7 +74,9 @@ use queries::{
     aggregate_selected_period, aggregate_selected_period_by, http_breakdowns, http_bundle,
     http_quality, http_timeseries,
 };
+mod quota_history;
 mod reconciliation;
+mod requests;
 use reconciliation::{
     account_registry, account_registry_value, aggregate_date_key, compact_official_usage_view,
     missing_account_estimate, official_day_bounds, official_usage_view,
@@ -85,7 +87,6 @@ mod routes;
 use routes::accepts_local_origin;
 pub use routes::{ApiError, UsageQuery, router};
 mod snapshot;
-use snapshot::aggregate_for_quality;
 pub use snapshot::snapshot_from_store;
 mod summary;
 use summary::http_summary;
@@ -95,6 +96,7 @@ pub mod wire;
 
 #[derive(Clone)]
 pub struct ApiState {
+    official_scope: Option<OfficialUsageScope>,
     snapshot: Arc<RwLock<DashboardSnapshot>>,
     store: Option<Arc<Mutex<LedgerStore>>>,
     query_path: Option<PathBuf>,
@@ -102,8 +104,26 @@ pub struct ApiState {
 }
 
 impl ApiState {
+    async fn query_read_only<F>(&self, operation: F) -> Result<serde_json::Value, ApiError>
+    where
+        F: FnOnce(&LedgerStore) -> Result<serde_json::Value, StoreError> + Send + 'static,
+    {
+        let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
+        let path = self.query_path.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(path) = path {
+                let reader = LedgerStore::open_read_only(path)?;
+                return operation(&reader).map_err(ApiError::from);
+            }
+            let guard = store.lock().map_err(|_| ApiError::StorePoisoned)?;
+            operation(&guard).map_err(ApiError::from)
+        })
+        .await
+        .map_err(|_| ApiError::WorkerStopped)?
+    }
     pub fn new(snapshot: DashboardSnapshot) -> Self {
         Self {
+            official_scope: None,
             snapshot: Arc::new(RwLock::new(snapshot)),
             store: None,
             query_path: None,
@@ -112,8 +132,15 @@ impl ApiState {
     }
 
     pub fn with_store(store: LedgerStore) -> Self {
-        let query_path = store.database_path();
+        // Connection-local acceptance views must survive every endpoint; a
+        // normal reopened reader would silently restore the legacy selector.
+        let query_path = if store.is_source_union_main_preview() {
+            None
+        } else {
+            store.database_path()
+        };
         Self {
+            official_scope: None,
             snapshot: Arc::new(RwLock::new(DashboardSnapshot::default())),
             store: Some(Arc::new(Mutex::new(store))),
             query_path,
@@ -126,6 +153,11 @@ impl ApiState {
         snapshot.revision = current.revision.saturating_add(1);
         snapshot.generated_at = Utc::now();
         *current = snapshot;
+    }
+
+    pub fn with_official_scope(mut self, scope: OfficialUsageScope) -> Self {
+        self.official_scope = Some(scope);
+        self
     }
 
     pub async fn snapshot(&self) -> DashboardSnapshot {
@@ -161,6 +193,11 @@ impl ApiState {
         .await
     }
 
+    /// The same atomic product response used by the dashboard and CLI acceptance.
+    pub async fn bundle_json(&self, query: UsageQuery) -> Result<serde_json::Value, ApiError> {
+        self.cached_query_value("bundle", query, http_bundle).await
+    }
+
     async fn query_value<F>(
         &self,
         query: UsageQuery,
@@ -171,6 +208,7 @@ impl ApiState {
             + Send
             + 'static,
     {
+        query.validate()?;
         let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
         let query_path = self.query_path.clone();
         tokio::task::spawn_blocking(move || {
@@ -204,18 +242,30 @@ impl ApiState {
         {
             return Ok(entry.value.clone());
         }
-        let value = self.query_value(query, operation).await?;
-        if let Ok(mut cache) = self.query_cache.lock() {
-            cache.retain(|_, entry| entry.created_at.elapsed() <= QUERY_CACHE_TTL);
-            cache.insert(
-                key,
-                CachedValue {
-                    created_at: Instant::now(),
-                    value: value.clone(),
-                },
-            );
-        }
-        Ok(value)
+        let cache = self.query_cache.clone();
+        self.query_value(query, move |store, query| {
+            // Union readers share one connection. Recheck after acquiring it:
+            // another identical request may have filled the cache while we waited.
+            if let Ok(cache) = cache.lock()
+                && let Some(entry) = cache.get(&key)
+                && entry.created_at.elapsed() <= QUERY_CACHE_TTL
+            {
+                return Ok(entry.value.clone());
+            }
+            let value = operation(store, query)?;
+            if let Ok(mut cache) = cache.lock() {
+                cache.retain(|_, entry| entry.created_at.elapsed() <= QUERY_CACHE_TTL);
+                cache.insert(
+                    key,
+                    CachedValue {
+                        created_at: Instant::now(),
+                        value: value.clone(),
+                    },
+                );
+            }
+            Ok(value)
+        })
+        .await
     }
 
     fn invalidate_query_cache(&self) {
@@ -226,22 +276,16 @@ impl ApiState {
 
     async fn refresh_official_usage(&self) -> Result<serde_json::Value, ApiError> {
         let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
-        let account = {
-            let store = store.clone();
-            tokio::task::spawn_blocking(move || {
-                let guard = store.lock().map_err(|_| ApiError::StorePoisoned)?;
-                guard
-                    .active_account_fingerprint()
-                    .map_err(ApiError::from)?
-                    .ok_or(ApiError::ActiveAccountUnavailable)
-            })
-            .await
-            .map_err(|_| ApiError::WorkerStopped)??
-        };
-        let usage = tokio::task::spawn_blocking(fetch_official_account_usage)
+        let scope = self
+            .official_scope
+            .clone()
+            .ok_or(ApiError::ActiveAccountUnavailable)?;
+        let bound = tokio::task::spawn_blocking(move || scope.fetch(None))
             .await
             .map_err(|_| ApiError::WorkerStopped)?
             .map_err(|error| ApiError::OfficialUsage(error.to_string()))?;
+        let account = bound.account;
+        let usage = bound.usage;
         let observed_at = Utc::now();
         let summary = usage.summary.clone();
         let bucket_count = usage.daily_usage_buckets.len();
@@ -267,26 +311,18 @@ impl ApiState {
         thread_id: String,
     ) -> Result<serde_json::Value, ApiError> {
         let store = self.store.clone().ok_or(ApiError::StoreUnavailable)?;
-        let account = {
-            let store = store.clone();
-            tokio::task::spawn_blocking(move || {
-                let guard = store.lock().map_err(|_| ApiError::StorePoisoned)?;
-                guard
-                    .active_account_fingerprint()
-                    .map_err(ApiError::from)?
-                    .ok_or(ApiError::ActiveAccountUnavailable)
-            })
-            .await
-            .map_err(|_| ApiError::WorkerStopped)??
-        };
+        let scope = self
+            .official_scope
+            .clone()
+            .ok_or(ApiError::ActiveAccountUnavailable)?;
         let requested_thread = thread_id.clone();
-        let usage =
-            tokio::task::spawn_blocking(move || fetch_official_thread_usage(&requested_thread))
-                .await
-                .map_err(|_| ApiError::WorkerStopped)?
-                .map_err(|error| ApiError::OfficialUsage(error.to_string()))?;
+        let bound = tokio::task::spawn_blocking(move || scope.fetch(Some(&requested_thread)))
+            .await
+            .map_err(|_| ApiError::WorkerStopped)?
+            .map_err(|error| ApiError::OfficialUsage(error.to_string()))?;
+        let account = bound.account;
         let observed_at = Utc::now();
-        let Some(usage) = usage else {
+        let Some(usage) = bound.usage.thread_usage else {
             return Ok(serde_json::json!({"status": "unavailable", "threadId": thread_id}));
         };
         let response = usage.clone();

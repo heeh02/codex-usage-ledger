@@ -1,0 +1,12 @@
+.quota-interval-chart { margin-block: 16px; min-width: 0; }
+.quota-interval-chart h3 { font-size: 16px; }
+.quota-interval-chart-scroll { overflow-x: auto; }
+.quota-interval-chart svg { display: block; width: 100%; min-width: 560px; }
+.quota-interval-chart svg text { fill: var(--muted); font: 12px system-ui; }
+.quota-chart-grid { stroke: var(--line); stroke-width: 1; }
+.quota-chart-step { fill: none; stroke: var(--accent); stroke-width: 2; }
+.quota-chart-point { fill: var(--accent); }
+.quota-chart-bar { fill: var(--blue); }
+.quota-interval-chart-table { max-height: 320px; overflow: auto; }
+.quota-interval-chart table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.quota-interval-chart td, .quota-interval-chart th { padding: 6px; text-align: left; border-bottom: 1px solid var(--line); }

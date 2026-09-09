@@ -178,6 +178,8 @@ pub(super) fn quota_duration_label(minutes: u64) -> String {
 
 #[derive(Debug, Clone)]
 struct QuotaObservation {
+    history_limited: bool,
+    snapshot_id: String,
     account: String,
     window_key: String,
     limit_id: String,
@@ -205,7 +207,34 @@ fn quota_observations(
         .collect::<BTreeSet<_>>();
     let mut observations = Vec::new();
     for account in accounts {
+        if let Some((windows, history_limited)) =
+            store.indexed_quota_window_preview(&account, 1000)?
+        {
+            for window in windows {
+                observations.push(QuotaObservation {
+                    history_limited,
+                    snapshot_id: window.snapshot_id,
+                    account: account.clone(),
+                    window_key: window.stream_key,
+                    label: quota_display_label(
+                        window.limit_name.as_deref(),
+                        Some(&window.limit_id),
+                        &window.pool_key,
+                    ),
+                    limit_id: window.limit_id,
+                    role: window.role,
+                    observed_at: window.observed_at,
+                    used_percent: window.used_percent,
+                    window_seconds: window.window_seconds,
+                    resets_at: window
+                        .resets_at_unix
+                        .and_then(|at| Utc.timestamp_opt(at, 0).single()),
+                });
+            }
+            continue;
+        }
         let mut snapshots = store.list_quota_snapshots(&account, 1_000)?;
+        let history_limited = snapshots.len() == 1_000;
         snapshots.reverse();
         for stored in snapshots {
             for pool in stored.snapshot.pools {
@@ -218,15 +247,12 @@ fn quota_observations(
                     pool.limit_id.as_deref(),
                     &pool.pool_key,
                 );
-                for window in pool.windows {
-                    let role = format!("{:?}", window.role).to_ascii_lowercase();
-                    let window_key = format!(
-                        "{}:{}:{}",
-                        limit_id,
-                        role,
-                        window.server_name.to_ascii_lowercase()
-                    );
+                for window in &pool.windows {
+                    let role = window.role.as_str().to_owned();
+                    let window_key = crate::quota::window_stream_key(&pool, window);
                     observations.push(QuotaObservation {
+                        history_limited,
+                        snapshot_id: stored.snapshot_id.clone(),
                         account: account.clone(),
                         window_key,
                         limit_id: limit_id.clone(),
@@ -260,67 +286,101 @@ pub(super) fn quota_cycle_views(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<Vec<serde_json::Value>, StoreError> {
+    use crate::quota::cycles::{WindowSample, segments};
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     let observations = quota_observations(store, query)?;
     let mut by_window = BTreeMap::<(String, String), Vec<QuotaObservation>>::new();
     for observation in observations {
+        if observation.observed_at > now {
+            continue;
+        }
         by_window
             .entry((observation.account.clone(), observation.window_key.clone()))
             .or_default()
             .push(observation);
     }
-    let now = Utc::now();
-    let mut cycles = Vec::new();
-    for ((account, window_key), observations) in by_window {
-        let Some(latest) = observations.last() else {
-            continue;
-        };
-        let current_reset = latest.resets_at;
-        let current = observations
+    let (filter, _) = filter_and_period(query, DataQuality::Confirmed);
+    let mut candidates = Vec::new();
+    for ((account, window_key), observations) in &by_window {
+        let samples = observations
             .iter()
-            .rev()
-            .take_while(|observation| observation.resets_at == current_reset)
-            .cloned()
+            .map(|item| WindowSample {
+                at: item.observed_at.timestamp_millis(),
+                reset: item.resets_at.map(|at| at.timestamp_millis()),
+                seconds: item.window_seconds,
+                used: item.used_percent,
+            })
             .collect::<Vec<_>>();
-        let Some(first) = current.last() else {
-            continue;
-        };
-        let cycle_start =
-            latest
-                .resets_at
-                .zip(latest.window_seconds)
-                .and_then(|(reset, seconds)| {
-                    i64::try_from(seconds)
-                        .ok()
-                        .map(|seconds| reset - ChronoDuration::seconds(seconds))
-                });
-        let local_start = cycle_start
-            .map(|start| start.max(first.observed_at))
-            .unwrap_or(first.observed_at);
-        // Quota cards are contextual telemetry, not an exact billing ledger.
-        // Hour buckets keep the card responsive even with years of retained
-        // request evidence; the UI already reports the observation coverage.
-        let local_usage = store.aggregate_hourly_usage(&AggregateFilter {
-            start_inclusive: Some(local_start),
-            end_exclusive: Some(now + ChronoDuration::seconds(1)),
-            account_fingerprint: Some(account.clone()),
-            project_id: None,
-            model: None,
-            quality: Some(DataQuality::Confirmed),
-        })?;
-        let first_used = first.used_percent;
-        let latest_used = latest.used_percent;
-        let used_delta = first_used
-            .zip(latest_used)
-            .map(|(first, latest)| latest - first);
-        let elapsed_cycle_seconds =
-            cycle_start.map(|start| now.signed_duration_since(start).num_seconds().max(1) as f64);
-        let observed_seconds = now.signed_duration_since(local_start).num_seconds().max(0) as f64;
-        let local_coverage_ratio =
-            elapsed_cycle_seconds.map(|elapsed| (observed_seconds / elapsed).clamp(0.0, 1.0));
-        let empirical_tokens_per_percent = used_delta
-            .and_then(|delta| (delta > 0.0).then(|| local_usage.usage.total_tokens as f64 / delta));
+        for segment in segments(&samples) {
+            let first = &observations[segment.samples.start];
+            let latest = &observations[segment.samples.end - 1];
+            let planned_start =
+                latest
+                    .resets_at
+                    .zip(latest.window_seconds)
+                    .and_then(|(reset, seconds)| {
+                        i64::try_from(seconds).ok().and_then(|seconds| {
+                            ChronoDuration::try_seconds(seconds)
+                                .and_then(|duration| reset.checked_sub_signed(duration))
+                        })
+                    });
+            let mut start = planned_start.map_or(first.observed_at, |at| at.max(first.observed_at));
+            let mut end = latest.resets_at.map_or(now, |at| at.min(now));
+            if let Some(next) = observations.get(segment.samples.end) {
+                // Only a reported deadline lying between these observations can
+                // close the old interval beyond its last observation. Otherwise
+                // preserve the uncertain boundary gap instead of assigning it.
+                let boundary_end = latest
+                    .resets_at
+                    .filter(|at| *at >= latest.observed_at && *at <= next.observed_at)
+                    .unwrap_or(latest.observed_at);
+                end = end.min(boundary_end);
+            }
+            if let Some(at) = filter.start_inclusive {
+                start = start.max(at);
+            }
+            if let Some(at) = filter.end_exclusive {
+                end = end.min(at);
+            }
+            if start > end
+                || filter.start_inclusive.is_some_and(|at| end <= at)
+                || filter.end_exclusive.is_some_and(|at| start >= at)
+            {
+                continue;
+            }
+            candidates.push((
+                account,
+                window_key,
+                first,
+                latest,
+                segment,
+                planned_start,
+                start,
+                end,
+            ));
+        }
+    }
+    candidates.sort_by_key(|(_, _, first, _, _, _, _, _)| std::cmp::Reverse(first.observed_at));
+    let more_segments = candidates.len() > 20;
+    let mut cycles = Vec::new();
+    for (account, window_key, first, latest, segment, planned_start, local_start, local_end) in
+        candidates.into_iter().take(20)
+    {
+        // This is account activity in an observed interval, NOT pool ownership.
+        // Preserve exact edges; never allocate hourly totals proportionally.
+        let local_usage = super::queries::aggregate_exact_hour_window(
+            store,
+            &AggregateFilter {
+                start_inclusive: Some(local_start),
+                end_exclusive: Some(local_end),
+                account_fingerprint: Some(account.clone()),
+                project_id: selected(&query.project),
+                model: selected(&query.model),
+                quality: Some(DataQuality::Confirmed),
+            },
+        )?;
         cycles.push(serde_json::json!({
-            "id": format!("{}:{}:{}", account, window_key, current_reset.map(|value| value.timestamp()).unwrap_or_default()),
+            "id": format!("{}:{}:{}", account, window_key, first.snapshot_id),
             "accountId": account,
             "accountLabel": account_label(&latest.account),
             "limitId": latest.limit_id,
@@ -328,33 +388,27 @@ pub(super) fn quota_cycle_views(
             "role": latest.role,
             "windowKind": quota_window_kind(latest.window_seconds),
             "windowMinutes": latest.window_seconds.map(|seconds| seconds / 60),
-            "cycleStart": cycle_start,
+            "cycleStart": planned_start,
             "cycleEnd": latest.resets_at,
             "firstObservedAt": first.observed_at,
             "lastObservedAt": latest.observed_at,
-            "firstUsedPercent": first_used,
-            "usedPercent": latest_used,
-            "usedDeltaPercent": used_delta,
-            "sampleCount": current.len(),
+            "firstUsedPercent": first.used_percent,
+            "usedPercent": latest.used_percent,
+            "usedDeltaPercent": first.used_percent.zip(latest.used_percent).map(|(a,b)| b-a),
+            "sampleCount": segment.samples.len(),
             "localObservationStart": local_start,
-            "localCoverageRatio": local_coverage_ratio,
+            "localObservationEnd": local_end,
+            "boundaryKind": segment.boundary.code(),
+            "boundaryAfter": segment.boundary_after.and_then(DateTime::<Utc>::from_timestamp_millis),
+            "historyLimited": more_segments || latest.history_limited,
+            "localCoverageRatio": null,
             "localUsage": token_value(local_usage.usage),
             "localEvents": local_usage.event_count,
             "localUsageResolution": "hour",
-            "empiricalTokensPerUsedPercent": empirical_tokens_per_percent,
+            "empiricalTokensPerUsedPercent": null,
             "empiricalRatioIsConversion": false,
         }));
     }
-    cycles.sort_by(|left, right| {
-        let left_weekly = left.get("windowKind").and_then(|value| value.as_str()) == Some("weekly");
-        let right_weekly =
-            right.get("windowKind").and_then(|value| value.as_str()) == Some("weekly");
-        right_weekly.cmp(&left_weekly).then_with(|| {
-            left.get("accountLabel")
-                .and_then(|value| value.as_str())
-                .cmp(&right.get("accountLabel").and_then(|value| value.as_str()))
-        })
-    });
     Ok(cycles)
 }
 

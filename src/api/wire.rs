@@ -3,6 +3,10 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 
+mod quota_history;
+pub use quota_history::QuotaHistoryResponse;
+pub use quota_history::QuotaIntervalUsageResponse;
+
 macro_rules! string_enum {
     ($name:ident { $($variant:ident),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
@@ -16,6 +20,72 @@ string_enum!(DataQuality {
     Quarantined,
     Unknown
 });
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceCursor {
+    pub after_time: String,
+    pub after_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnEvidenceRow {
+    pub group_id: String,
+    pub turn_id: Nullable<String>,
+    pub first_at: String,
+    pub last_at: String,
+    pub request_count: u64,
+    pub confirmed_request_count: u64,
+    pub confirmed_usage: Nullable<TokenUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnEvidenceResponse {
+    pub backfill_complete: bool,
+    pub scope: String,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: String,
+    pub end: String,
+    pub selected_account: Nullable<String>,
+    pub selected_model: Nullable<String>,
+    pub next_offset: Nullable<usize>,
+    pub rows: Vec<TurnEvidenceRow>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceRow {
+    pub id: String,
+    pub at: String,
+    pub turn_id: Nullable<String>,
+    pub model: Nullable<String>,
+    pub observed_account: Nullable<String>,
+    pub observed_project: Nullable<String>,
+    pub account_confidence: AttributionConfidence,
+    pub project_confidence: AttributionConfidence,
+    pub quality: DataQuality,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestEvidenceResponse {
+    pub backfill_complete: bool,
+    pub selection_attribution: String,
+    pub selected_account: Nullable<String>,
+    pub selected_model: Nullable<String>,
+    pub scope: String,
+    pub attribution: String,
+    pub history_complete: bool,
+    pub thread_id: String,
+    pub start: String,
+    pub end: String,
+    pub next: Nullable<RequestEvidenceCursor>,
+    pub rows: Vec<RequestEvidenceRow>,
+}
 string_enum!(QuotaPoolStatus {
     Healthy,
     Warning,
@@ -59,6 +129,7 @@ string_enum!(CollectionPhase {
     Compacting,
     Backfill,
     Syncing,
+    Degraded,
     Live
 });
 string_enum!(ExplorerProjectKind {
@@ -131,6 +202,8 @@ pub enum PeriodKey {
     Rolling30,
     Weeks12,
     Months12,
+    Year,
+    Custom,
     Lifetime,
 }
 
@@ -155,6 +228,7 @@ pub enum DisplayTotalKind {
 #[serde(rename_all = "snake_case")]
 pub enum MissingEstimateStatus {
     ConservativeFloor,
+    UnexplainedDifference,
     InsufficientCoverage,
     NotApplicableToSingleAccount,
 }
@@ -456,6 +530,10 @@ pub struct QuotaCycle {
     pub used_delta_percent: Nullable<f64>,
     pub sample_count: f64,
     pub local_observation_start: String,
+    pub local_observation_end: Option<String>,
+    pub boundary_kind: Option<String>,
+    pub boundary_after: Option<String>,
+    pub history_limited: Option<bool>,
     pub local_coverage_ratio: Nullable<f64>,
     pub local_usage: TokenUsage,
     pub local_events: f64,
@@ -467,7 +545,7 @@ pub struct QuotaCycle {
 #[serde(rename_all = "camelCase")]
 pub struct MetricCoverage {
     pub complete: bool,
-    pub ratio: f64,
+    pub ratio: Nullable<f64>,
     pub known_account_count: f64,
     pub missing_official_account_count: f64,
 }
@@ -528,13 +606,13 @@ pub struct SummaryResponse {
     pub missing_account_estimate: MissingAccountEstimate,
     pub metrics: SummaryMetrics,
     pub confirmed_events: f64,
-    pub cache_rate: f64,
+    pub cache_rate: Nullable<f64>,
     pub latest_confirmed_at: Nullable<String>,
     pub quota_pools: Vec<QuotaPool>,
     pub quota_cycles: Vec<QuotaCycle>,
     pub comparison: SummaryComparison,
-    pub average_per_day: f64,
-    pub match_rate: f64,
+    pub average_per_day: Nullable<f64>,
+    pub match_rate: Nullable<f64>,
     pub unmatched_events: f64,
     pub reconciliation: SummaryReconciliation,
 }
@@ -583,12 +661,15 @@ pub struct ProjectSeries {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TimeseriesResponse {
+    pub daily_points: Option<Vec<TimeseriesComparisonPoint>>,
     pub generated_at: String,
     pub period: PeriodWindow,
     pub grain: TimeGrain,
     pub points: Vec<TimeseriesPoint>,
     pub comparison_points: Vec<TimeseriesComparisonPoint>,
     pub project_series: Vec<ProjectSeries>,
+    pub model_series: Option<Vec<ProjectSeries>>,
+    pub account_series: Option<Vec<ProjectSeries>>,
     pub official: OfficialUsageView,
     pub timeline: Vec<TimelineEvent>,
 }
@@ -701,6 +782,8 @@ pub struct QualityResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_policy: Option<String>,
     pub mode: String,
     pub phase: CollectionPhase,
     pub items_total: f64,
@@ -797,6 +880,8 @@ pub struct ExplorerProject {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerSession {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actual_models: Option<Vec<Option<String>>>,
     pub id: String,
     pub title: String,
     pub model: Nullable<String>,
@@ -873,6 +958,10 @@ pub struct OfficialThreadUsage {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ExplorerSessionDetail {
+    pub local_distributions: Option<SessionDistributions>,
+    pub node_page: Option<ExplorerSessionPage>,
+    pub own_event_count: Option<f64>,
+    pub tree_event_count: Option<f64>,
     pub id: String,
     pub title: String,
     pub project_id: Nullable<String>,
@@ -893,6 +982,27 @@ pub struct ExplorerSessionDetail {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDistributionRow {
+    pub id: Nullable<String>,
+    pub label: String,
+    pub events: f64,
+    pub usage: TokenUsage,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SessionDistributionScope {
+    pub models: Nullable<Vec<SessionDistributionRow>>,
+    pub accounts: Nullable<Vec<SessionDistributionRow>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SessionDistributions {
+    pub own: SessionDistributionScope,
+    pub tree: SessionDistributionScope,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExplorerRankingWindows {
     pub week: PeriodWindow,
     pub month: PeriodWindow,
@@ -908,7 +1018,19 @@ pub struct ExplorerResponse {
     pub stats: ExplorerStats,
     pub projects: Vec<ExplorerProject>,
     pub sessions: Vec<ExplorerSession>,
+    pub session_page: Option<ExplorerSessionPage>,
     pub selected_session: Option<ExplorerSessionDetail>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ExplorerSessionPage {
+    pub total: f64,
+    pub offset: f64,
+    pub limit: f64,
+    pub has_more: bool,
+    pub search: String,
+    pub sort: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -119,6 +119,14 @@ pub enum AttributionConfidence {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventProvenance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_rollout_event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling_receipt_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_record_key: Option<String>,
     pub machine_id: String,
     pub source_id: String,
     pub rollout_id: String,

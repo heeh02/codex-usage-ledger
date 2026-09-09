@@ -28,6 +28,8 @@ const QUOTA_RECENT_THREAD_LIMIT: i64 = 512;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountBinding {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_file_stamp: Option<crate::official_scope::AuthFileStamp>,
     pub account_fingerprint: Option<String>,
     pub confidence: AttributionConfidence,
     pub auth_generation: Option<String>,
@@ -36,6 +38,7 @@ pub struct AccountBinding {
 impl AccountBinding {
     pub fn from_identity(identity: &AuthIdentity) -> Self {
         Self {
+            auth_file_stamp: None,
             account_fingerprint: identity.account_fingerprint.clone(),
             confidence: identity.confidence,
             auth_generation: Some(identity.auth_epoch.clone()),
@@ -160,8 +163,12 @@ pub fn observe_auth(
             .context("close auth epoch after auth file removal")?;
         return Ok(None);
     }
+    let stamp = crate::official_scope::AuthFileStamp::read(auth_path)?;
     let identity = read_auth_identity(auth_path, hmac_key)
         .with_context(|| format!("read identity snapshot from {}", auth_path.display()))?;
+    if crate::official_scope::AuthFileStamp::read(auth_path)? != stamp {
+        anyhow::bail!("account source changed during identity observation");
+    }
     store
         .append_auth_epoch(machine_id, &auth_source, &identity, Utc::now())
         .context("append auth epoch")?;
@@ -176,7 +183,9 @@ pub fn observe_auth(
             .remap_account_fingerprint(&previous, account)
             .context("merge provisional historical account")?;
     }
-    Ok(Some(AccountBinding::from_identity(&identity)))
+    let mut binding = AccountBinding::from_identity(&identity);
+    binding.auth_file_stamp = Some(stamp);
+    Ok(Some(binding))
 }
 
 pub fn discover_rollouts(codex_home: &Path) -> Result<Vec<PathBuf>> {
@@ -709,6 +718,7 @@ pub fn prepare_fast_ledger(store: &mut LedgerStore, mode: &str) -> Result<()> {
         store.checkpoint_wal()?;
     }
     store.verify_rollup_before_compaction()?;
+    store.backfill_request_evidence_chunk(1000)?;
     Ok(())
 }
 
@@ -803,6 +813,7 @@ fn ingest_one_file(
         )
     } else {
         let account = binding_for_new_files.cloned().unwrap_or(AccountBinding {
+            auth_file_stamp: None,
             account_fingerprint: None,
             confidence: AttributionConfidence::Unknown,
             auth_generation: None,
@@ -1369,6 +1380,7 @@ pub fn latest_auth_binding(
     Ok(Some((
         observed_from,
         AccountBinding {
+            auth_file_stamp: None,
             account_fingerprint,
             confidence,
             auth_generation: Some(generation),
@@ -1514,12 +1526,14 @@ mod tests {
         assert!(first.quarantined_events > 0);
         assert_eq!(first.issues.len(), 0);
 
-        let trusted = store.aggregate_usage(&Default::default()).unwrap();
+        // Fixture dates intentionally stay fixed; retained rollups must still
+        // represent both qualities after the raw-retention boundary passes.
+        let trusted = store.aggregate_rollup_usage(&Default::default()).unwrap();
         let quarantined_filter = crate::store::AggregateFilter {
             quality: Some(DataQuality::Quarantined),
             ..Default::default()
         };
-        let quarantined = store.aggregate_usage(&quarantined_filter).unwrap();
+        let quarantined = store.aggregate_rollup_usage(&quarantined_filter).unwrap();
         assert!(trusted.usage.total_tokens < quarantined.usage.total_tokens);
 
         let second = ingest_all(&mut store, &codex_home, "machine-test", None).unwrap();
@@ -1608,6 +1622,7 @@ mod tests {
         .unwrap();
         let mut store = LedgerStore::open_in_memory().unwrap();
         let binding = AccountBinding {
+            auth_file_stamp: None,
             account_fingerprint: Some("account".to_owned()),
             confidence: AttributionConfidence::Verified,
             auth_generation: Some("epoch".to_owned()),

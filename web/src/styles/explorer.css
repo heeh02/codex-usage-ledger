@@ -9,6 +9,7 @@
 }
 
 .filter-bar {
+  container: usage-filters / inline-size;
   position: sticky;
   top: 8px;
   z-index: 20;
@@ -24,33 +25,37 @@
 .filter-scope {
   min-width: 0;
   display: grid;
-  grid-template-columns: 86px minmax(120px, 180px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 8px;
 }
 
 .filter-local-scope {
-  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   padding-top: 6px;
   border-top: 1px solid var(--line-soft);
 }
 
 .filter-scope-label {
+  grid-column: 1 / -1;
+  min-width: 0;
   align-self: center;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
   padding-left: 2px;
 }
 
 .filter-scope-label strong {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .filter-scope-label span {
   color: var(--muted);
-  font-size: 8px;
-  white-space: nowrap;
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .context-filter-label {
@@ -75,18 +80,6 @@
 .context-filter-label strong { font-size: 11px; font-weight: 620; }
 .context-filter-label span { color: var(--muted); font-size: 8px; }
 
-.filter-bar-overview .local-filter-grid,
-.filter-bar-quality .local-filter-grid,
-.filter-bar-session .local-filter-grid {
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-}
-
-.filter-bar-project .local-filter-grid,
-.filter-bar-conversation .local-filter-grid,
-.filter-bar-unmatched .local-filter-grid {
-  grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(110px, .8fr));
-}
-
 .account-filter-control,
 .local-filter-grid {
   min-width: 0;
@@ -94,7 +87,7 @@
 
 .local-filter-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1.25fr)) repeat(2, minmax(92px, .75fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: 8px;
 }
 
@@ -102,6 +95,39 @@
   min-width: 0;
   display: grid;
   gap: 4px;
+}
+
+/* Respond to the available panel width, including the sidebar and app zoom,
+   instead of duplicating viewport-specific page overrides. */
+@container usage-filters (max-width: 850px) {
+  .filter-account-scope > .filter-scope-label {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .filter-account-scope {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .filter-account-scope .period-control {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .filter-account-scope .refresh-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+@container usage-filters (max-width: 430px) {
+  .period-control {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .period-option {
+    min-width: 0;
+    padding-inline: 3px;
+  }
 }
 
 .filter-field > span {
@@ -125,8 +151,11 @@
 }
 
 .period-control {
-  height: 34px;
+  min-width: 0;
+  min-height: 34px;
   display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
   align-items: center;
   padding: 3px;
   border: 1px solid var(--line-soft);
@@ -135,16 +164,17 @@
 }
 
 .period-option {
+  flex: 0 0 auto;
   min-width: 42px;
-  height: 26px;
+  min-height: 30px;
   padding: 0 9px;
   border: 0;
   border-radius: 6px;
   color: var(--muted);
   background: transparent;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .period-option:hover {
@@ -170,7 +200,7 @@
   border-radius: 8px;
   color: var(--bg);
   background: var(--ink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -304,11 +334,12 @@
 }
 
 .pulse-metric small {
-  overflow: hidden;
+  overflow: visible;
   color: var(--faint);
   font-size: 8px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 .tone-green i { background: var(--accent); }
@@ -1171,3 +1202,9 @@
   background: var(--orange-soft);
   font-size: 8px;
 }
+.conversation-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 0; }
+.conversation-controls input { min-width: 140px; flex: 1 1 180px; }
+.conversation-controls input, .conversation-controls select, .conversation-controls button { min-height: 32px; border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; color: var(--ink); background: var(--surface-strong); font: inherit; font-size: 13px; }
+.conversation-controls span { font-size: 12px; color: var(--ink-secondary); }
+.conversation-controls button:disabled { opacity: 0.45; }
+.session-parent-back { min-height: 32px; margin: 8px 0; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-strong); color: var(--ink); font-size: 13px; }

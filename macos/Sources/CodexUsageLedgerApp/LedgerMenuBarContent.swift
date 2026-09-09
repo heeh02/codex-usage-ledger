@@ -16,6 +16,7 @@ struct LedgerMenuBarContent: View {
         Button(service.collectionMenuTitle) {
             service.toggleCollectionWithConfirmation()
         }
+        .disabled(!service.canCollect)
 
         Button(NativeLocalization.text("刷新看板", "Refresh dashboard")) {
             service.reloadDashboard()

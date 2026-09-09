@@ -1,0 +1,20 @@
+.quota-history-panel { padding: 16px; }
+.account-view-tabs { display: flex; gap: 6px; padding: 4px; margin-bottom: 12px; }
+.account-view-tabs button { padding: 9px 14px; border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 14px; }
+.account-view-tabs button[aria-selected="true"] { background: var(--surface-strong); border-color: var(--line); }
+.quota-history-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.quota-history-panel h2 { font-size: 18px; margin: 0 0 8px; }
+.quota-history-panel p, .quota-history-note { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.quota-history-panel button { padding: 8px 12px; flex-shrink: 0; }
+.quota-history-list { display: grid; gap: 12px; margin: 16px 0; }
+.quota-history-item { border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+.quota-history-item header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; font-size: 13px; }
+.quota-history-item header div { display: grid; gap: 4px; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.quota-history-item header strong { font-size: 15px; }
+.quota-history-item header span { color: var(--muted); }
+.quota-history-item dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 14px 0; }
+.quota-history-item dt { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.quota-history-item dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.quota-history-item summary { font-size: 13px; cursor: pointer; }
+.quota-history-panel footer { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+@media(max-width:620px) { .quota-history-item dl { grid-template-columns: 1fr; } .quota-history-panel > header { flex-wrap: wrap; } }

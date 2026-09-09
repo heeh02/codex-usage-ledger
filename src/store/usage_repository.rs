@@ -1,7 +1,123 @@
 use super::*;
 
 impl LedgerStore {
-    fn refresh_effective_source_selection(&self) -> StoreResult<()> {
+    pub(crate) fn usage_projection_ready(&self) -> StoreResult<bool> {
+        if self.union_main_preview {
+            return self.union_main_projection_ready();
+        }
+        Ok(!self.connection.query_row(
+            "SELECT dirty FROM effective_source_selection_state WHERE id=1",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?)
+    }
+
+    /// The legacy selector chooses one entire thread/day. Until that policy is
+    /// migrated, do not present affected interval totals as reconciled evidence.
+    pub(crate) fn quota_interval_needs_source_review(
+        &self,
+        account: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> StoreResult<bool> {
+        if start >= end {
+            return Err(StoreError::InvalidRequestQuery(
+                "quota interval must be positive",
+            ));
+        }
+        if self.union_main_preview {
+            let readiness = union_scope::readiness(
+                &self.connection,
+                &SourceUnionQuery {
+                    start,
+                    end,
+                    timezone: "UTC".into(),
+                    grain: SourceUnionGrain::Day,
+                    account: Some(account.into()),
+                    project: None,
+                    model: None,
+                    thread: None,
+                    include_descendants: false,
+                },
+            )?;
+            return Ok(readiness.pending_groups > 0 || readiness.unresolved_groups > 0);
+        }
+        let first = start
+            .with_timezone(&chrono_tz::Asia::Shanghai)
+            .date_naive()
+            .to_string();
+        let last = (end - ChronoDuration::nanoseconds(1))
+            .with_timezone(&chrono_tz::Asia::Shanghai)
+            .date_naive()
+            .to_string();
+        Ok(self.connection.query_row("SELECT EXISTS(
+            SELECT 1 FROM daily_usage_rollups s JOIN reconstruction_daily_rollups r USING(local_day,thread_key)
+            WHERE s.local_day>=?1 AND s.local_day<=?2 AND s.quality='confirmed'
+            AND s.event_count>0 AND r.event_count>0 AND (s.account_key=?3 OR r.account_key=?3)
+        )",params![first,last,account],|row|row.get(0))?)
+    }
+    /// Roll up already scoped per-thread facts before conversation ranking or
+    /// pagination. Unknown membership is not assigned to an invented root.
+    pub(crate) fn root_usage_from_threads(
+        &self,
+        buckets: &[UsageBucket],
+    ) -> StoreResult<Vec<RootUsageBucket>> {
+        let mut roots = BTreeMap::<String, RootUsageBucket>::new();
+        let mut membership = self.connection.prepare_cached(
+            "SELECT root_thread_id FROM thread_root_membership WHERE thread_id=?1",
+        )?;
+        for bucket in buckets {
+            let Some(thread) = bucket.key.as_deref() else {
+                continue;
+            };
+            let root: Option<String> = membership
+                .query_row([thread], |row| row.get(0))
+                .optional()?;
+            let Some(root) = root else { continue };
+            let entry = roots
+                .entry(root.clone())
+                .or_insert_with(|| RootUsageBucket {
+                    root_thread_id: root.clone(),
+                    node_count: 0,
+                    own: UsageAggregate {
+                        event_count: 0,
+                        usage: TokenUsage::default(),
+                    },
+                    tree: UsageAggregate {
+                        event_count: 0,
+                        usage: TokenUsage::default(),
+                    },
+                });
+            entry.tree.event_count = entry
+                .tree
+                .event_count
+                .checked_add(bucket.event_count)
+                .ok_or(StoreError::AggregateOverflow)?;
+            checked_add_usage(&mut entry.tree.usage, bucket.usage)?;
+            if root == thread {
+                entry.own.event_count = entry
+                    .own
+                    .event_count
+                    .checked_add(bucket.event_count)
+                    .ok_or(StoreError::AggregateOverflow)?;
+                checked_add_usage(&mut entry.own.usage, bucket.usage)?;
+            }
+        }
+        let counts = self.root_thread_member_counts(&roots.keys().cloned().collect::<Vec<_>>())?;
+        for (id, root) in &mut roots {
+            root.node_count = counts.get(id).copied().unwrap_or_default() as u64;
+        }
+        Ok(roots.into_values().collect())
+    }
+
+    pub(super) fn refresh_effective_source_selection(&self) -> StoreResult<()> {
+        if self.union_main_preview {
+            return if self.union_main_projection_ready()? {
+                Ok(())
+            } else {
+                Err(StoreError::SnapshotUnavailable)
+            };
+        }
         let dirty: bool = self.connection.query_row(
             "SELECT dirty FROM effective_source_selection_state WHERE id = 1",
             [],
@@ -12,15 +128,20 @@ impl LedgerStore {
         }
         let transaction = self.connection.unchecked_transaction()?;
         transaction.execute_batch(
-            "DELETE FROM effective_thread_day_source;
+            "DELETE FROM effective_thread_day_source
+             WHERE (local_day, thread_key) IN
+                 (SELECT local_day, thread_key FROM effective_source_dirty_keys);
              WITH sampling AS (
-                 SELECT local_day, thread_key, SUM(total_tokens) AS total_tokens
-                 FROM daily_usage_rollups WHERE quality = 'confirmed'
-                 GROUP BY local_day, thread_key
+                 SELECT facts.local_day, facts.thread_key, SUM(total_tokens) AS total_tokens
+                 FROM effective_source_dirty_keys keys
+                 CROSS JOIN daily_usage_rollups facts USING(local_day, thread_key)
+                 WHERE quality = 'confirmed'
+                 GROUP BY facts.local_day, facts.thread_key
              ), reconstructed AS (
-                 SELECT local_day, thread_key, SUM(total_tokens) AS total_tokens
-                 FROM reconstruction_daily_rollups
-                 GROUP BY local_day, thread_key
+                 SELECT facts.local_day, facts.thread_key, SUM(total_tokens) AS total_tokens
+                 FROM effective_source_dirty_keys keys
+                 CROSS JOIN reconstruction_daily_rollups facts USING(local_day, thread_key)
+                 GROUP BY facts.local_day, facts.thread_key
              ), keys AS (
                  SELECT local_day, thread_key FROM sampling
                  UNION
@@ -39,6 +160,7 @@ impl LedgerStore {
              FROM keys
              LEFT JOIN sampling USING(local_day, thread_key)
              LEFT JOIN reconstructed USING(local_day, thread_key);
+             DELETE FROM effective_source_dirty_keys;
              UPDATE effective_source_selection_state
              SET dirty = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
              WHERE id = 1;",
@@ -243,7 +365,7 @@ impl LedgerStore {
             .map_err(StoreError::from)
     }
 
-    /// Groups retained raw events inside the exact timestamp filter. This is
+    /// Groups raw and nonduplicated retained events inside the exact timestamp filter. This is
     /// used for rolling windows whose first and last buckets are partial; day
     /// and hour rollups intentionally cannot represent those boundaries.
     pub fn aggregate_exact_time_series(
@@ -253,8 +375,35 @@ impl LedgerStore {
         filter: &AggregateFilter,
         timezone: &str,
     ) -> StoreResult<Vec<UsageSeriesBucket>> {
+        self.aggregate_exact_series_scoped(grain, dimension, filter, timezone, None)
+    }
+
+    fn aggregate_exact_series_scoped(
+        &self,
+        grain: TimeGrain,
+        dimension: Option<AggregateDimension>,
+        filter: &AggregateFilter,
+        timezone: &str,
+        threads: Option<&[String]>,
+    ) -> StoreResult<Vec<UsageSeriesBucket>> {
         if uses_effective_source(filter) {
             self.refresh_effective_source_selection()?;
+        }
+        let memo_key = snapshot_memo::SeriesKey::new(
+            grain,
+            dimension,
+            filter,
+            timezone,
+            self.connection.total_changes(),
+        );
+        if threads.is_none()
+            && let Some(value) = self
+                .exact_series_memo
+                .borrow_mut()
+                .as_mut()
+                .and_then(|memo| memo.get(&memo_key))
+        {
+            return Ok(value);
         }
         let timezone = timezone
             .parse::<chrono_tz::Tz>()
@@ -269,19 +418,60 @@ impl LedgerStore {
             Some(AggregateDimension::Quality) => "quality".to_owned(),
             Some(AggregateDimension::Day) | None => "NULL".to_owned(),
         };
-        let (where_sql, values) = build_filter(filter);
+        let (mut where_sql, mut values) = build_filter(filter);
+        if let Some(threads) = threads {
+            where_sql.push_str(if where_sql.is_empty() {
+                " WHERE "
+            } else {
+                " AND "
+            });
+            where_sql.push_str("thread_id IN (SELECT value FROM json_each(?))");
+            values.push(SqlValue::Text(serde_json::to_string(threads)?));
+        }
         let table = if uses_effective_source(filter) {
             "effective_usage_events"
         } else {
             "usage_events"
         };
+        let where_sql =
+            where_sql.replace("COALESCE(source_timestamp, observed_at)", "effective_at");
         let sql = format!(
-            "SELECT COALESCE(source_timestamp, observed_at), {dimension_expression},
+            "WITH precise_events AS (
+                 SELECT event_id, COALESCE(source_timestamp, observed_at) AS effective_at, thread_id, model,
+                        account_fingerprint, project_id, quality, input_tokens,
+                        cached_input_tokens, cache_write_input_tokens,
+                        cache_write_observed_input_tokens, output_tokens,
+                        reasoning_output_tokens, total_tokens FROM {table}
+                 UNION ALL
+                 SELECT kept.event_id, kept.effective_at,
+                        kept.thread_id, kept.model, assigned.account_fingerprint,
+                        assigned.project_id, kept.quality, kept.input_tokens,
+                        kept.cached_input_tokens, kept.cache_write_input_tokens,
+                        kept.cache_write_observed_input_tokens, kept.output_tokens,
+                        kept.reasoning_output_tokens, kept.total_tokens
+                 FROM retained_request_evidence kept
+                 JOIN retained_request_assignments assigned ON assigned.event_id=kept.event_id
+                 WHERE NOT EXISTS(SELECT 1 FROM usage_events raw WHERE raw.event_id=kept.event_id)
+                 {retained_source}
+             )
+             SELECT effective_at, {dimension_expression},
                     input_tokens, cached_input_tokens, cache_write_input_tokens,
                     cache_write_observed_input_tokens, output_tokens,
                     reasoning_output_tokens, total_tokens
-             FROM {table} AS usage_events {where_sql}
-             ORDER BY COALESCE(source_timestamp, observed_at), event_id"
+             FROM precise_events AS usage_events {where_sql}
+             ORDER BY effective_at, event_id",
+            retained_source = if uses_effective_source(filter) && self.union_main_preview {
+                // Selected union events already include retained-only sampling.
+                "AND 0"
+            } else if uses_effective_source(filter) {
+                "AND kept.quality='confirmed' AND EXISTS(
+                     SELECT 1 FROM effective_thread_day_source choice
+                     WHERE choice.local_day=date(kept.effective_at,'+8 hours')
+                       AND choice.thread_key=COALESCE(kept.thread_id,'')
+                       AND choice.evidence_source='sampling')"
+            } else {
+                ""
+            }
         );
         let mut statement = self.connection.prepare(&sql)?;
         let mut rows = statement.query(params_from_iter(values))?;
@@ -315,7 +505,7 @@ impl LedgerStore {
                 .ok_or(StoreError::AggregateOverflow)?;
             checked_add_usage(&mut bucket.usage, usage)?;
         }
-        Ok(buckets
+        let result = buckets
             .into_iter()
             .map(|((time_key, dimension_key), aggregate)| UsageSeriesBucket {
                 time_key,
@@ -323,7 +513,91 @@ impl LedgerStore {
                 event_count: aggregate.event_count,
                 usage: aggregate.usage,
             })
-            .collect())
+            .collect::<Vec<_>>();
+        if threads.is_none()
+            && let Some(memo) = self.exact_series_memo.borrow_mut().as_mut()
+        {
+            memo.insert(memo_key, &result);
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn conversation_dimension_usage(
+        &self,
+        dimension: AggregateDimension,
+        threads: &[String],
+        filter: &AggregateFilter,
+        exact_window: bool,
+    ) -> StoreResult<Vec<UsageBucket>> {
+        if threads.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !matches!(
+            dimension,
+            AggregateDimension::Model | AggregateDimension::Account
+        ) {
+            return Err(StoreError::InvalidRequestQuery(
+                "conversation dimension must be model or account",
+            ));
+        }
+        if exact_window {
+            let series = self.aggregate_exact_series_scoped(
+                TimeGrain::Day,
+                Some(dimension),
+                filter,
+                "UTC",
+                Some(threads),
+            )?;
+            let mut groups = BTreeMap::<Option<String>, UsageAggregate>::new();
+            for row in series {
+                let group = groups.entry(row.dimension_key).or_insert(UsageAggregate {
+                    event_count: 0,
+                    usage: TokenUsage::default(),
+                });
+                group.event_count = group
+                    .event_count
+                    .checked_add(row.event_count)
+                    .ok_or(StoreError::AggregateOverflow)?;
+                checked_add_usage(&mut group.usage, row.usage)?;
+            }
+            return Ok(groups
+                .into_iter()
+                .map(|(key, row)| UsageBucket {
+                    key,
+                    event_count: row.event_count,
+                    usage: row.usage,
+                })
+                .collect());
+        }
+        self.refresh_effective_source_selection()?;
+        let column = if dimension == AggregateDimension::Model {
+            "model_key"
+        } else {
+            "account_key"
+        };
+        let (mut where_sql, mut values) = build_rollup_filter(filter);
+        append_rollup_thread_filter(&mut where_sql, &mut values, threads);
+        let mut statement=self.connection.prepare(&format!("SELECT {column},SUM(event_count),SUM(input_tokens),SUM(cached_input_tokens),
+            SUM(cache_write_input_tokens),SUM(cache_write_observed_input_tokens),SUM(output_tokens),SUM(reasoning_output_tokens),SUM(total_tokens)
+            FROM effective_daily_usage_rollups AS daily_usage_rollups {where_sql} GROUP BY {column}"))?;
+        let rows = statement.query_map(params_from_iter(values), |row| {
+            let key: String = row.get(0)?;
+            Ok(UsageBucket {
+                key: (!key.is_empty()).then_some(key),
+                event_count: u64_from_sql(row.get(1)?, 1)?,
+                usage: TokenUsage {
+                    input_tokens: u64_from_sql(row.get(2)?, 2)?,
+                    cached_input_tokens: u64_from_sql(row.get(3)?, 3)?,
+                    cache_write_input_tokens: u64_from_sql(row.get(4)?, 4)?,
+                    cache_write_observed_input_tokens: u64_from_sql(row.get(5)?, 5)?,
+                    output_tokens: u64_from_sql(row.get(6)?, 6)?,
+                    reasoning_output_tokens: u64_from_sql(row.get(7)?, 7)?,
+                    total_tokens: u64_from_sql(row.get(8)?, 8)?,
+                },
+            })
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
     }
 
     pub fn aggregate_time_series_for_threads(

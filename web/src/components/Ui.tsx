@@ -1,10 +1,10 @@
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { CollectionStatus, DashboardFilters, FilterCatalog, SummaryResponse } from '../api/types';
 import { exactNumber, formatDateTime, formatPercent, formatPeriodRange } from '../lib';
 import { periodLabel } from '../lib';
 import { useI18n } from '../i18n';
-import type { AppPage } from '../page';
+import { isWorkDetailPage, type AppPage } from '../page';
 
 export function Panel({
   title,
@@ -63,7 +63,6 @@ export function FilterBar({
   catalog,
   value,
   page,
-  contextLabel,
   refreshing,
   onChange,
   onRefresh,
@@ -71,57 +70,45 @@ export function FilterBar({
   catalog: FilterCatalog;
   value: DashboardFilters;
   page: AppPage;
-  contextLabel?: string;
   refreshing: boolean;
   onChange: (value: DashboardFilters) => void;
   onRefresh: () => void;
 }) {
-  const { language, t } = useI18n();
-  const showAccount = page === 'overview' || page === 'accounts' || page === 'quality';
-  const showModel = page === 'project' || page === 'conversation' || page === 'unmatched';
+  const { t } = useI18n();
+  const [startDate, setStartDate] = useState(value.startDate ?? '');
+  const [endDate, setEndDate] = useState(value.endDate ?? '');
+  useEffect(() => { setStartDate(value.startDate ?? ''); setEndDate(value.endDate ?? ''); }, [value.startDate, value.endDate]);
+  const localScope = page === 'overview' || isWorkDetailPage(page);
+  const showModel = page !== 'accounts' && page !== 'quality';
   const showMetric = page !== 'accounts';
   const showGrain = page !== 'accounts' && page !== 'quality';
-  const accountOptions = catalog.accounts.map((option) => {
-    if (option.id === 'all') return { ...option, label: t('components.ui.all_accounts') };
-    if (language === 'zh-CN') return option;
-    return { ...option, label: option.label.replace(/^当前账号\s*·\s*/, 'Current · ').replace(/^已校准账号\s*·\s*/, 'Calibrated · ').replace(/^历史账号\s*·\s*/, 'Historical · ') };
-  });
   const modelOptions = catalog.models.map((option) => option.id === 'all' ? { ...option, label: t('components.ui.all_models') } : option);
   return (
     <section className={`filter-bar filter-bar-${page}`} aria-label={t('components.ui.current_page_filters')}>
       <div className="filter-scope filter-account-scope">
         <div className="filter-scope-label">
-          <strong>{showAccount ? t('components.ui.account_scope') : t('components.ui.current_object')}</strong>
-          <span>{showAccount ? t('components.ui.official_total_all_devices') : contextLabel ?? t('app.local_attribution')}</span>
+          <strong>{t('components.ui.account_scope')}</strong>
+          <span>{localScope ? t('app.local_attribution') : t('components.ui.official_total_all_devices')}</span>
         </div>
-        {showAccount && <div className="account-filter-control">
-          <FilterSelect
-            label={t('components.ui.account')}
-            value={value.account}
-            options={accountOptions}
-            onChange={(account) => onChange({ ...value, account })}
-          />
-        </div>}
-        {!showAccount && <div className="context-filter-label"><strong>{contextLabel ?? t('app.local_attribution')}</strong><span>{t('components.ui.page_scope_is_fixed')}</span></div>}
         <div className="period-control" role="group" aria-label={t('components.ui.reporting_period')}>
           {catalog.periods.map((period) => (
             <button
               aria-pressed={value.period === period.id}
               className={value.period === period.id ? 'period-option is-selected' : 'period-option'}
               key={period.id}
-              onClick={() => onChange({ ...value, period: period.id })}
+              onClick={() => onChange({ ...value, period: period.id, sessionOffset: 0 })}
               type="button"
             >
               {periodLabel(period.id)}
             </button>
           ))}
         </div>
-        <button aria-label={refreshing ? t('components.ui.refreshing_official_account_usage') : t('components.ui.refresh_official_account_usage')} className="refresh-button" onClick={onRefresh} disabled={refreshing} type="button">
+        <button aria-label={refreshing ? t('components.ui.refreshing_local_usage') : t('components.ui.refresh_local_usage')} aria-busy={refreshing} className="refresh-button" onClick={onRefresh} disabled={refreshing} type="button">
           <svg className={refreshing ? 'refresh-icon spinning' : 'refresh-icon'} viewBox="0 0 20 20" aria-hidden="true">
             <path d="M16.6 7.2A7 7 0 1 0 17 11" />
             <path d="m13.5 4.3 3.4 3.2 1.9-4.1" />
           </svg>
-          <span>{refreshing ? t('components.ui.syncing') : t('components.ui.refresh')}</span>
+          <span>{t('components.ui.refresh')}</span>
         </button>
       </div>
       {(showModel || showMetric || showGrain) && <div className="filter-scope filter-local-scope">
@@ -131,7 +118,7 @@ export function FilterBar({
             label={t('components.explorer.model')}
             value={value.model}
             options={modelOptions}
-            onChange={(model) => onChange({ ...value, model })}
+            onChange={(model) => onChange({ ...value, model, sessionOffset: 0 })}
           />}
           {showMetric && <FilterSelect
             label={t('components.ui.metric')}
@@ -162,13 +149,30 @@ export function FilterBar({
           />}
         </div>
       </div>}
+      <details className="custom-date-picker" open={value.period === 'custom' ? true : undefined}>
+        <summary>{t('dates.custom')}</summary>
+        <form onSubmit={event => { event.preventDefault(); if (startDate && endDate && startDate <= endDate) onChange({ ...value, period: 'custom', startDate, endDate, sessionOffset: 0 }); }}>
+          <label>{t('dates.start')}<input type="date" required value={startDate} max={endDate || undefined} onChange={event => setStartDate(event.target.value)} /></label>
+          <label>{t('dates.end')}<input type="date" required value={endDate} min={startDate || undefined} onChange={event => setEndDate(event.target.value)} /></label>
+          <button type="submit">{t('dates.apply')}</button>
+        </form>
+      </details>
     </section>
   );
 }
 
 export function CollectionProgress({ status }: { status: CollectionStatus }) {
   const { t } = useI18n();
+  const identityReview = typeof status.message === 'string' && status.message.split(',').includes('reconstruction_identity_review');
   if (status.phase === 'live') return null;
+  if (status.phase === 'degraded') return (
+    <aside className="collection-progress phase-degraded" role="status">
+      <div className="collection-progress-copy">
+        <div><span className="collection-state-dot" aria-hidden="true" /><strong>{t(identityReview ? 'collection.identity_review' : 'collection.degraded')}</strong></div>
+        <p>{t(identityReview ? 'collection.identity_review_detail' : 'collection.retry_detail')}</p>
+      </div>
+    </aside>
+  );
   const active = ['optimizing', 'compacting', 'backfill', 'syncing'].includes(status.phase);
   const total = Math.max(status.itemsTotal, 0);
   const completed = Math.min(Math.max(status.itemsCompleted, 0), total || status.itemsCompleted);
@@ -210,11 +214,11 @@ export function DataStatusStrip({ summary, page }: { summary: SummaryResponse; p
   const coverage = summary.attributionCoverage;
   const scopeRange = `${t('components.ui.account')} ${coverage.officialWindowStart ?? '—'}—${coverage.officialWindowThrough ?? '—'} · ${t('components.ui.local')} ${coverage.localWindowStart ?? '—'}—${coverage.localWindowThrough ?? '—'}`;
   const compactScope = `${periodLabel(summary.period.key)} · ${formatPeriodRange(summary.period)}`;
-  const globalPage = page === 'overview' || page === 'accounts' || page === 'quality';
+  const globalPage = page === 'accounts' || page === 'quality';
   return (
     <aside className="data-status-strip" aria-label={t('components.ui.data_status')}>
       <span className="period-window-label" title={`${t('components.ui.exact_local_window')} ${formatPeriodRange(summary.period)}; ${scopeRange}`}><strong>{globalPage ? periodLabel(summary.period.key) : compactScope}</strong>{globalPage ? ` ${scopeRange}` : ''}{summary.period.crossesMonth && <b>{t('app.cross_month')}</b>}{summary.period.partial && <em>{t('components.ui.in_progress')}</em>}</span>
-      <span title={t('components.ui.calculated_by_request_count_confirmed_confirmed_quaranti')}><i className={summary.matchRate >= 0.98 ? 'is-good' : 'is-warning'} />{t('components.ui.request_match')} <strong>{formatPercent(summary.matchRate)}</strong></span>
+      <span title={t('components.ui.calculated_by_request_count_confirmed_confirmed_quaranti')}><i className={summary.matchRate === null ? '' : summary.matchRate >= 0.98 ? 'is-good' : 'is-warning'} />{t('components.ui.request_match')} <strong>{formatPercent(summary.matchRate)}</strong></span>
       <span>{t('components.ui.unmatched')} <strong>{exactNumber(summary.unmatchedEvents)}</strong></span>
       {globalPage && <span title={`${t('components.ui.common_coverage')} ${summary.official.commonCoverageStart ?? '—'} → ${summary.official.commonCoverageThrough ?? '—'}; ${t('components.ui.latest_account')} ${summary.official.latestCoverageThrough ?? '—'}`}>{t('components.ui.official_accounts')} <strong>{summary.official.accountCount}/{summary.official.knownAccountCount}</strong></span>}
       <span>{t('components.ui.last_sync')} <strong>{formatDateTime(summary.official.observedAt)}</strong></span>
@@ -236,16 +240,16 @@ export function LoadingState() {
   );
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+export function ErrorState({ message, onRetry, title, actionLabel }: { message: string; onRetry: () => void; title?: string; actionLabel?: string }) {
   const { t } = useI18n();
   return (
     <div className="error-state" role="alert">
       <div>
-        <strong>{t('components.ui.dashboard_data_is_temporarily_unavailable')}</strong>
+        <strong>{title ?? t('components.ui.dashboard_data_is_temporarily_unavailable')}</strong>
         <p>{message}</p>
       </div>
       <button type="button" onClick={onRetry}>
-        {t('components.ui.retry')}
+        {actionLabel ?? t('components.ui.retry')}
       </button>
     </div>
   );

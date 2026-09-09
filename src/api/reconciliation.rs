@@ -15,7 +15,7 @@ struct ResidualAccountAudit {
     estimated_tokens: u64,
 }
 
-/// Estimates the combined usage of accounts that have not yet been captured.
+/// Diagnoses positive local/official differences without assigning an identity.
 ///
 /// This is deliberately a third ledger. It never mutates official account
 /// totals or confirmed local attribution. For every captured account/day with
@@ -39,11 +39,11 @@ pub(super) fn missing_account_estimate(
 
     let empty = || {
         serde_json::json!({
-            "definitionId": "missing_accounts_residual_v1",
+            "definitionId": "unexplained_account_difference_v2",
             "status": if selected_account.is_some() { "not_applicable_to_single_account" } else { "insufficient_coverage" },
             "applicable": applicable,
             "isEstimate": true,
-            "isConservativeFloor": true,
+            "isConservativeFloor": false,
             "canSplitByMissingAccount": false,
             "combinedUnobservedAccountCount": missing_accounts,
             "capturedAccountCount": captured_accounts.len(),
@@ -250,14 +250,14 @@ pub(super) fn missing_account_estimate(
     let status = if aligned_account_days == 0 {
         "insufficient_coverage"
     } else {
-        "conservative_floor"
+        "unexplained_difference"
     };
     Ok(serde_json::json!({
-        "definitionId": "missing_accounts_residual_v1",
+        "definitionId": "unexplained_account_difference_v2",
         "status": status,
         "applicable": true,
         "isEstimate": true,
-        "isConservativeFloor": true,
+        "isConservativeFloor": false,
         "canSplitByMissingAccount": false,
         "combinedUnobservedAccountCount": missing_accounts,
         "capturedAccountCount": captured_accounts.len(),
@@ -424,8 +424,7 @@ pub(super) fn resolved_account_total_metric(
             complete: coverage_complete && account_coverage_complete,
             ratio: official
                 .get("coverageRatio")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0),
+                .and_then(serde_json::Value::as_f64),
             known_account_count: official
                 .get("knownAccountCount")
                 .and_then(serde_json::Value::as_u64)

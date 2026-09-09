@@ -278,6 +278,7 @@
         "compacting",
         "backfill",
         "syncing",
+        "degraded",
         "live"
       ]
     },
@@ -329,6 +330,12 @@
         },
         "updatedAt": {
           "type": "string"
+        },
+        "usagePolicy": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -658,6 +665,16 @@
             }
           ]
         },
+        "sessionPage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorerSessionPage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "sessions": {
           "type": "array",
           "items": {
@@ -682,6 +699,18 @@
       "properties": {
         "active": {
           "type": "boolean"
+        },
+        "actualModels": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "archived": {
           "type": "boolean"
@@ -754,10 +783,30 @@
         "id": {
           "type": "string"
         },
+        "localDistributions": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionDistributions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "model": {
           "type": [
             "string",
             "null"
+          ]
+        },
+        "nodePage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorerSessionPage"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "nodes": {
@@ -775,6 +824,13 @@
               "type": "null"
             }
           ]
+        },
+        "ownEventCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
         },
         "ownSamplingTimeline": {
           "type": "array",
@@ -815,6 +871,13 @@
         },
         "title": {
           "type": "string"
+        },
+        "treeEventCount": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
         },
         "treeUsage": {
           "$ref": "#/$defs/TokenUsage"
@@ -963,6 +1026,40 @@
         "subtreeUsage",
         "eventCount",
         "subtreeEventCount"
+      ]
+    },
+    "ExplorerSessionPage": {
+      "type": "object",
+      "properties": {
+        "hasMore": {
+          "type": "boolean"
+        },
+        "limit": {
+          "type": "number",
+          "format": "double"
+        },
+        "offset": {
+          "type": "number",
+          "format": "double"
+        },
+        "search": {
+          "type": "string"
+        },
+        "sort": {
+          "type": "string"
+        },
+        "total": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "required": [
+        "total",
+        "offset",
+        "limit",
+        "hasMore",
+        "search",
+        "sort"
       ]
     },
     "ExplorerStandaloneStats": {
@@ -1138,7 +1235,10 @@
           "format": "double"
         },
         "ratio": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         }
       },
@@ -1354,6 +1454,7 @@
       "type": "string",
       "enum": [
         "conservative_floor",
+        "unexplained_difference",
         "insufficient_coverage",
         "not_applicable_to_single_account"
       ]
@@ -1986,6 +2087,8 @@
         "rolling30",
         "weeks12",
         "months12",
+        "year",
+        "custom",
         "lifetime"
       ]
     },
@@ -2306,6 +2409,18 @@
         "accountLabel": {
           "type": "string"
         },
+        "boundaryAfter": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boundaryKind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "cycleEnd": {
           "type": [
             "string",
@@ -2338,6 +2453,12 @@
           ],
           "format": "double"
         },
+        "historyLimited": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "id": {
           "type": "string"
         },
@@ -2360,6 +2481,12 @@
         "localEvents": {
           "type": "number",
           "format": "double"
+        },
+        "localObservationEnd": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "localObservationStart": {
           "type": "string"
@@ -2683,6 +2810,75 @@
         "usage"
       ]
     },
+    "SessionDistributionRow": {
+      "type": "object",
+      "properties": {
+        "events": {
+          "type": "number",
+          "format": "double"
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "usage": {
+          "$ref": "#/$defs/TokenUsage"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "events",
+        "usage"
+      ]
+    },
+    "SessionDistributionScope": {
+      "type": "object",
+      "properties": {
+        "accounts": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionDistributionRow"
+          }
+        },
+        "models": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/SessionDistributionRow"
+          }
+        }
+      },
+      "required": [
+        "models",
+        "accounts"
+      ]
+    },
+    "SessionDistributions": {
+      "type": "object",
+      "properties": {
+        "own": {
+          "$ref": "#/$defs/SessionDistributionScope"
+        },
+        "tree": {
+          "$ref": "#/$defs/SessionDistributionScope"
+        }
+      },
+      "required": [
+        "own",
+        "tree"
+      ]
+    },
     "SourceHealth": {
       "type": "object",
       "properties": {
@@ -2847,11 +3043,17 @@
           "$ref": "#/$defs/AttributionCoverage"
         },
         "averagePerDay": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "cacheRate": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "comparison": {
@@ -2874,7 +3076,10 @@
           ]
         },
         "matchRate": {
-          "type": "number",
+          "type": [
+            "number",
+            "null"
+          ],
           "format": "double"
         },
         "metrics": {
@@ -3053,8 +3258,26 @@
     "TimeseriesResponse": {
       "type": "object",
       "properties": {
+        "accountSeries": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ProjectSeries"
+          }
+        },
         "comparisonPoints": {
           "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimeseriesComparisonPoint"
+          }
+        },
+        "dailyPoints": {
+          "type": [
+            "array",
+            "null"
+          ],
           "items": {
             "$ref": "#/$defs/TimeseriesComparisonPoint"
           }
@@ -3064,6 +3287,15 @@
         },
         "grain": {
           "$ref": "#/$defs/TimeGrain"
+        },
+        "modelSeries": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ProjectSeries"
+          }
         },
         "official": {
           "$ref": "#/$defs/OfficialUsageView"

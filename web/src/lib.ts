@@ -1,4 +1,6 @@
 import type { DataQuality, MetricKey, PeriodKey, PeriodWindow, TokenUsage } from './api/types';
+import { enMessages } from './locales/en';
+import { zhCNMessages } from './locales/zh-CN';
 
 export type UiLanguage = 'zh-CN' | 'en';
 let uiLanguage: UiLanguage = 'zh-CN';
@@ -19,11 +21,39 @@ export function compactNumber(value: number): string {
   return new Intl.NumberFormat(locale(), { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
+/** Presentation only: API/storage values remain raw tokens. Never use for counts. */
+export function formatTokenMillions(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—';
+  if (value > 0 && value < 1_000) return '<0.001 M';
+  const millions = value / 1_000_000;
+  return `${new Intl.NumberFormat(locale(), {
+    maximumFractionDigits: millions > 0 && millions < 1 ? 3 : 2,
+  }).format(millions)} M`;
+}
+
+export function formatMetricAmount(value: number | null | undefined, metric: MetricKey): string {
+  if (value == null || !Number.isFinite(value) || value < 0) return '—';
+  return metric === 'requests' ? compactNumber(value) : formatTokenMillions(value);
+}
+
+export function metricAxisGutter(max: number, metric: MetricKey): number {
+  return Math.max(66, ...[0, 0.25, 0.5, 0.75, 1].map(ratio => formatMetricAmount(max * ratio, metric).length * 8 + 12));
+}
+
 export function exactNumber(value: number): string {
   return new Intl.NumberFormat(locale()).format(Math.round(value));
 }
 
-export function formatPercent(value: number): string {
+/** Signed diagnostic differences are not usage amounts. */
+export function formatSignedTokenMillions(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const absolute = Math.abs(value);
+  if (value < 0 && absolute < 1_000) return '>−0.001 M';
+  return `${value < 0 ? '−' : ''}${formatTokenMillions(absolute)}`;
+}
+
+export function formatPercent(value: number | null): string {
+  if (value === null) return '—';
   return new Intl.NumberFormat(locale(), { style: 'percent', maximumFractionDigits: 1 }).format(value);
 }
 
@@ -92,6 +122,7 @@ export function metricValue(usage: TokenUsage, metric: MetricKey, events = 0): n
 }
 
 export function metricLabel(metric: MetricKey): string {
+  if (metric === 'requests') return (uiLanguage === 'zh-CN' ? zhCNMessages : enMessages)['components.ui.requests'];
   const chinese = {
     total: 'Token 总量',
     input: '输入（含缓存）',
@@ -100,7 +131,6 @@ export function metricLabel(metric: MetricKey): string {
     uncached: '输入（非缓存）',
     output: '输出',
     reasoning: 'Reasoning',
-    requests: 'Sampling 请求',
   }[metric];
   const english = {
     total: 'Total tokens',
@@ -110,7 +140,6 @@ export function metricLabel(metric: MetricKey): string {
     uncached: 'Input (uncached)',
     output: 'Output',
     reasoning: 'Reasoning',
-    requests: 'Sampling requests',
   }[metric];
   return uiLanguage === 'zh-CN' ? chinese : english;
 }
@@ -124,6 +153,8 @@ export function periodLabel(period: PeriodKey): string {
     rolling30: ['近30天', 'Last 30 days'],
     weeks12: ['12周', '12 weeks'],
     months12: ['12月', '12 months'],
+    year: ['本年', 'This year'],
+    custom: ['自定义', 'Custom dates'],
     lifetime: ['至今', 'Lifetime'],
   };
   return labels[period][uiLanguage === 'zh-CN' ? 0 : 1];

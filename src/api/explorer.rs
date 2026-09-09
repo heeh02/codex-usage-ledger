@@ -1,3 +1,4 @@
+use super::queries::{aggregate_exact_hour_window_series, requires_exact_window};
 use super::*;
 
 type CatalogCounts = DashboardCatalogCounts;
@@ -6,14 +7,15 @@ pub(super) fn http_explorer(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<serde_json::Value, StoreError> {
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     let lifetime = aggregate_for_period(store, query, "lifetime")?;
     let week = aggregate_for_period(store, query, "week")?;
     let today = aggregate_for_period(store, query, "today")?;
     let selected_period =
         aggregate_for_period(store, query, query.period.as_deref().unwrap_or("week"))?;
     let mut recent_filter = period_filter(query, "lifetime");
-    recent_filter.start_inclusive = Some(Utc::now() - ChronoDuration::minutes(15));
-    recent_filter.end_exclusive = Some(Utc::now() + ChronoDuration::seconds(1));
+    recent_filter.start_inclusive = Some(now - ChronoDuration::minutes(15));
+    recent_filter.end_exclusive = Some(now);
     let recent = store.aggregate_usage(&recent_filter)?;
     let active_sessions = store
         .aggregate_by(AggregateDimension::Thread, &recent_filter)?
@@ -34,11 +36,26 @@ pub(super) fn http_explorer(
     let project_count = store.project_count()?;
 
     let projects = explorer_projects(store, query)?;
-    let sessions = explorer_sessions(store, query)?;
+    // One exact thread/time projection feeds ranking, detail totals and curves.
+    // Catalog project selection is applied after root membership resolution.
+    let exact_threads = if requires_exact_window(query) {
+        let mut filter = period_filter(query, query.period.as_deref().unwrap_or("week"));
+        filter.project_id = None;
+        let (_, descriptor) = filter_and_period(query, DataQuality::Confirmed);
+        Some(aggregate_exact_hour_window_series(
+            store,
+            Some(AggregateDimension::Thread),
+            &filter,
+            &descriptor.timezone,
+        )?)
+    } else {
+        None
+    };
+    let (sessions, session_page) = explorer_sessions(store, query, exact_threads.as_deref())?;
     let selected_session = query
         .session
         .as_deref()
-        .map(|thread_id| explorer_session_detail(store, query, thread_id))
+        .map(|thread_id| explorer_session_detail(store, query, thread_id, exact_threads.as_deref()))
         .transpose()?;
     let official_period = |period_key: &str| -> Result<serde_json::Value, StoreError> {
         let mut period_query = query.clone();
@@ -55,7 +72,7 @@ pub(super) fn http_explorer(
         let mut period_query = query.clone();
         period_query.period = Some(period_key.to_owned());
         let (_, descriptor) = filter_and_period(&period_query, DataQuality::Confirmed);
-        period_value(store, &descriptor)
+        period_value(store, &descriptor, &period_query)
     };
 
     Ok(serde_json::json!({
@@ -107,6 +124,7 @@ pub(super) fn http_explorer(
         },
         "projects": projects,
         "sessions": sessions,
+        "sessionPage": session_page,
         "selectedSession": selected_session,
     }))
 }
@@ -132,6 +150,7 @@ fn explorer_projects(
     store: &LedgerStore,
     query: &UsageQuery,
 ) -> Result<Vec<serde_json::Value>, StoreError> {
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     let mut projects = store
         .list_projects()?
         .into_iter()
@@ -171,18 +190,22 @@ fn explorer_projects(
         let mut filter = period_filter(&period_query, "lifetime");
         filter.start_inclusive = Some(start);
         filter.end_exclusive = Some(end);
-        Ok(store
-            .aggregate_rollup_by(AggregateDimension::Project, &filter)?
-            .into_iter()
-            .map(|bucket| {
-                (
-                    bucket
-                        .key
-                        .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-                    bucket.usage,
-                )
-            })
-            .collect())
+        Ok(aggregate_selected_period_by(
+            store,
+            &period_query,
+            AggregateDimension::Project,
+            &filter,
+        )?
+        .into_iter()
+        .map(|bucket| {
+            (
+                bucket
+                    .key
+                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+                bucket.usage,
+            )
+        })
+        .collect())
     };
     let period_usage = usage_map(query.period.as_deref().unwrap_or("week"))?;
     let selected_period_key = query.period.as_deref().unwrap_or("week");
@@ -215,24 +238,28 @@ fn explorer_projects(
         let mut previous_filter = period_filter(&all_projects_query, "lifetime");
         previous_filter.start_inclusive = Some(start);
         previous_filter.end_exclusive = Some(end);
-        store
-            .aggregate_rollup_by(AggregateDimension::Project, &previous_filter)?
-            .into_iter()
-            .map(|bucket| {
-                (
-                    bucket
-                        .key
-                        .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-                    (bucket.usage, bucket.event_count),
-                )
-            })
-            .collect::<HashMap<_, _>>()
+        aggregate_selected_period_by(
+            store,
+            &all_projects_query,
+            AggregateDimension::Project,
+            &previous_filter,
+        )?
+        .into_iter()
+        .map(|bucket| {
+            (
+                bucket
+                    .key
+                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+                (bucket.usage, bucket.event_count),
+            )
+        })
+        .collect::<HashMap<_, _>>()
     } else {
         HashMap::new()
     };
     let mut recent_filter = period_filter(&all_projects_query, "lifetime");
-    recent_filter.start_inclusive = Some(Utc::now() - ChronoDuration::minutes(15));
-    recent_filter.end_exclusive = Some(Utc::now() + ChronoDuration::seconds(1));
+    recent_filter.start_inclusive = Some(now - ChronoDuration::minutes(15));
+    recent_filter.end_exclusive = Some(now);
     let recent_project_usage = store
         .aggregate_by(AggregateDimension::Project, &recent_filter)?
         .into_iter()
@@ -246,9 +273,9 @@ fn explorer_projects(
         })
         .collect::<HashMap<_, _>>();
     let mut project_sparklines = HashMap::<String, Vec<u64>>::new();
-    let sparkline_buckets = if selected_period_key == "rolling7" {
-        store.aggregate_exact_time_series(
-            TimeGrain::Day,
+    let sparkline_buckets = if requires_exact_window(query) {
+        aggregate_exact_hour_window_series(
+            store,
             Some(AggregateDimension::Project),
             &selected_period_filter,
             query.timezone.as_deref().unwrap_or("Asia/Shanghai"),
@@ -260,17 +287,21 @@ fn explorer_projects(
             &selected_period_filter,
         )?
     };
+    let mut sparkline_days = BTreeMap::<(String, String), u64>::new();
     for bucket in sparkline_buckets {
-        project_sparklines
-            .entry(
-                bucket
-                    .dimension_key
-                    .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
-            )
-            .or_default()
-            .push(bucket.usage.total_tokens);
+        let key = (
+            bucket.time_key[..10].to_owned(),
+            bucket
+                .dimension_key
+                .unwrap_or_else(|| UNASSIGNED_PROJECT_ID.to_owned()),
+        );
+        let total = sparkline_days.entry(key).or_default();
+        *total = total.saturating_add(bucket.usage.total_tokens);
     }
-    let active_cutoff = (Utc::now() - ChronoDuration::minutes(5)).to_rfc3339();
+    for ((_, project), total) in sparkline_days {
+        project_sparklines.entry(project).or_default().push(total);
+    }
+    let active_cutoff = (now - ChronoDuration::minutes(5)).to_rfc3339();
     let active_project_sessions = store.active_project_session_counts(&active_cutoff)?;
     let lifetime_usage = usage_map("lifetime")?;
     let week_usage = usage_map("week")?;
@@ -379,39 +410,81 @@ fn explorer_projects(
     Ok(rows)
 }
 
+fn thread_totals_from_series(
+    series: &[crate::store::UsageSeriesBucket],
+) -> Vec<crate::store::UsageBucket> {
+    let mut totals = BTreeMap::<Option<String>, (u64, TokenUsage)>::new();
+    for bucket in series {
+        let entry = totals.entry(bucket.dimension_key.clone()).or_default();
+        entry.0 = entry.0.saturating_add(bucket.event_count);
+        add_usage_saturating(&mut entry.1, bucket.usage);
+    }
+    totals
+        .into_iter()
+        .map(|(key, (event_count, usage))| crate::store::UsageBucket {
+            key,
+            event_count,
+            usage,
+        })
+        .collect()
+}
+
 fn explorer_sessions(
     store: &LedgerStore,
     query: &UsageQuery,
-) -> Result<Vec<serde_json::Value>, StoreError> {
-    let roots = catalog_roots(
-        store,
-        query.project.as_deref(),
-        if selected(&query.project).is_some() {
-            500
-        } else {
-            30
-        },
-    )?;
+    exact_threads: Option<&[crate::store::UsageSeriesBucket]>,
+) -> Result<(Vec<serde_json::Value>, serde_json::Value), StoreError> {
     let mut filter = period_filter(query, query.period.as_deref().unwrap_or("week"));
     filter.project_id = None;
-    let now = Utc::now();
+    let offset = query.session_offset.unwrap_or(0);
+    let limit = query.session_limit.unwrap_or(30).clamp(1, 100);
+    let search = query.session_search.as_deref().unwrap_or("");
+    let sort = query
+        .session_sort
+        .as_deref()
+        .filter(|value| ["tokens", "output", "requests", "recent"].contains(value))
+        .unwrap_or("tokens");
+    let exact_root_usage = if let Some(series) = exact_threads {
+        Some(store.root_usage_from_threads(&thread_totals_from_series(series))?)
+    } else {
+        None
+    };
+    let (roots, total) = store.conversation_page(&crate::store::ConversationPageRequest {
+        ranked_usage: exact_root_usage.as_deref(),
+        project_id: query.project.as_deref(),
+        filter: &filter,
+        search,
+        sort,
+        offset,
+        limit,
+    })?;
+    let page = serde_json::json!({ "total": total, "offset": offset, "limit": limit,
+        "hasMore": (offset as u64).saturating_add(roots.len() as u64) < total, "search": search, "sort": sort });
+    let now = query.reference_time.unwrap_or_else(Utc::now);
     if roots.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), page));
     }
     let root_ids = roots
         .iter()
         .map(|root| root.thread_id.clone())
         .collect::<Vec<_>>();
-    let usage_by_root = store
-        .aggregate_rollup_by_root_threads(&root_ids, &filter)?
+    let scoped_usage = match exact_root_usage {
+        Some(usage) => usage,
+        None => store.aggregate_rollup_by_root_threads(&root_ids, &filter)?,
+    };
+    let usage_by_root = scoped_usage
         .into_iter()
         .map(|bucket| (bucket.root_thread_id.clone(), bucket))
         .collect::<HashMap<_, _>>();
     let node_counts = store.root_thread_member_counts(&root_ids)?;
+    let members = store.root_thread_members(&root_ids)?;
 
-    roots
+    let sessions = roots
         .into_iter()
         .map(|root| {
+            let actual_models=members.get(&root.thread_id).map(|threads|store.conversation_dimension_usage(
+                AggregateDimension::Model,threads,&filter,requires_exact_window(query)
+            ).map(|rows|rows.into_iter().map(|row|row.key).collect::<Vec<_>>())).transpose()?;
             let usage = usage_by_root
                 .get(&root.thread_id)
                 .cloned();
@@ -424,6 +497,7 @@ fn explorer_sessions(
                 "id": root.thread_id,
                 "title": thread_label(&root),
                 "model": root.model,
+                "actualModels":actual_models,
                 "createdAt": root.created_at,
                 "updatedAt": root.updated_at,
                 "archived": root.archived,
@@ -437,13 +511,15 @@ fn explorer_sessions(
                 "active": root.present_in_codex && updated.is_some_and(|value| now - value < ChronoDuration::minutes(5)),
             }))
         })
-        .collect()
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    Ok((sessions, page))
 }
 
 fn explorer_session_detail(
     store: &LedgerStore,
     query: &UsageQuery,
     thread_id: &str,
+    exact_threads: Option<&[crate::store::UsageSeriesBucket]>,
 ) -> Result<serde_json::Value, StoreError> {
     let tree = catalog_descendants(store, thread_id)?;
     if tree.is_empty() {
@@ -469,9 +545,22 @@ fn explorer_session_detail(
     let timeline_for =
         |thread_ids: &[String]| -> Result<BTreeMap<String, (u64, TokenUsage)>, StoreError> {
             let mut timeline = BTreeMap::<String, (u64, TokenUsage)>::new();
-            for bucket in
-                store.aggregate_time_series_for_threads(source_grain, thread_ids, &filter)?
-            {
+            let buckets = match exact_threads {
+                Some(series) => series
+                    .iter()
+                    .filter(|bucket| {
+                        bucket
+                            .dimension_key
+                            .as_ref()
+                            .is_some_and(|id| thread_ids.contains(id))
+                    })
+                    .cloned()
+                    .collect(),
+                None => {
+                    store.aggregate_time_series_for_threads(source_grain, thread_ids, &filter)?
+                }
+            };
+            for bucket in buckets {
                 let key = if source_grain == TimeGrain::Day {
                     aggregate_date_key(&bucket.time_key, detail_grain).unwrap_or(bucket.time_key)
                 } else {
@@ -485,8 +574,14 @@ fn explorer_session_detail(
         };
     let timeline = timeline_for(&ids)?;
     let own_timeline = timeline_for(std::slice::from_ref(&root_thread_id))?;
-    let mut own_usage = store
-        .aggregate_rollup_by_thread_ids(&ids, &filter)?
+    let scoped_usage = match exact_threads {
+        Some(series) => thread_totals_from_series(series)
+            .into_iter()
+            .filter(|bucket| bucket.key.as_ref().is_some_and(|id| ids.contains(id)))
+            .collect(),
+        None => store.aggregate_rollup_by_thread_ids(&ids, &filter)?,
+    };
+    let mut own_usage = scoped_usage
         .into_iter()
         .filter_map(|bucket| {
             bucket
@@ -526,9 +621,74 @@ fn explorer_session_detail(
     }
     let root = tree[0].0.clone();
     let total_nodes = tree.len();
+    let root_own = own_usage.get(&root.thread_id).copied().unwrap_or_default();
+    let root_tree = subtree_usage
+        .get(&root.thread_id)
+        .copied()
+        .unwrap_or_default();
+    let root_events = subtree_events
+        .get(&root.thread_id)
+        .copied()
+        .unwrap_or_default();
+    let distribution = |thread_ids: &[String],
+                        expected: TokenUsage,
+                        expected_events: u64|
+     -> Result<serde_json::Value, StoreError> {
+        let mut output = serde_json::Map::new();
+        for (name, dimension) in [
+            ("models", AggregateDimension::Model),
+            ("accounts", AggregateDimension::Account),
+        ] {
+            let buckets = store.conversation_dimension_usage(
+                dimension,
+                thread_ids,
+                &filter,
+                requires_exact_window(query),
+            )?;
+            let mut total = TokenUsage::default();
+            let mut events = 0u64;
+            for bucket in &buckets {
+                add_usage_saturating(&mut total, bucket.usage);
+                events = events.saturating_add(bucket.event_count);
+            }
+            if expected_events == 0 || total != expected || events != expected_events {
+                output.insert(name.into(), serde_json::Value::Null);
+                continue;
+            }
+            let mut rows=buckets.into_iter().map(|bucket|serde_json::json!({
+                "id":bucket.key,"label":bucket.key.as_ref().map(|id|if dimension==AggregateDimension::Account {account_label(id)} else {id.clone()}).unwrap_or_else(||"unknown".into()),
+                "events":bucket.event_count,"usage":token_value(bucket.usage)
+            })).collect::<Vec<_>>();
+            rows.sort_by_key(|row| std::cmp::Reverse(row["usage"]["total"].as_u64().unwrap_or(0)));
+            output.insert(name.into(), serde_json::json!(rows));
+        }
+        Ok(serde_json::Value::Object(output))
+    };
+    let local_distributions = serde_json::json!({
+        "own":distribution(std::slice::from_ref(&root_thread_id),root_own.0,root_own.1)?,
+        "tree":distribution(&ids,root_tree,root_events)?,
+    });
+    let search = query
+        .node_search
+        .as_deref()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    let tree = tree
+        .into_iter()
+        .filter(|(thread, _)| {
+            search.is_empty()
+                || thread_label(thread).to_lowercase().contains(&search)
+                || thread.thread_id.to_lowercase().contains(&search)
+        })
+        .collect::<Vec<_>>();
+    let matched_nodes = tree.len();
+    let offset = query.node_offset.unwrap_or(0);
+    let limit = query.node_limit.unwrap_or(200).clamp(1, 1000);
     let nodes = tree
         .into_iter()
-        .take(800)
+        .skip(offset)
+        .take(limit)
         .map(|(thread, relative_depth)| {
             let (usage, event_count) = own_usage.remove(&thread.thread_id).unwrap_or_default();
             let subtree = subtree_usage.remove(&thread.thread_id).unwrap_or_default();
@@ -590,8 +750,12 @@ fn explorer_session_detail(
         "createdAt": root.created_at,
         "updatedAt": root.updated_at,
         "presentInCodex": root.present_in_codex,
-        "ownUsage": nodes.first().and_then(|node| node.get("ownUsage")).cloned().unwrap_or_else(|| token_value(TokenUsage::default())),
-        "treeUsage": nodes.first().and_then(|node| node.get("subtreeUsage")).cloned().unwrap_or_else(|| token_value(TokenUsage::default())),
+        "ownUsage": token_value(root_own.0),
+        "treeUsage": token_value(root_tree),
+        "ownEventCount": root_own.1,
+        "treeEventCount": root_events,
+        "localDistributions": local_distributions,
+        "nodePage": { "total": matched_nodes, "offset": offset, "limit": limit, "hasMore": offset.saturating_add(nodes.len()) < matched_nodes, "search": search, "sort": "hierarchy" },
         "subagentCount": total_nodes.saturating_sub(1),
         "samplingTimeline": timeline.into_iter().map(|(bucket, (events, usage))| serde_json::json!({
             "bucket": bucket,
@@ -606,16 +770,8 @@ fn explorer_session_detail(
         "samplingGrain": detail_grain,
         "officialThreadUsage": official_thread,
         "nodes": nodes,
-        "truncated": total_nodes > 800,
+        "truncated": offset > 0 || nodes.len() < matched_nodes,
     }))
-}
-
-fn catalog_roots(
-    store: &LedgerStore,
-    project_id: Option<&str>,
-    limit: usize,
-) -> Result<Vec<CatalogThread>, StoreError> {
-    store.dashboard_catalog_roots(project_id, limit)
 }
 
 fn catalog_descendants(
