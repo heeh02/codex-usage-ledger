@@ -5,6 +5,24 @@ semantic versioning once a public contract is declared stable.
 
 ## Unreleased
 
+## 0.2.0
+
+- Account-first navigation, M Token units, project/chat/subagent and model drilldown.
+- Bilingual responsive trends, full rankings and retained quota interval charts.
+- Request-level source union with incremental processing and explicit history gaps.
+- Exact-match migration tooling, recoverable installation and non-destructive startup.
+- Snapshot rollup reuse and queued-query cache reuse for faster dashboards.
+- macOS native application and Linux/Windows CLI plus local Web dashboard packages.
+
+### Limitations
+
+- Missing historical evidence is not recovered or allocated to projects.
+- Official account totals remain separate from local attribution.
+- macOS is ad-hoc signed, not notarized. Linux/Windows use the browser dashboard,
+  not a native GUI; package availability depends on successful release CI.
+
+## 0.1.0
+
 ### Added
 
 - Open-source contribution, governance, ownership, and agent working agreements.
