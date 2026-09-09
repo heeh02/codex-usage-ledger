@@ -1,7 +1,6 @@
 import { useId, useRef } from 'react';
 import type { DimensionOption, OfficialAccountRow } from '../api/types';
 import { useI18n } from '../i18n';
-import { formatDateTime } from '../lib';
 import './account-switcher.css';
 
 export function accountScopeLabel(id: string, options: DimensionOption[], rows: OfficialAccountRow[], allLabel: string): string {
@@ -11,7 +10,17 @@ export function accountScopeLabel(id: string, options: DimensionOption[], rows: 
     ?? (id.length > 12 ? `${id.slice(0,8)}…${id.slice(-4)}` : id);
 }
 
-export function AccountSwitcher({ options, rows, selected, pending, onSelect, onAccounts }: {
+export function accountPlanLabel(plan: string | null | undefined): string {
+  const value = (plan ?? '').toLowerCase().replace(/[-_ ]/g, '');
+  if (value.includes('pro') && value.includes('20')) return 'Pro 20×';
+  if (value.includes('pro') && value.includes('5')) return 'Pro 5×';
+  if (value.includes('pro')) return 'Pro';
+  if (value === 'plus') return 'Plus';
+  if (value === 'free') return 'Free';
+  return plan || '—';
+}
+
+export function AccountSwitcher({ options, rows, selected, pending, onSelect }: {
   options: DimensionOption[];
   rows: OfficialAccountRow[];
   selected: string;
@@ -24,7 +33,14 @@ export function AccountSwitcher({ options, rows, selected, pending, onSelect, on
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useId();
   const label = (id: string) => accountScopeLabel(id, options, rows, t('components.ui.all_accounts'));
-  const active = rows.filter(row => row.active);
+  const tierOrder = ['Pro 20×', 'Pro 5×', 'Pro', 'Plus', 'Free'];
+  const rank = (id: string) => {
+    if (id === 'all') return -1;
+    const index = tierOrder.indexOf(accountPlanLabel(rows.find(row => row.id === id)?.planType));
+    return index < 0 ? tierOrder.length : index;
+  };
+  const ids = Array.from(new Set(['all', ...options.map(option => option.id), ...rows.map(row => row.id)]))
+    .sort((a, b) => rank(a) - rank(b));
   const close = () => { dialog.current?.close(); trigger.current?.focus(); };
   return <div className="account-switcher">
     <button ref={trigger} className="account-switcher-trigger" data-account={selected} type="button"
@@ -37,21 +53,21 @@ export function AccountSwitcher({ options, rows, selected, pending, onSelect, on
       onClose={() => trigger.current?.focus()} onClick={event => { if (event.target === dialog.current) close(); }}>
       <div className="account-switcher-body">
         <header><h2 id={heading}>{t('account-switcher.title')}</h2><button type="button" onClick={close} aria-label={t('account-switcher.close')}>×</button></header>
-        <p>{t('account-switcher.read_only')}</p>
-        <label>{t('components.ui.account')}<select aria-label={t('components.ui.account')} value={selected} disabled={pending || options.length === 0}
-          onChange={event => { onSelect(event.target.value); close(); }}>
-          {!options.some(option => option.id === selected) && <option value={selected}>{label(selected)}</option>}
-          {options.map(option => <option key={option.id} value={option.id}>{label(option.id)}</option>)}
-        </select></label>
+        <p>{t('account-switcher.scope_only')}</p>
+        <div className="account-switcher-options" role="group" aria-label={t('components.ui.account')}>
+          {ids.map(id => {
+            const row = rows.find(row => row.id === id);
+            return <button type="button" key={id} className="account-switcher-option" data-account={id}
+              aria-pressed={selected === id} onClick={() => { onSelect(id); close(); }}>
+              <span className="account-switcher-avatar" aria-hidden="true">{id === 'all' ? '◎' : accountPlanLabel(row?.planType).slice(0, 1)}</span>
+              <span className="account-switcher-option-name"><strong>{label(id)}</strong>
+                {row?.active && <small>{t('account-switcher.observed_login')}</small>}</span>
+              {id !== 'all' && <span className="account-switcher-plan">{accountPlanLabel(row?.planType)}</span>}
+              <span className="account-switcher-check" aria-hidden="true">{selected === id ? '✓' : ''}</span>
+            </button>;
+          })}
+        </div>
         {pending && <p role="status">{t('account-switcher.applying')}</p>}
-        <section className="account-switcher-login"><strong>{t('account-switcher.observed_login')}</strong>
-          <span>{active.length === 1 ? label(active[0].id) : t('account-switcher.login_unknown')}</span>
-        </section>
-        <div className="account-switcher-records">{rows.map(row => <article key={row.id}>
-          <strong>{label(row.id)}</strong><span>{row.planType ?? '—'}{row.active ? ` · ${t('account-switcher.observed_login')}` : ''}</span>
-          <small>{t('account-switcher.official_observed')} {row.observedAt && Number.isFinite(Date.parse(row.observedAt)) ? formatDateTime(row.observedAt) : '—'}</small>
-        </article>)}</div>
-        <button type="button" className="account-switcher-manage" onClick={() => { close(); onAccounts(); }}>{t('app.accounts_quota')}</button>
       </div>
     </dialog>
   </div>;

@@ -1,6 +1,7 @@
 import type { MessageKey } from './zh-CN';
 
 export const enMessages = {
+  "account-switcher.scope_only": "Select a reporting account. Codex login is unchanged.",
   "quota_chart.title": "Quota and interval Token activity",
   "quota_chart.scope": "Top: remaining quota in the selected window. Bottom: account Token activity in that interval, not pool-specific usage.",
   "quota_chart.remaining": "Observed quota remaining (%)",

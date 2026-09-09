@@ -57,6 +57,8 @@ function App() {
   const [appliedFilters, setAppliedFilters] = useState<DashboardFilters>(restoreFilters);
   const [bundle, setBundle] = useState<DashboardBundle | null>(null);
   const [loading, setLoading] = useState(true);
+  const requestInFlight = useRef(false);
+  const recentViews = useRef(new Map<string, { at: number; bundle: DashboardBundle }>());
   const [requestFailure, setRequestFailure] = useState<unknown>(null);
   const error = requestFailure === null ? '' : requestFailureMessage(requestFailure, t);
   const timePrecisionFailure = requestFailure instanceof LedgerRequestError && requestFailure.code === 'insufficient_time_precision';
@@ -92,6 +94,13 @@ function App() {
     if(scopedFallback.current && lastBundleRefresh.current===refreshKey)return;
     lastBundleRefresh.current=refreshKey;
     const controller = new AbortController();
+    requestInFlight.current = true;
+    const scopeKey = JSON.stringify(filters);
+    const cached = recentViews.current.get(scopeKey);
+    if (cached && Date.now() - cached.at < 60_000) {
+      setBundle(cached.bundle);
+      setAppliedFilters(filters);
+    }
     if (pendingSessionReturn.current?.id !== filters.session) pendingSessionReturn.current = null;
     if(!scopedFallback.current)setRequestFailure(null);
     setLoading(true);
@@ -99,6 +108,9 @@ function App() {
     void runScopedRequest(controller.signal,
       () => loadDashboardBundle(api, filters, controller.signal), {
       success: (nextBundle) => {
+        recentViews.current.delete(scopeKey);
+        recentViews.current.set(scopeKey, { at: Date.now(), bundle: nextBundle });
+        if (recentViews.current.size > 6) recentViews.current.delete(recentViews.current.keys().next().value!);
         scopedFallback.current=false;
         setRequestFailure(null);
         setBundle(nextBundle);
@@ -120,12 +132,13 @@ function App() {
         setRequestFailure(() => reason ?? new Error());
       },
       settled: () => {
+        requestInFlight.current = false;
         setManualRefreshing(false);
         setLoading(false);
       },
       });
 
-    return () => controller.abort();
+    return () => { controller.abort(); requestInFlight.current = false; };
   }, [api, filters, refreshKey]);
 
   useEffect(() => {
@@ -141,7 +154,7 @@ function App() {
         if (backgroundRefreshTimer.current === null) {
           backgroundRefreshTimer.current = window.setTimeout(() => {
             backgroundRefreshTimer.current = null;
-            setRefreshKey((value) => value + 1);
+            if (!requestInFlight.current) setRefreshKey((value) => value + 1);
           }, 10_000);
         }
       }
@@ -368,7 +381,7 @@ function App() {
 
   const accountOptions=bundle?.summary.filters.accounts ?? [{id:'all',label:t('components.ui.all_accounts')},...scopeAccounts.map(id=>({id,label:`${t('scope.account')} ${id.slice(0,8)}`}))];
   const accountControl = <AccountSwitcher options={accountOptions}
-    rows={bundle?.breakdowns.officialAccounts ?? []} selected={appliedFilters.account}
+    rows={bundle?.breakdowns.officialAccounts ?? []} selected={filters.account}
     pending={loading||scopePending} onSelect={account => {if(scopedFallback.current)setScopeAccountRevision(n=>n+1);setFilters(value => ({ ...value, account, sessionOffset: 0, nodeOffset: 0 }));}}
     onAccounts={openAccounts} />;
 
@@ -433,7 +446,7 @@ function App() {
           )}
 
           {bundle && !quotaHistoryActive && (
-            <FilterBar catalog={bundle.summary.filters} value={appliedFilters} page={currentPage} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
+            <FilterBar catalog={bundle.summary.filters} value={filters} page={currentPage} refreshing={manualRefreshing} onChange={setFilters} onRefresh={retry} />
           )}
 
           {bundle && loading && <div className="view-updating" role="status">{JSON.stringify(filters) === JSON.stringify(appliedFilters) ? t('app.updating_the_current_snapshot_the_previous_trusted') : t('app.applying_the_new_page_scope_and_time')}</div>}

@@ -104,7 +104,7 @@ test('account and model selection survive project and conversation navigation', 
   await page.setViewportSize({ width: 1280, height: 820 });
   await page.goto('/');
   await page.locator('.account-switcher-trigger:visible').click();
-  await page.getByRole('dialog').getByLabel('账号', { exact: true }).selectOption('acct-personal');
+  await page.getByRole('dialog').locator('[data-account="acct-personal"]').click();
   await expect(page.locator('.account-switcher-trigger:visible')).toHaveAttribute('data-account', 'acct-personal');
   await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
   await expect(page.locator('.workspace-heading h1')).toHaveText('Project Atlas');
@@ -122,6 +122,8 @@ test('dated chart values stay accessible by keyboard in a narrow window', async 
   await page.setViewportSize({ width: 1280, height: 820 });
   await page.goto('/');
   await page.locator('button.project-item').filter({ hasText: 'Project Atlas' }).click();
+  await expect(page.locator('.workspace-heading h1')).toHaveText('Project Atlas');
+  await expect(page.locator('.view-updating')).toHaveCount(0);
   const chart = page.locator('.usage-time-chart').first();
   const svg = chart.locator('svg').first();
   await svg.focus();

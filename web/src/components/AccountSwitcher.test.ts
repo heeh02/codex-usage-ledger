@@ -1,5 +1,14 @@
 import { expect, it } from 'vitest';
-import { accountScopeLabel } from './AccountSwitcher';
+import { accountScopeLabel, accountPlanLabel } from './AccountSwitcher';
+
+it('uses observed tier names without guessing a Pro multiplier', () => {
+  expect(accountPlanLabel('pro')).toBe('Pro');
+  expect(accountPlanLabel('pro_20x')).toBe('Pro 20×');
+  expect(accountPlanLabel('pro_5x')).toBe('Pro 5×');
+  expect(accountPlanLabel('plus')).toBe('Plus');
+  expect(accountPlanLabel('free')).toBe('Free');
+  expect(accountPlanLabel(null)).toBe('—');
+});
 
 it('separates observed-login prefixes from the selected reporting label', () => {
   const options = [{ id: 'a', label: '当前账号 · Account A' }, { id: 'b', label: '历史账号 · Account B' }];

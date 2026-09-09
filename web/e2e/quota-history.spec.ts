@@ -104,7 +104,7 @@ for (const width of [560, 1280]) {
     await expect(chinese.locator('.quota-history-item').first()).toHaveAttribute('data-history-id', first!);
     await expect(chinese).toContainText('独立于“使用情况”');
     await page.locator('.account-switcher-trigger:visible').click();
-    await page.getByRole('dialog').getByRole('combobox').selectOption('acct-personal');
+    await page.getByRole('dialog').locator('[data-account="acct-personal"]').click();
     await expect(chinese.locator('.quota-history-item')).toHaveCount(15);
     expect(await chinese.locator('.quota-history-item').evaluateAll(items => items.every(item => item.getAttribute('data-account-id') === 'acct-personal'))).toBe(true);
     await expect(chinese.getByRole('button', { name: '上一页', exact: true })).toBeDisabled();

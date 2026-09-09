@@ -1,4 +1,5 @@
 export const zhCNMessages = {
+  "account-switcher.scope_only": "选择统计账号，不更改 Codex 登录。",
   "quota_chart.title": "额度与同区间 Token",
   "quota_chart.scope": "上图：所选额度窗口的剩余百分比；下图：同区间账号 Token，不代表此额度池独占用量。",
   "quota_chart.remaining": "观测剩余额度（%）",
