@@ -9,6 +9,15 @@ Previous goal: [completed open-source governance](docs/archive/goals/2026-09-04-
 
 ### Current delivery state (2026-09-09; supersedes older preflight notes below)
 
+Quota chart visual/native delivery passed: inspected synthetic wide/narrow
+screenshots, installed manifest `35614600cc0c639b3bb3c91fdd9b847c9145cee9c3c5955bf929714b72ad8587`,
+and opened actual history/interval chart with lower composition/model rows via
+native scrolling. Source implementation scope is now delivered. Final handoff
+found a detached prior collector; requested graceful termination (listener closed),
+then used the native retry control to start the current app's owned listener.
+Verify old-process exit and current HTTP health before closing the goal. Do not
+interpret this as authorization to kill other services or delete ledger files.
+
 Quota interval visualization now implemented in source. Additive optional `chart`
 DTO provides frozen account/stream observations (explicit 1,000-point truncation)
 and exact interval-clipped hourly Token buckets. Server and client enforce bucket

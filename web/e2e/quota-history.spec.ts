@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { mockQuotaHistory } from '../src/api/quotaHistoryMock';
 import { mockQuotaIntervalUsage } from '../src/api/quotaIntervalUsage';
 
-test('interval usage is loaded on demand and unsafe source overlap hides totals', async ({ page }) => {
+test('interval usage is loaded on demand and unsafe source overlap hides totals', async ({ page }, testInfo) => {
   const history = mockQuotaHistory({ account: 'all' });
   let reads = 0; let review = false;
   await page.route('**/v1/quota-history?**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(history) }));
@@ -10,7 +10,9 @@ test('interval usage is loaded on demand and unsafe source overlap hides totals'
     reads++;
     const result = mockQuotaIntervalUsage(history.intervals[0], history.selections![0]);
     result.chart = {
-      observations: [{ at: history.intervals[0].firstObservedAt, usedPercent: 20 }, { at: history.intervals[0].lastObservedAt, usedPercent: 40 }],
+      observations: [{ at: history.intervals[0].firstObservedAt, usedPercent: 20 },
+        { at: new Date(Date.parse(history.intervals[0].firstObservedAt) + 600_000).toISOString(), usedPercent: 30 },
+        { at: history.intervals[0].lastObservedAt, usedPercent: 40 }],
       observationsTruncated: false,
       buckets: review ? [] : [{ start: result.start!, end: result.end!, events: result.events!, usage: result.usage! }],
     };
@@ -24,12 +26,18 @@ test('interval usage is loaded on demand and unsafe source overlap hides totals'
   await expect(detail.locator('.local-composition')).toContainText('12 M');
   await expect(detail.locator('.quota-interval-chart svg')).toBeVisible();
   await expect(detail.locator('.quota-chart-bar')).toHaveCount(1);
+  await expect(detail.locator('.quota-chart-step')).toHaveCount(1);
+  for (const width of [1280, 560]) {
+    await page.setViewportSize({ width, height: 800 });
+    await detail.locator('.quota-interval-chart').screenshot({ path: testInfo.outputPath(`quota-chart-${width}.png`) });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
   await expect(detail.locator('.usage-breakdown table')).toHaveCount(2); expect(reads).toBe(1);
   review = true; await detail.getByRole('button', { name: '重新查询区间用量', exact: true }).click();
   await expect(detail).toContainText('等待来源合并修复');
   await expect(detail.locator('.local-composition')).toHaveCount(0);
   await expect(detail.locator('.quota-chart-bar')).toHaveCount(0);
-  await expect(detail.locator('.quota-chart-point')).toHaveCount(2);
+  await expect(detail.locator('.quota-chart-point')).toHaveCount(3);
 });
 
 test('HTTP failure and index waiting retain the accepted history without a mock fallback', async ({ page }) => {
