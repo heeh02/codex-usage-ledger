@@ -21,7 +21,7 @@ jobs:
         with:
           toolchain: 1.97.1
           components: rustfmt, clippy
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -43,7 +43,7 @@ jobs:
       - run: node scripts/check-workflow-security.mjs
       - run: scripts/check-api-contract.sh
       - run: scripts/generate-sbom.sh .ci-artifacts/sbom
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-sboms
           path: |
@@ -66,12 +66,12 @@ jobs:
         with:
           toolchain: 1.97.1
           targets: aarch64-apple-darwin
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-sboms
           path: dist/sbom
@@ -86,7 +86,7 @@ jobs:
           export COPYFILE_DISABLE=1
           ditto -c -k --keepParent "dist/Codex Usage Ledger.app" "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip"
           shasum -a 256 "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-adhoc-macos-arm64.zip" > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-SHA256SUMS.txt"
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-adhoc-${{ github.ref_name }}
           path: |
@@ -107,12 +107,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: 1.97.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-sboms
           path: dist/package/sbom
@@ -132,7 +132,7 @@ jobs:
           sha256sum "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.tar.gz" \
             > "dist/Codex-Usage-Ledger-${GITHUB_REF_NAME}-linux-x86_64.sha256"
           dist/package/codex-usage-ledger --help >/dev/null
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: linux-x86_64-${{ github.ref_name }}
           path: |
@@ -151,12 +151,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           toolchain: 1.97.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-sboms
           path: dist/package/sbom
@@ -175,7 +175,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
           "$hash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding ascii "dist/Codex-Usage-Ledger-$env:GITHUB_REF_NAME-windows-x86_64.sha256"
           & dist/package/codex-usage-ledger.exe --help | Out-Null
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-x86_64-${{ github.ref_name }}
           path: |
@@ -191,7 +191,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: '*-${{ github.ref_name }}'
           path: dist
